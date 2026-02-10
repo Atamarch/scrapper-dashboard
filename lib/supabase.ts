@@ -14,6 +14,7 @@ export type Lead = {
   search_url: string;
   profile_url: string;
   connection_status: string;
+  score: number;
 };
 
 export type Company = {

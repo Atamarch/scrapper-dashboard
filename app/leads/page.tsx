@@ -113,7 +113,7 @@ function LeadsPageContent() {
         return;
       }
 
-      const headers = ['Name', 'Date', 'Connection Status', 'Note Sent', 'Profile URL', 'Search URL'];
+      const headers = ['Name', 'Date', 'Connection Status', 'Score', 'Note Sent', 'Profile URL', 'Search URL'];
       const csvRows = [headers.join(',')];
 
       data.forEach(lead => {
@@ -121,6 +121,7 @@ function LeadsPageContent() {
           `"${lead.name || ''}"`,
           lead.date || '',
           lead.connection_status || '',
+          lead.score || '',
           `"${lead.note_sent || ''}"`,
           lead.profile_url || '',
           lead.search_url || ''
@@ -266,6 +267,7 @@ function LeadsPageContent() {
                       <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Name</th>
                       <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Date</th>
                       <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Status</th>
+                      <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Score</th>
                       <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Note Sent</th>
                       <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Profile</th>
                     </tr>
@@ -287,9 +289,20 @@ function LeadsPageContent() {
                             {lead.connection_status}
                           </span>
                         </td>
+                        <td className="px-6 py-4">
+                          <span className={`font-semibold ${
+                            lead.score >= 80 
+                              ? 'text-green-500'
+                              : lead.score >= 50
+                              ? 'text-yellow-500'
+                              : 'text-red-500'
+                          }`}>
+                            {lead.score != null ? lead.score.toFixed(1) : '-'}
+                          </span>
+                        </td>
                         <td className="px-6 py-4 text-gray-400">
-                          <span className="line-clamp-1" title={lead.note_sent}>
-                            {lead.note_sent}
+                          <span className="line-clamp-1" title={lead.note_sent || '-'}>
+                            {lead.note_sent || '-'}
                           </span>
                         </td>
                         <td className="px-6 py-4">
