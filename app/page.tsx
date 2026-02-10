@@ -6,8 +6,6 @@ import { StatCard } from '@/components/stat-card';
 import { Users, TrendingUp, FileText } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
-export const dynamic = 'force-dynamic';
-
 export default function DashboardPage() {
   const [stats, setStats] = useState({
     totalLeads: 0,
@@ -66,7 +64,7 @@ export default function DashboardPage() {
       <Sidebar />
       <main className="flex-1 overflow-auto">
         <div className="p-8">
-          <div className="mb-8">
+          <div className="mb-8 p-4 rounded-xl bg-gradient-to-r from-[#141C33] to-transparent">
             <h1 className="text-3xl font-bold text-white">Dashboard</h1>
             <p className="mt-1 text-gray-400">Analytics overview</p>
           </div>
