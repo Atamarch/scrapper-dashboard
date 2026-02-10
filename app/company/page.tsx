@@ -6,6 +6,8 @@ import { TemplatesModal } from '@/components/templates-modal';
 import { supabase, type Company } from '@/lib/supabase';
 import { Building2, ChevronLeft, ChevronRight, Search } from 'lucide-react';
 
+export const dynamic = 'force-dynamic';
+
 const ITEMS_PER_PAGE = 9;
 
 export default function CompanyPage() {

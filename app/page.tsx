@@ -6,6 +6,8 @@ import { StatCard } from '@/components/stat-card';
 import { Users, TrendingUp, FileText } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
+export const dynamic = 'force-dynamic';
+
 export default function DashboardPage() {
   const [stats, setStats] = useState({
     totalLeads: 0,
