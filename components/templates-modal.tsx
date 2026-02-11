@@ -104,7 +104,19 @@ export function TemplatesModal({ companyId, companyName, isOpen, onClose }: Temp
           {loading ? (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {[1, 2, 3, 4, 5, 6].map((i) => (
-                <div key={i} className="h-48 animate-pulse rounded-xl bg-[#1a1f2e]" />
+                <div key={i} className="rounded-xl border border-gray-700 bg-[#1a1f2e] p-6">
+                  <div className="mb-4 flex h-12 w-12 animate-pulse rounded-lg bg-gray-700" />
+                  <div className="space-y-3">
+                    <div className="h-4 w-3/4 animate-pulse rounded bg-gray-700" />
+                    <div className="h-3 w-1/2 animate-pulse rounded bg-gray-700" />
+                    <div className="h-3 w-2/3 animate-pulse rounded bg-gray-700" />
+                  </div>
+                  <div className="mt-4 flex items-center justify-between border-t border-gray-700 pt-4">
+                    <div className="h-3 w-20 animate-pulse rounded bg-gray-700" />
+                    <div className="h-3 w-24 animate-pulse rounded bg-gray-700" />
+                  </div>
+                </div>
+
               ))}
             </div>
           ) : filteredTemplates.length === 0 ? (
@@ -167,11 +179,10 @@ export function TemplatesModal({ companyId, companyName, isOpen, onClose }: Temp
                       <button
                         key={pageNum}
                         onClick={() => setCurrentPage(pageNum)}
-                        className={`rounded-lg px-3 py-2 text-sm transition-colors ${
-                          currentPage === pageNum
+                        className={`rounded-lg px-3 py-2 text-sm transition-colors ${currentPage === pageNum
                             ? 'bg-blue-500 text-white'
                             : 'border border-gray-700 text-gray-400 hover:bg-gray-800'
-                        }`}
+                          }`}
                       >
                         {pageNum}
                       </button>

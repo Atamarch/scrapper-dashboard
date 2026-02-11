@@ -74,11 +74,13 @@ export default function CompanyPage() {
       <Sidebar />
       <main className="flex-1 overflow-auto">
         <div className="p-8">
-          <div className="mb-8 p-4 rounded-xl bg-gradient-to-r from-[#141C33] to-transparent">            
-            <h1 className="text-3xl font-bold text-white">Company</h1>
-            <p className="mt-1 text-gray-400">
-              Manage your companies ({filteredCompanies.length} total)
-            </p>
+          <div className="mb-8 p-1 rounded-xl bg-gradient-to-r from-[#1F2B4D] to-transparent">
+            <div className="p-4 rounded-xl bg-gradient-to-r from-[#141C33] to-transparent">
+              <h1 className="text-3xl font-bold text-white">Company</h1>
+              <p className="mt-1 text-gray-400">
+                Manage your companies ({filteredCompanies.length} total)
+              </p>
+            </div>
           </div>
 
           <div className="mb-6">
@@ -97,8 +99,29 @@ export default function CompanyPage() {
           {loading ? (
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
               {[1, 2, 3, 4, 5, 6].map((i) => (
-                <div key={i} className="h-48 animate-pulse rounded-xl bg-[#1a1f2e]" />
+                <div key={i} className="rounded-xl border border-gray-700 bg-[#1a1f2e] p-6">
+                  <div className="mb-4 flex h-12 w-12 animate-pulse rounded-lg bg-gray-700" />
+                  <div className="space-y-3">
+                    <div className="h-4 w-3/4 animate-pulse rounded bg-gray-700" />
+                    <div className="h-3 w-1/2 animate-pulse rounded bg-gray-700" />
+                    <div className="h-3 w-2/3 animate-pulse rounded bg-gray-700" />
+                  </div>
+                  <div className="mt-4 flex items-center justify-between border-t border-gray-700 pt-4">
+                    <div className="h-3 w-20 animate-pulse rounded bg-gray-700" />
+                    <div className="h-3 w-24 animate-pulse rounded bg-gray-700" />
+                  </div>
+                </div>
               ))}
+            </div>
+          ) : filteredCompanies.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20">
+              <div className="mb-6 space-y-2">
+                <div className="h-1 w-16 rounded-full bg-gray-700" />
+                <div className="h-1 w-16 rounded-full bg-gray-700" />
+                <div className="h-1 w-16 rounded-full bg-gray-700" />
+              </div>
+              <p className="text-lg text-gray-400">No companies found</p>
+              <p className="mt-2 text-sm text-gray-500">Try adjusting your search</p>
             </div>
           ) : (
             <>
@@ -106,7 +129,7 @@ export default function CompanyPage() {
                 {paginatedCompanies.map((company) => (
                   <div
                     key={company.id}
-                    className="group relative rounded-xl border border-gray-700 bg-[#1a1f2e] p-6 transition-all hover:border-gray-600"
+                    className="shine-effect group relative rounded-xl border border-gray-700 bg-[#1a1f2e] p-6 transition-all hover:border-gray-600"
                   >
                     <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-blue-500/10">
                       <Building2 className="h-6 w-6 text-blue-500" />
@@ -150,11 +173,10 @@ export default function CompanyPage() {
                       <button
                         key={pageNum}
                         onClick={() => setCurrentPage(pageNum)}
-                        className={`rounded-lg px-4 py-2 transition-colors ${
-                          currentPage === pageNum
-                            ? 'bg-blue-500 text-white'
-                            : 'border border-gray-700 text-gray-400 hover:bg-gray-800'
-                        }`}
+                        className={`rounded-lg px-4 py-2 transition-colors ${currentPage === pageNum
+                          ? 'bg-blue-500 text-white'
+                          : 'border border-gray-700 text-gray-400 hover:bg-gray-800'
+                          }`}
                       >
                         {pageNum}
                       </button>

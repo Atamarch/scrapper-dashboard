@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Sidebar } from '@/components/sidebar';
 import { StatCard } from '@/components/stat-card';
-import { Users, TrendingUp, FileText } from 'lucide-react';
+import { Users, FileText, Building2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
 export default function DashboardPage() {
@@ -38,38 +38,26 @@ export default function DashboardPage() {
     fetchStats();
   }, []);
 
-  if (stats.loading) {
-    return (
-      <div className="flex h-screen">
-        <Sidebar />
-        <main className="flex-1 overflow-auto">
-          <div className="p-8">
-          <div className="mb-8 p-4 rounded-xl bg-gradient-to-r from-[#141C33] to-transparent">            
-              <h1 className="text-3xl font-bold text-white">Dashboard</h1>
-              <p className="mt-1 text-gray-400">Analytics overview</p>
-            </div>
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="h-32 animate-pulse rounded-xl bg-[#1a1f2e]" />
-              ))}
-            </div>
-          </div>
-        </main>
-      </div>
-    );
-  }
-
   return (
     <div className="flex h-screen">
       <Sidebar />
       <main className="flex-1 overflow-auto">
         <div className="p-8">
-          <div className="mb-8 p-4 rounded-xl bg-gradient-to-r from-[#141C33] to-transparent">
-            <h1 className="text-3xl font-bold text-white">Dashboard</h1>
-            <p className="mt-1 text-gray-400">Analytics overview</p>
+          <div className="mb-8 p-1 rounded-xl bg-gradient-to-r from-[#1F2B4D] to-transparent">
+            <div className="p-4 rounded-xl bg-gradient-to-r from-[#141C33] to-transparent">
+              <h1 className="text-3xl font-bold text-white">Dashboard</h1>
+              <p className="mt-1 text-gray-400">Analytics overview</p>
+            </div>
           </div>
 
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {stats.loading ? (
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-32 animate-pulse rounded-xl bg-[#1a1f2e]" />
+              ))}
+            </div>
+          ) : (
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             <StatCard
               title="Total Leads"
               value={stats.totalLeads}
@@ -85,10 +73,11 @@ export default function DashboardPage() {
             <StatCard
               title="Total Companies"
               value={stats.totalCompanies}
-              icon={TrendingUp}
+              icon={Building2}
               iconColor="text-blue-500"
             />
           </div>
+          )}
         </div>
       </main>
     </div>

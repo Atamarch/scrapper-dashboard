@@ -3,25 +3,41 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Users, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, Users, Building2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
   { name: 'Leads', href: '/leads', icon: Users },
-  { name: 'Company', href: '/company', icon: FileText },
+  { name: 'Company', href: '/company', icon: Building2 },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('sidebar-collapsed');
+      return saved === 'true';
+    }
+    return false;
+  });
+
+  const toggleCollapse = () => {
+    const newState = !isCollapsed;
+    setIsCollapsed(newState);
+    localStorage.setItem('sidebar-collapsed', String(newState));
+  };
 
   return (
-    <div className={cn(
-      'flex h-screen flex-col bg-[#1a1f2e] text-gray-300 transition-all duration-300',
-      isCollapsed ? 'w-20' : 'w-64'
-    )}>
+    <div 
+      className={cn(
+        'flex h-screen flex-col bg-[#1a1f2e] text-gray-300',
+        isCollapsed ? 'w-20' : 'w-64'
+      )} 
+      style={{ transition: 'width 0.3s ease' }}
+      suppressHydrationWarning
+    >
       <div className="flex items-center justify-between border-b border-gray-700 p-6">
         {!isCollapsed && (
           <div className="flex items-center gap-3">
@@ -66,7 +82,7 @@ export function Sidebar() {
 
       <div className="border-t border-gray-700 p-4">
         <button
-          onClick={() => setIsCollapsed(!isCollapsed)}
+          onClick={toggleCollapse}
           className={cn(
             'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-gray-400 transition-colors hover:bg-gray-700/30 hover:text-white',
             isCollapsed && 'justify-center'
@@ -78,7 +94,7 @@ export function Sidebar() {
           ) : (
             <>
               <ChevronLeft className="h-5 w-5" />
-              Collapse
+              Minimize
             </>
           )}
         </button>

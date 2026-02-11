@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Sidebar } from '@/components/sidebar';
 import { supabase, type Lead, type Template } from '@/lib/supabase';
-import { ExternalLink, ChevronLeft, ChevronRight, Download } from 'lucide-react';
+import { ExternalLink, ChevronLeft, ChevronRight, Download, ChevronDown, ChevronUp } from 'lucide-react';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -19,6 +19,7 @@ function LeadsPageContent() {
   const [selectedTemplate, setSelectedTemplate] = useState<string>('all');
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [showTemplateDropdown, setShowTemplateDropdown] = useState(false);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -88,6 +89,7 @@ function LeadsPageContent() {
   const handleTemplateChange = (templateId: string) => {
     setSelectedTemplate(templateId);
     setCurrentPage(1);
+    setShowTemplateDropdown(false);
     if (templateId === 'all') {
       router.push('/leads');
     } else {
@@ -194,26 +196,58 @@ function LeadsPageContent() {
       <Sidebar />
       <main className="flex-1 overflow-auto">
         <div className="p-8">
-          <div className="mb-8 p-4 rounded-xl bg-gradient-to-r from-[#141C33] to-transparent">            
-            <h1 className="text-3xl font-bold text-white">Leads</h1>
-            <p className="mt-1 text-gray-400">Select a template to view leads</p>
+          <div className="mb-8 p-1 rounded-xl bg-gradient-to-r from-[#1F2B4D] to-transparent">
+            <div className="p-4 rounded-xl bg-gradient-to-r from-[#141C33] to-transparent">
+              <h1 className="text-3xl font-bold text-white">Leads</h1>
+              <p className="mt-1 text-gray-400">Select a template to view leads</p>
+            </div>
           </div>
+
 
           <div className="mb-6 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <span className="text-sm text-gray-400">Filter by Template:</span>
-              <select
-                value={selectedTemplate}
-                onChange={(e) => handleTemplateChange(e.target.value)}
-                className="rounded-lg border border-gray-700 bg-[#1a1f2e] px-4 py-2 text-white focus:border-blue-500 focus:outline-none"
-              >
-                <option value="all">All Templates</option>
-                {templates.map((template) => (
-                  <option key={template.id} value={template.id}>
-                    {template.name}
-                  </option>
-                ))}
-              </select>
+              <span className="bg-slate-800 p-2 rounded-xl text-sm text-gray-400">Filter by Template</span>:
+              <div className="relative">
+                <button
+                  onClick={() => setShowTemplateDropdown(!showTemplateDropdown)}
+                  className="flex items-center gap-2 rounded-lg border border-gray-700 bg-[#1a1f2e] px-4 py-2 text-white hover:border-gray-600 focus:border-blue-500 focus:outline-none min-w-[200px] justify-between"
+                >
+                  <span className="truncate">
+                    {selectedTemplate === 'all' 
+                      ? 'All Templates' 
+                      : templates.find(t => t.id === selectedTemplate)?.name || 'Select Template'}
+                  </span>
+                  {showTemplateDropdown ? (
+                    <ChevronUp className="h-4 w-4 flex-shrink-0" />
+                  ) : (
+                    <ChevronDown className="h-4 w-4 flex-shrink-0" />
+                  )}
+                </button>
+
+                {showTemplateDropdown && (
+                  <div className="absolute top-full left-0 mt-2 w-full min-w-[300px] max-h-[400px] overflow-y-auto rounded-lg border border-gray-700 bg-[#1a1f2e] shadow-lg z-10">
+                    <button
+                      onClick={() => handleTemplateChange('all')}
+                      className={`w-full px-4 py-2.5 text-left text-sm transition-colors hover:bg-gray-700/50 ${
+                        selectedTemplate === 'all' ? 'bg-gray-700/50 text-white' : 'text-gray-400'
+                      }`}
+                    >
+                      All Templates
+                    </button>
+                    {templates.map((template) => (
+                      <button
+                        key={template.id}
+                        onClick={() => handleTemplateChange(template.id)}
+                        className={`w-full px-4 py-2.5 text-left text-sm transition-colors hover:bg-gray-700/50 ${
+                          selectedTemplate === template.id ? 'bg-gray-700/50 text-white' : 'text-gray-400'
+                        }`}
+                      >
+                        {template.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="relative export-menu-container">
@@ -245,35 +279,58 @@ function LeadsPageContent() {
             </div>
           </div>
 
-          <div className="rounded-xl bg-[#2D3C67] p-6 mb-4">
+          <div className="rounded-xl bg-gradient-to-r from-[#233567] to-[#324886] p-6 mb-4">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-semibold text-white">Leads List</h2>
               <span className="text-sm text-gray-400">{totalCount} leads</span>
             </div>
           </div>
 
-          <div className="rounded-xl border border-gray-700 ">
-            {loading ? (
-              <div className="p-6">
-                {[1, 2, 3, 4, 5].map((i) => (
-                  <div key={i} className="mb-4 h-16 animate-pulse rounded-lg bg-gray-800" />
-                ))}
-              </div>
-            ) : (
-              <div className="animate-flip-in overflow-x-auto">
-                <table className="w-full">
-                  <thead className="border-b border-gray-700 bg-[#1a1f2e]">
+          <div className="rounded-xl border border-gray-700">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="border-b border-gray-700 bg-[#1a1f2e]">
+                  <tr>
+                    <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Name</th>
+                    <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Date</th>
+                    <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Status</th>
+                    <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Score</th>
+                    <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Note Sent</th>
+                    <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Profile</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-[#202531]">
+                  {loading ? (
+                    <>
+                      {[1, 2, 3, 4, 5].map((i) => (
+                        <tr key={i} className="border-b border-gray-700/50">
+                          <td colSpan={6} className="px-6 py-4">
+                            <div className="space-y-2">
+                              <div className="h-3 w-3/4 animate-pulse rounded bg-gray-700" />
+                              <div className="h-2 w-1/2 animate-pulse rounded bg-gray-700" />
+                              <div className="h-2 w-2/3 animate-pulse rounded bg-gray-700" />
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </>
+                  ) : leads.length === 0 ? (
                     <tr>
-                      <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Name</th>
-                      <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Date</th>
-                      <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Status</th>
-                      <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Score</th>
-                      <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Note Sent</th>
-                      <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Profile</th>
+                      <td colSpan={6} className="px-6 py-20">
+                        <div className="flex flex-col items-center justify-center">
+                          <div className="mb-6 space-y-2">
+                            <div className="h-1 w-16 rounded-full bg-gray-700" />
+                            <div className="h-1 w-16 rounded-full bg-gray-700" />
+                            <div className="h-1 w-16 rounded-full bg-gray-700" />
+                          </div>
+                          <p className="text-lg text-gray-400">No leads found</p>
+                          <p className="mt-2 text-sm text-gray-500">Try adjusting your filter</p>
+                        </div>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody className="bg-[#202531]">
-                    {leads.map((lead) => (
+                  ) : (
+                    <>
+                      {leads.map((lead) => (
                       <tr key={lead.id} className="border-b border-gray-700/50 transition-colors hover:bg-gray-800/30">
                         <td className="px-6 py-4 text-white">{lead.name}</td>
                         <td className="px-6 py-4 text-gray-400">
@@ -290,13 +347,12 @@ function LeadsPageContent() {
                           </span>
                         </td>
                         <td className="px-6 py-4">
-                          <span className={`font-semibold ${
-                            lead.score >= 80 
+                          <span className={`font-semibold ${lead.score >= 80
                               ? 'text-green-500'
                               : lead.score >= 50
-                              ? 'text-yellow-500'
-                              : 'text-red-500'
-                          }`}>
+                                ? 'text-yellow-500'
+                                : 'text-red-500'
+                            }`}>
                             {lead.score != null ? lead.score.toFixed(1) : '-'}
                           </span>
                         </td>
@@ -317,10 +373,11 @@ function LeadsPageContent() {
                         </td>
                       </tr>
                     ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                    </>
+                  )}
+                </tbody>
+              </table>
+            </div>
 
             {!loading && totalPages > 1 && (
               <div className="flex items-center justify-center gap-2 border-t bg-[#1a1f2e] border-gray-700 p-6">
