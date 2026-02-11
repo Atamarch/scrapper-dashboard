@@ -7,14 +7,14 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export type Lead = {
   id: string;
-  template_id: string;
+  template_id: string | null;
   date: string;
-  name: string;
-  note_sent: string;
-  search_url: string;
-  profile_url: string;
-  connection_status: string;
-  score: number;
+  name: string | null;
+  note_sent: string | null;
+  search_url: string | null;
+  profile_url: string | null;
+  connection_status: string | null;
+  score: number | null;
 };
 
 export type Company = {

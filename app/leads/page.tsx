@@ -57,22 +57,38 @@ function LeadsPageContent() {
     async function fetchLeads() {
       setLoading(true);
       try {
-        let query = supabase.from('leads_list').select('*', { count: 'exact' });
-
+        // First get unique profile_urls with their data
+        let baseQuery = supabase.from('leads_list').select('*');
+        
         if (selectedTemplate !== 'all') {
-          query = query.eq('template_id', selectedTemplate);
+          baseQuery = baseQuery.eq('template_id', selectedTemplate);
         }
 
-        const { data, count, error } = await query
-          .order('date', { ascending: false })
-          .range((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE - 1);
+        const { data: allData, error: allError } = await baseQuery.order('date', { ascending: false });
 
-        if (error) {
-          console.error('Error fetching leads:', error);
+        if (allError) {
+          console.error('Error fetching leads:', allError);
+          setLeads([]);
+          setTotalCount(0);
         } else {
-          console.log('Leads data:', data);
-          setLeads(data || []);
-          setTotalCount(count || 0);
+          // Remove duplicates based on profile_url
+          const uniqueLeads = allData?.reduce((acc: Lead[], current) => {
+            const exists = acc.find(item => item.profile_url === current.profile_url);
+            if (!exists) {
+              acc.push(current);
+            }
+            return acc;
+          }, []) || [];
+
+          console.log('Unique leads data:', uniqueLeads);
+          
+          // Apply pagination to unique results
+          const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+          const endIndex = startIndex + ITEMS_PER_PAGE;
+          const paginatedLeads = uniqueLeads.slice(startIndex, endIndex);
+          
+          setLeads(paginatedLeads);
+          setTotalCount(uniqueLeads.length);
         }
       } catch (error) {
         console.error('Error fetching leads:', error);
@@ -331,7 +347,7 @@ function LeadsPageContent() {
                   ) : (
                     <>
                       {leads.map((lead) => (
-                      <tr key={lead.id} className="border-b border-gray-700/50 transition-colors hover:bg-gray-800/30">
+                      <tr key={lead.profile_url || lead.id} className="border-b border-gray-700/50 transition-colors hover:bg-gray-800/30">
                         <td className="px-6 py-4 text-white">{lead.name}</td>
                         <td className="px-6 py-4 text-gray-400">
                           {new Date(lead.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
@@ -347,11 +363,14 @@ function LeadsPageContent() {
                           </span>
                         </td>
                         <td className="px-6 py-4">
-                          <span className={`font-semibold ${lead.score >= 80
+                          <span className={`font-semibold ${
+                            lead.score != null && lead.score >= 80
                               ? 'text-green-500'
-                              : lead.score >= 50
+                              : lead.score != null && lead.score >= 50
                                 ? 'text-yellow-500'
-                                : 'text-red-500'
+                                : lead.score != null
+                                  ? 'text-red-500'
+                                  : 'text-gray-500'
                             }`}>
                             {lead.score != null ? lead.score.toFixed(1) : '-'}
                           </span>
@@ -362,14 +381,18 @@ function LeadsPageContent() {
                           </span>
                         </td>
                         <td className="px-6 py-4">
-                          <a
-                            href={lead.profile_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-blue-500 hover:text-blue-400"
-                          >
-                            View <ExternalLink className="h-3 w-3" />
-                          </a>
+                          {lead.profile_url ? (
+                            <a
+                              href={lead.profile_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-blue-500 hover:text-blue-400"
+                            >
+                              View <ExternalLink className="h-3 w-3" />
+                            </a>
+                          ) : (
+                            <span className="text-gray-500">-</span>
+                          )}
                         </td>
                       </tr>
                     ))}
