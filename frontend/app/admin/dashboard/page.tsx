@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { Upload, Play, Trash2, LogOut } from 'lucide-react';
+import { Upload, Play, Trash2 } from 'lucide-react';
 
 type CrawlerJob = {
   id: string;
@@ -51,10 +51,7 @@ export default function AdminDashboard() {
     ]);
   }
 
-  async function handleLogout() {
-    await supabase.auth.signOut();
-    router.push('/admin');
-  }
+
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -99,21 +96,12 @@ export default function AdminDashboard() {
   return (
     <div className="min-h-screen bg-black text-white">
       <header className="border-b border-gray-800 bg-zinc-950">
-        <div className="mx-auto max-w-7xl px-6 py-4">
-          <div className="flex items-center justify-between">
-            <h1 className="text-2xl font-bold">Crawler Dashboard</h1>
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-2 rounded-md border border-gray-700 px-4 py-2 text-sm transition-colors hover:bg-zinc-900"
-            >
-              <LogOut className="h-4 w-4" />
-              Logout
-            </button>
-          </div>
+        <div className="px-6 py-4">
+          <h1 className="text-2xl font-bold">Crawler Dashboard</h1>
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-6 py-8">
+      <main className="px-6 py-8">
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2 space-y-6">
             {/* Upload Section */}
