@@ -20,6 +20,8 @@ function LeadsPageContent() {
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [showTemplateDropdown, setShowTemplateDropdown] = useState(false);
+  const [sortBy, setSortBy] = useState<'date' | 'score'>('date');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -46,7 +48,6 @@ function LeadsPageContent() {
       if (error) {
         console.error('Error fetching templates:', error);
       } else {
-        console.log('Templates data:', data);
         setTemplates(data || []);
       }
     }
@@ -57,39 +58,48 @@ function LeadsPageContent() {
     async function fetchLeads() {
       setLoading(true);
       try {
-        // First get unique profile_urls with their data
+        // Fetch all data in batches (karena data > 1000)
+        let allData: Lead[] = [];
+        let from = 0;
+        const batchSize = 1000;
+        let hasMore = true;
+
         let baseQuery = supabase.from('leads_list').select('*');
         
         if (selectedTemplate !== 'all') {
           baseQuery = baseQuery.eq('template_id', selectedTemplate);
         }
 
-        const { data: allData, error: allError } = await baseQuery.order('date', { ascending: false });
+        // Fetch in batches
+        while (hasMore) {
+          const { data: batchData, error: batchError } = await baseQuery
+            .order(sortBy, { ascending: sortOrder === 'asc' })
+            .range(from, from + batchSize - 1);
 
-        if (allError) {
-          console.error('Error fetching leads:', allError);
-          setLeads([]);
-          setTotalCount(0);
-        } else {
-          // Remove duplicates based on profile_url
-          const uniqueLeads = allData?.reduce((acc: Lead[], current) => {
-            const exists = acc.find(item => item.profile_url === current.profile_url);
-            if (!exists) {
-              acc.push(current);
+          if (batchError) {
+            console.error('Error fetching leads:', batchError);
+            break;
+          }
+
+          if (batchData && batchData.length > 0) {
+            allData = [...allData, ...batchData];
+            from += batchSize;
+            
+            if (batchData.length < batchSize) {
+              hasMore = false;
             }
-            return acc;
-          }, []) || [];
-
-          console.log('Unique leads data:', uniqueLeads);
-          
-          // Apply pagination to unique results
-          const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-          const endIndex = startIndex + ITEMS_PER_PAGE;
-          const paginatedLeads = uniqueLeads.slice(startIndex, endIndex);
-          
-          setLeads(paginatedLeads);
-          setTotalCount(uniqueLeads.length);
+          } else {
+            hasMore = false;
+          }
         }
+
+        setTotalCount(allData.length);
+
+        // Paginate
+        const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+        const paginatedLeads = allData.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+        
+        setLeads(paginatedLeads);
       } catch (error) {
         console.error('Error fetching leads:', error);
       } finally {
@@ -98,7 +108,7 @@ function LeadsPageContent() {
     }
 
     fetchLeads();
-  }, [currentPage, selectedTemplate]);
+  }, [currentPage, selectedTemplate, sortBy, sortOrder]);
 
   const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE);
 
@@ -116,17 +126,38 @@ function LeadsPageContent() {
   const exportToCSV = async () => {
     setExporting(true);
     try {
+      // Fetch all data in batches
+      let allData: Lead[] = [];
+      let from = 0;
+      const batchSize = 1000;
+      let hasMore = true;
+
       let query = supabase.from('leads_list').select('*');
 
       if (selectedTemplate !== 'all') {
         query = query.eq('template_id', selectedTemplate);
       }
 
-      const { data, error } = await query.order('date', { ascending: false });
+      while (hasMore) {
+        const { data: batchData, error: batchError } = await query
+          .order('date', { ascending: false })
+          .range(from, from + batchSize - 1);
 
-      if (error) throw error;
+        if (batchError) throw batchError;
 
-      if (!data || data.length === 0) {
+        if (batchData && batchData.length > 0) {
+          allData = [...allData, ...batchData];
+          from += batchSize;
+          
+          if (batchData.length < batchSize) {
+            hasMore = false;
+          }
+        } else {
+          hasMore = false;
+        }
+      }
+
+      if (allData.length === 0) {
         alert('No data to export');
         return;
       }
@@ -134,7 +165,7 @@ function LeadsPageContent() {
       const headers = ['Name', 'Date', 'Connection Status', 'Score', 'Note Sent', 'Profile URL', 'Search URL'];
       const csvRows = [headers.join(',')];
 
-      data.forEach(lead => {
+      allData.forEach(lead => {
         const row = [
           `"${lead.name || ''}"`,
           lead.date || '',
@@ -171,22 +202,43 @@ function LeadsPageContent() {
   const exportToJSON = async () => {
     setExporting(true);
     try {
+      // Fetch all data in batches
+      let allData: Lead[] = [];
+      let from = 0;
+      const batchSize = 1000;
+      let hasMore = true;
+
       let query = supabase.from('leads_list').select('*');
 
       if (selectedTemplate !== 'all') {
         query = query.eq('template_id', selectedTemplate);
       }
 
-      const { data, error } = await query.order('date', { ascending: false });
+      while (hasMore) {
+        const { data: batchData, error: batchError } = await query
+          .order('date', { ascending: false })
+          .range(from, from + batchSize - 1);
 
-      if (error) throw error;
+        if (batchError) throw batchError;
 
-      if (!data || data.length === 0) {
+        if (batchData && batchData.length > 0) {
+          allData = [...allData, ...batchData];
+          from += batchSize;
+          
+          if (batchData.length < batchSize) {
+            hasMore = false;
+          }
+        } else {
+          hasMore = false;
+        }
+      }
+
+      if (allData.length === 0) {
         alert('No data to export');
         return;
       }
 
-      const jsonContent = JSON.stringify(data, null, 2);
+      const jsonContent = JSON.stringify(allData, null, 2);
       const blob = new Blob([jsonContent], { type: 'application/json' });
       const link = document.createElement('a');
       const url = URL.createObjectURL(blob);
@@ -218,7 +270,6 @@ function LeadsPageContent() {
               <p className="mt-1 text-gray-400">Select a template to view leads</p>
             </div>
           </div>
-
 
           <div className="mb-6 flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -264,6 +315,23 @@ function LeadsPageContent() {
                   </div>
                 )}
               </div>
+
+              <span className="bg-slate-800 p-2 rounded-xl text-sm text-gray-400">Sort by</span>:
+              <select
+                value={`${sortBy}-${sortOrder}`}
+                onChange={(e) => {
+                  const [newSortBy, newSortOrder] = e.target.value.split('-') as ['date' | 'score', 'asc' | 'desc'];
+                  setSortBy(newSortBy);
+                  setSortOrder(newSortOrder);
+                  setCurrentPage(1);
+                }}
+                className="rounded-lg border border-gray-700 bg-[#1a1f2e] px-4 py-2 text-white hover:border-gray-600 focus:border-blue-500 focus:outline-none"
+              >
+                <option value="date-desc">Date (Newest)</option>
+                <option value="date-asc">Date (Oldest)</option>
+                <option value="score-desc">Score (High to Low)</option>
+                <option value="score-asc">Score (Low to High)</option>
+              </select>
             </div>
 
             <div className="relative export-menu-container">
@@ -347,7 +415,7 @@ function LeadsPageContent() {
                   ) : (
                     <>
                       {leads.map((lead) => (
-                      <tr key={lead.profile_url || lead.id} className="border-b border-gray-700/50 transition-colors hover:bg-gray-800/30">
+                      <tr key={lead.id} className="border-b border-gray-700/50 transition-colors hover:bg-gray-800/30">
                         <td className="px-6 py-4 text-white">{lead.name}</td>
                         <td className="px-6 py-4 text-gray-400">
                           {new Date(lead.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
