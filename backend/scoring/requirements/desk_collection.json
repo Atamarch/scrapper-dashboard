@@ -1,0 +1,47 @@
+{
+  "position": "Desk Collection - BPR KS Bandung",
+  "job_description": "Posisi Desk Collection bertanggung jawab melakukan penagihan kredit bermasalah melalui telepon (outbound call) kepada debitur. Kandidat harus terbiasa bekerja dengan target penagihan harian dan bulanan, mampu menghadapi debitur dengan berbagai karakter dalam situasi sulit, serta melakukan pencatatan hasil penagihan ke dalam sistem dengan teliti. Pengalaman di BPR atau lembaga keuangan menjadi nilai tambah. Penempatan di Bandung.",
+  "required_skills": {
+    "Desk Collection": 1,
+    "Call Collection": 1,
+    "Telecollection": 1,
+    "Telemarketing": 1,
+    "Outbound Call": 1,
+    "Communication": 1,
+    "Negotiation": 1,
+    "Customer Service": 1,
+    "Persuasion": 1,
+    "Debt Collection": 1,
+    "Credit": 1,
+    "Banking": 1,
+    "Finance": 1,
+    "Microsoft Office": 1,
+    "Computer Skills": 1,
+    "Data Entry": 1,
+    "Reporting": 1
+  },
+  "preferred_skills": {
+    "BPR": 1,
+    "Lembaga Keuangan": 1,
+    "Financial Institution": 1,
+    "Debt Recovery": 1,
+    "Credit Analysis": 1,
+    "Risk Management": 1,
+    "Loan Processing": 1,
+    "Account Management": 1,
+    "Problem Solving": 1,
+    "Target Oriented": 1,
+    "Sales": 1,
+    "Microsoft Excel": 1,
+    "CRM": 1,
+    "Collection System": 1
+  },
+  "min_experience_years": 3,
+  "education_level": ["High School", "Diploma", "Bachelor"],
+  "required_gender": "Female",
+  "required_location": "Bandung",
+  "required_age_range": {
+    "min": 20,
+    "max": 35
+  }
+}
