@@ -3,13 +3,17 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { Upload, Play, Trash2 } from 'lucide-react';
+import { Upload, Play, Trash2, Eye } from 'lucide-react';
+import { RequirementModal } from '@/components/requirement-modal';
+import { JsonPreviewModal } from '@/components/json-preview-modal';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 
 type CrawlerJob = {
   id: string;
-  name: string;
-  status: 'pending' | 'processing' | 'completed';
+  file_name: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
   created_at: string;
+  value?: any;
 };
 
 export default function AdminDashboard() {
@@ -17,6 +21,11 @@ export default function AdminDashboard() {
   const [jobs, setJobs] = useState<CrawlerJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [requirementModalOpen, setRequirementModalOpen] = useState(false);
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
+  const [selectedJob, setSelectedJob] = useState<CrawlerJob | null>(null);
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [jobToDelete, setJobToDelete] = useState<CrawlerJob | null>(null);
   const [stats] = useState({
     submitted: 45,
     processing: 12,
@@ -39,16 +48,21 @@ export default function AdminDashboard() {
   }
 
   async function loadJobs() {
-    // Mock data - replace with actual Supabase query
-    setJobs([
-      { id: '1', name: 'job_data_001.json', status: 'completed', created_at: new Date().toISOString() },
-      { id: '2', name: 'job_data_002.json', status: 'processing', created_at: new Date().toISOString() },
-      { id: '3', name: 'job_data_003.json', status: 'pending', created_at: new Date().toISOString() },
-      { id: '4', name: 'job_data_003.json', status: 'pending', created_at: new Date().toISOString() },
-      { id: '5', name: 'job_data_003.json', status: 'pending', created_at: new Date().toISOString() },
-      { id: '6', name: 'job_data_003.json', status: 'pending', created_at: new Date().toISOString() },
+    try {
+      const { data, error } = await supabase
+        .from('crawler_jobs')
+        .select('*')
+        .order('created_at', { ascending: false });
 
-    ]);
+      if (error) {
+        console.error('Error fetching jobs:', error);
+        return;
+      }
+
+      setJobs(data || []);
+    } catch (err) {
+      console.error('Error loading jobs:', err);
+    }
   }
 
 
@@ -62,27 +76,104 @@ export default function AdminDashboard() {
       const text = await file.text();
       const json = JSON.parse(text);
 
-      // TODO: Save to Supabase
-      console.log('Uploaded JSON:', json);
+      // Insert to Supabase
+      const { data, error } = await supabase
+        .from('crawler_jobs')
+        .insert({
+          file_name: file.name,
+          value: json,
+          status: 'pending'
+        })
+        .select()
+        .single();
 
+      if (error) {
+        console.error('Error inserting job:', error);
+        alert('Failed to upload JSON file');
+        return;
+      }
+
+      console.log('Job created:', data);
       await loadJobs();
     } catch (err) {
       console.error('Upload failed:', err);
-      alert('Failed to upload JSON file');
+      alert('Failed to upload JSON file. Make sure it\'s a valid JSON.');
     } finally {
       setUploading(false);
     }
   }
 
   async function handleStart(jobId: string) {
-    // TODO: Start crawler
-    console.log('Starting job:', jobId);
+    const job = jobs.find(j => j.id === jobId);
+    if (job) {
+      setSelectedJob(job);
+      setRequirementModalOpen(true);
+    }
+  }
+
+  async function handleStartWithRequirements(jobName: string, requirement: string) {
+    if (!selectedJob) return;
+    
+    try {
+      // Update job with new name and status
+      const { error } = await supabase
+        .from('crawler_jobs')
+        .update({
+          file_name: jobName,
+          status: 'processing'
+        })
+        .eq('id', selectedJob.id);
+
+      if (error) {
+        console.error('Error updating job:', error);
+        alert('Failed to start job');
+        return;
+      }
+
+      console.log('Job started:', selectedJob.id, 'with requirement:', requirement);
+      
+      // Reload jobs to get updated data
+      await loadJobs();
+    } catch (err) {
+      console.error('Error starting job:', err);
+      alert('Failed to start job');
+    }
+  }
+
+  function handleViewJson(job: CrawlerJob) {
+    setSelectedJob(job);
+    setPreviewModalOpen(true);
   }
 
   async function handleRemove(jobId: string) {
-    // TODO: Remove job
-    console.log('Removing job:', jobId);
-    setJobs(jobs.filter(j => j.id !== jobId));
+    const job = jobs.find(j => j.id === jobId);
+    if (!job) return;
+
+    setJobToDelete(job);
+    setConfirmDialogOpen(true);
+  }
+
+  async function confirmDelete() {
+    if (!jobToDelete) return;
+
+    try {
+      const { error } = await supabase
+        .from('crawler_jobs')
+        .delete()
+        .eq('id', jobToDelete.id);
+
+      if (error) {
+        console.error('Error deleting job:', error);
+        alert('Failed to delete job');
+        return;
+      }
+
+      setJobs(jobs.filter(j => j.id !== jobToDelete.id));
+      setJobToDelete(null);
+    } catch (err) {
+      console.error('Error removing job:', err);
+      alert('Failed to delete job');
+    }
   }
 
   if (loading) {
@@ -138,7 +229,7 @@ export default function AdminDashboard() {
                       className="flex items-center justify-between rounded-md border border-gray-800 bg-zinc-900 p-4"
                     >
                       <div className="flex-1">
-                        <div className="font-medium">{job.name}</div>
+                        <div className="font-medium">{job.file_name}</div>
                         <div className="mt-1 flex items-center gap-2 text-sm text-gray-400">
                           <span
                             className={`inline-block h-2 w-2 rounded-full ${job.status === 'completed'
@@ -155,12 +246,19 @@ export default function AdminDashboard() {
                         {job.status === 'pending' && (
                           <button
                             onClick={() => handleStart(job.id)}
-                            className="rounded-md border border-gray-700 p-2 transition-colors hover:bg-zinc-800"
+                            className="rounded-md border border-gray-700 p-2 transition-colors hover:bg-green-800"
                             title="Start"
                           >
                             <Play className="h-4 w-4" />
                           </button>
                         )}
+                        <button
+                          onClick={() => handleViewJson(job)}
+                          className="rounded-md border border-gray-700 p-2 transition-colors hover:bg-yellow-800"
+                          title="View JSON"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
                         <button
                           onClick={() => handleRemove(job.id)}
                           className="rounded-md border border-gray-700 p-2 transition-colors hover:bg-red-950 hover:border-red-800"
@@ -231,6 +329,34 @@ export default function AdminDashboard() {
           </div>
         </div>
       </main>
+
+      {/* Modals */}
+      <RequirementModal
+        isOpen={requirementModalOpen}
+        onClose={() => setRequirementModalOpen(false)}
+        onStart={handleStartWithRequirements}
+        jobName={selectedJob?.file_name || ''}
+      />
+
+      <JsonPreviewModal
+        isOpen={previewModalOpen}
+        onClose={() => setPreviewModalOpen(false)}
+        jobName={selectedJob?.file_name || ''}
+        jsonData={selectedJob?.value || {}}
+      />
+
+      <ConfirmDialog
+        isOpen={confirmDialogOpen}
+        onClose={() => {
+          setConfirmDialogOpen(false);
+          setJobToDelete(null);
+        }}
+        onConfirm={confirmDelete}
+        title="Delete Crawler Job"
+        message={`Are you sure you want to delete "${jobToDelete?.file_name}"? This action cannot be undone.`}
+        confirmText="Delete"
+        cancelText="Cancel"
+      />
     </div>
   );
 }

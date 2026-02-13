@@ -33,3 +33,11 @@ export type Template = {
   note: string;
   created_at: string;
 };
+
+export type Requirement = {
+  id: string;
+  template_id: string;
+  template_name: string;
+  value: any;
+  created_at: string;
+};

@@ -45,14 +45,27 @@ export function AdminSidebar() {
     >
       <div className="flex items-center justify-between border-b border-gray-800 p-6">
         {!isCollapsed && (
-          <div>
-            <h1 className="text-lg font-semibold text-white">Admin Panel</h1>
-            <p className="text-sm text-gray-400">Crawler Management</p>
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-lg bg-blue-500/10 shadow-lg shadow-blue-600/40">
+              <img 
+                src="/logo_sarana_ai.jpg" 
+                alt="Sarana AI Logo" 
+                className="h-10 w-10 object-cover"
+              />
+            </div>
+            <div>
+              <h1 className="text-lg font-semibold text-white">Admin Panel</h1>
+              <p className="text-sm text-gray-400">Crawler Management</p>
+            </div>
           </div>
         )}
         {isCollapsed && (
-          <div className="mx-auto flex h-8 w-8 items-center justify-center rounded-lg bg-white text-black font-bold">
-            A
+          <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-lg bg-blue-500/10 shadow-lg shadow-blue-600/40 mx-auto">
+            <img 
+              src="/logo_sarana_ai.jpg" 
+              alt="Sarana AI Logo" 
+              className="h-10 w-10 object-cover"
+            />
           </div>
         )}
       </div>

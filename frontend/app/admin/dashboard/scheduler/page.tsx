@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, Play, Pause, Trash2, Clock, Calendar } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 
 type ScheduledJob = {
   id: string;
@@ -22,6 +23,8 @@ export default function CrawlerScheduler() {
   const [jobs, setJobs] = useState<ScheduledJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [jobToDelete, setJobToDelete] = useState<ScheduledJob | null>(null);
   const [formData, setFormData] = useState({
     name: '',
     startSchedule: '',
@@ -93,7 +96,18 @@ export default function CrawlerScheduler() {
   }
 
   async function handleRemove(jobId: string) {
-    setJobs(jobs.filter(j => j.id !== jobId));
+    const job = jobs.find(j => j.id === jobId);
+    if (!job) return;
+
+    setJobToDelete(job);
+    setConfirmDialogOpen(true);
+  }
+
+  async function confirmDelete() {
+    if (!jobToDelete) return;
+    
+    setJobs(jobs.filter(j => j.id !== jobToDelete.id));
+    setJobToDelete(null);
   }
 
   function handleScheduleTypeChange(type: string, field: 'start' | 'stop') {
@@ -529,6 +543,19 @@ export default function CrawlerScheduler() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={confirmDialogOpen}
+        onClose={() => {
+          setConfirmDialogOpen(false);
+          setJobToDelete(null);
+        }}
+        onConfirm={confirmDelete}
+        title="Delete Scheduled Job"
+        message={`Are you sure you want to delete "${jobToDelete?.name}"? This will stop all scheduled runs. This action cannot be undone.`}
+        confirmText="Delete"
+        cancelText="Cancel"
+      />
     </div>
   );
 }
