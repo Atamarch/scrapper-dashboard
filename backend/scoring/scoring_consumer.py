@@ -56,24 +56,116 @@ stats = {
 
 
 class OptimizedScorer:
-    """Optimized Scorer - Focus on skills"""
+    """Optimized Scorer - Focus on demographics first"""
     def __init__(self, requirements):
         self.requirements = requirements
         self.breakdown = {}
     
+    def _score_demographics(self, profile):
+        """Score demographics (40 points) - PRIORITAS TERTINGGI
+        - Gender: 15 points
+        - Location: 15 points
+        - Age: 10 points
+        """
+        total = 0
+        details = {}
+        
+        # 1. Gender (15 points)
+        required_gender = self.requirements.get('required_gender', '').lower()
+        profile_gender = profile.get('gender', '').lower()
+        
+        if required_gender and profile_gender:
+            if required_gender in profile_gender or profile_gender in required_gender:
+                gender_score = 15
+                details['gender'] = {'score': 15, 'match': True, 'value': profile_gender}
+            else:
+                gender_score = 0
+                details['gender'] = {'score': 0, 'match': False, 'value': profile_gender}
+        else:
+            gender_score = 0
+            details['gender'] = {'score': 0, 'match': False, 'value': profile_gender or 'N/A'}
+        
+        total += gender_score
+        
+        # 2. Location (15 points)
+        required_location = self.requirements.get('required_location', '').lower()
+        profile_location = profile.get('location', '').lower()
+        
+        if required_location and profile_location:
+            # Exact match
+            if required_location in profile_location or profile_location in required_location:
+                location_score = 15
+                details['location'] = {'score': 15, 'match': True, 'value': profile_location}
+            # Partial match using fuzzy
+            else:
+                ratio = fuzz.partial_ratio(required_location, profile_location)
+                if ratio >= 80:
+                    location_score = 15 * (ratio / 100)
+                    details['location'] = {'score': round(location_score, 2), 'match': 'partial', 'value': profile_location}
+                else:
+                    location_score = 0
+                    details['location'] = {'score': 0, 'match': False, 'value': profile_location}
+        else:
+            location_score = 0
+            details['location'] = {'score': 0, 'match': False, 'value': profile_location or 'N/A'}
+        
+        total += location_score
+        
+        # 3. Age (10 points)
+        age_range = self.requirements.get('required_age_range', {})
+        profile_age = profile.get('age')
+        
+        if age_range and profile_age:
+            min_age = age_range.get('min', 0)
+            max_age = age_range.get('max', 100)
+            
+            try:
+                age = int(profile_age)
+                if min_age <= age <= max_age:
+                    age_score = 10
+                    details['age'] = {'score': 10, 'match': True, 'value': age, 'range': f"{min_age}-{max_age}"}
+                else:
+                    # Partial score if close to range
+                    if age < min_age:
+                        diff = min_age - age
+                        age_score = max(0, 10 - (diff * 2))  # -2 points per year below
+                    else:
+                        diff = age - max_age
+                        age_score = max(0, 10 - (diff * 2))  # -2 points per year above
+                    details['age'] = {'score': round(age_score, 2), 'match': False, 'value': age, 'range': f"{min_age}-{max_age}"}
+            except:
+                age_score = 0
+                details['age'] = {'score': 0, 'match': False, 'value': profile_age, 'range': f"{min_age}-{max_age}"}
+        else:
+            age_score = 0
+            details['age'] = {'score': 0, 'match': False, 'value': profile_age or 'N/A'}
+        
+        total += age_score
+        
+        self.breakdown['demographics'] = {
+            'score': round(total, 2),
+            'details': details
+        }
+        
+        return total
+    
     def score(self, profile):
-        """Calculate total score - OPTIMIZED"""
+        """Calculate total score - PRIORITAS: Demographics > Experience > Skills > Education"""
         total = 0
         
-        # 1. Skills (70 points) - PRIORITAS UTAMA
-        skills_score = self._score_skills(profile.get('skills', []))
-        total += skills_score
+        # 1. Demographics (40 points) - PRIORITAS TERTINGGI
+        demo_score = self._score_demographics(profile)
+        total += demo_score
         
-        # 2. Experience (20 points)
+        # 2. Experience (25 points)
         exp_score = self._score_experience(profile.get('experiences', []))
         total += exp_score
         
-        # 3. Education (10 points)
+        # 3. Skills (25 points)
+        skills_score = self._score_skills(profile.get('skills', []))
+        total += skills_score
+        
+        # 4. Education (10 points)
         edu_score = self._score_education(profile.get('education', []))
         total += edu_score
         
@@ -86,7 +178,7 @@ class OptimizedScorer:
         }
     
     def _score_skills(self, profile_skills):
-        """Score skills (70 points) - OPTIMIZED"""
+        """Score skills (25 points) - Required: 18, Preferred: 7"""
         required = self.requirements.get('required_skills', {})
         preferred = self.requirements.get('preferred_skills', {})
         
@@ -101,7 +193,7 @@ class OptimizedScorer:
                 elif isinstance(s, str) and s and s != 'N/A':
                     skills_list.append(s.lower().strip())
         
-        # Score required (50 points)
+        # Score required (18 points)
         req_score = 0
         req_matches = []
         req_missing = []
@@ -119,19 +211,19 @@ class OptimizedScorer:
                     partial_ratio = fuzz.partial_ratio(skill_lower, profile_skill)
                     final_ratio = max(ratio, partial_ratio)
                     
-                    if final_ratio >= 70:  # LOWERED threshold
+                    if final_ratio >= 70:
                         if final_ratio > best_ratio:
                             best_ratio = final_ratio
                             matched = True
                 
                 if matched:
-                    points = (weight / total_weight) * 50 * (best_ratio / 100)
+                    points = (weight / total_weight) * 18 * (best_ratio / 100)
                     req_score += points
                     req_matches.append(skill)
                 else:
                     req_missing.append(skill)
         
-        # Score preferred (20 points)
+        # Score preferred (7 points)
         pref_score = 0
         pref_matches = []
         
@@ -154,7 +246,7 @@ class OptimizedScorer:
                             matched = True
                 
                 if matched:
-                    points = (weight / total_weight) * 20 * (best_ratio / 100)
+                    points = (weight / total_weight) * 7 * (best_ratio / 100)
                     pref_score += points
                     pref_matches.append(skill)
         
@@ -171,38 +263,100 @@ class OptimizedScorer:
         return total
     
     def _score_experience(self, experiences):
-        """Score experience (20 points)"""
+        """Score experience (25 points) - STRICT: Only Desk Collection related experience counts"""
         min_years = self.requirements.get('min_experience_years', 0)
         
-        total_months = 0
+        # Define strict keywords for Desk Collection related positions
+        # These are the ONLY positions that count
+        desk_collection_keywords = [
+            'desk collection',
+            'call collection', 
+            'telecollection',
+            'telemarketing',
+            'debt collection',
+            'collection',
+            'penagihan',
+            'collector'
+        ]
+        
+        # Calculate only Desk Collection related experience
+        relevant_months = 0
+        relevant_experiences = []
+        
         for exp in experiences:
             if not isinstance(exp, dict):
                 continue
-            duration = exp.get('duration', '')
-            if not duration:
-                continue
             
-            years = 0
-            months = 0
-            year_match = re.search(r'(\d+)\s*yr', duration)
-            if year_match:
-                years = int(year_match.group(1))
-            month_match = re.search(r'(\d+)\s*mo', duration)
-            if month_match:
-                months = int(month_match.group(1))
+            # Check if experience is Desk Collection related
+            title = exp.get('title', '').lower()
+            company = exp.get('company', '').lower()
+            description = exp.get('description', '').lower()
             
-            total_months += (years * 12) + months
+            # Combine all text for matching
+            exp_text = f"{title} {company} {description}"
+            
+            # Check if any Desk Collection keyword matches
+            is_relevant = False
+            matched_keywords = []
+            
+            for keyword in desk_collection_keywords:
+                # Direct substring match
+                if keyword in exp_text:
+                    is_relevant = True
+                    matched_keywords.append(keyword)
+                else:
+                    # Fuzzy match for typos/variations
+                    for word_chunk in exp_text.split():
+                        ratio = fuzz.ratio(keyword, word_chunk)
+                        if ratio >= 85:  # High threshold for strict matching
+                            is_relevant = True
+                            matched_keywords.append(keyword)
+                            break
+            
+            # If relevant, count the duration
+            if is_relevant:
+                duration = exp.get('duration', '')
+                if duration:
+                    years = 0
+                    months = 0
+                    year_match = re.search(r'(\d+)\s*yr', duration)
+                    if year_match:
+                        years = int(year_match.group(1))
+                    month_match = re.search(r'(\d+)\s*mo', duration)
+                    if month_match:
+                        months = int(month_match.group(1))
+                    
+                    exp_months = (years * 12) + months
+                    relevant_months += exp_months
+                    
+                    relevant_experiences.append({
+                        'title': exp.get('title', 'N/A'),
+                        'company': exp.get('company', 'N/A'),
+                        'duration': duration,
+                        'months': exp_months,
+                        'matched_keywords': matched_keywords
+                    })
         
-        total_years = total_months / 12
+        relevant_years = relevant_months / 12
         
-        if total_years >= min_years:
-            score = 20
+        # STRICT: Must meet minimum years requirement
+        # No partial credit - either meets requirement or gets 0
+        if relevant_years >= min_years:
+            score = 25
         else:
-            score = (total_years / min_years) * 20 if min_years > 0 else 0
+            # Give partial credit only if close (within 1 year)
+            if relevant_years >= (min_years - 1) and relevant_years > 0:
+                score = (relevant_years / min_years) * 25
+            else:
+                score = 0
         
         self.breakdown['experience'] = {
             'score': round(score, 2),
-            'years': round(total_years, 1)
+            'relevant_years': round(relevant_years, 1),
+            'required_years': min_years,
+            'relevant_experiences': relevant_experiences,
+            'total_experiences': len(experiences),
+            'meets_requirement': relevant_years >= min_years
         }
         
         return score
@@ -435,10 +589,26 @@ def process_message(message_data):
         print(f"Percentage: {score_result['percentage']}%")
         
         breakdown = score_result.get('breakdown', {})
+        demo_breakdown = breakdown.get('demographics', {})
+        demo_details = demo_breakdown.get('details', {})
         skills_breakdown = breakdown.get('skills', {})
+        exp_breakdown = breakdown.get('experience', {})
+        
         print(f"\nBreakdown:")
-        print(f"  - Skills: {skills_breakdown.get('score', 0)}/70 (Matched: {skills_breakdown.get('required_matched', 0)}/{skills_breakdown.get('required_total', 0)})")
-        print(f"  - Experience: {breakdown.get('experience', {}).get('score', 0)}/20")
+        print(f"  - Demographics: {demo_breakdown.get('score', 0)}/40")
+        print(f"    • Gender: {demo_details.get('gender', {}).get('score', 0)}/15 ({demo_details.get('gender', {}).get('value', 'N/A')})")
+        print(f"    • Location: {demo_details.get('location', {}).get('score', 0)}/15 ({demo_details.get('location', {}).get('value', 'N/A')})")
+        print(f"    • Age: {demo_details.get('age', {}).get('score', 0)}/10 ({demo_details.get('age', {}).get('value', 'N/A')})")
+        print(f"  - Experience: {exp_breakdown.get('score', 0)}/25 (Desk Collection: {exp_breakdown.get('relevant_years', 0)}/{exp_breakdown.get('required_years', 0)} years)")
+        if exp_breakdown.get('meets_requirement'):
+            print(f"    ✓ Meets requirement")
+        else:
+            print(f"    ✗ Does NOT meet requirement (needs {exp_breakdown.get('required_years', 0)} years)")
+        if exp_breakdown.get('relevant_experiences'):
+            print(f"    Desk Collection positions:")
+            for rel_exp in exp_breakdown.get('relevant_experiences', [])[:3]:  # Show top 3
+                print(f"      • {rel_exp.get('title')} at {rel_exp.get('company', 'N/A')} - {rel_exp.get('duration')}")
+        print(f"  - Skills: {skills_breakdown.get('score', 0)}/25 (Matched: {skills_breakdown.get('required_matched', 0)}/{skills_breakdown.get('required_total', 0)})")
         print(f"  - Education: {breakdown.get('education', {}).get('score', 0)}/10")
         print(f"{'='*60}")
         

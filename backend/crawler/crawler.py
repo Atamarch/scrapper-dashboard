@@ -17,6 +17,20 @@ class LinkedInCrawler:
         self.driver = create_driver()
         self.wait = WebDriverWait(self.driver, 10)
         self.gender_detector = gender.Detector()
+        
+        # Indonesian name patterns for gender detection fallback
+        self.indonesian_female_indicators = [
+            'dewi', 'sari', 'wati', 'ningsih', 'ning', 'putri', 'ayu', 'ratna', 
+            'indah', 'fitri', 'rani', 'maharani', 'rini', 'yanti', 'yani', 'tuti',
+            'nita', 'dian', 'ika', 'nia', 'nira', 'lestari', 'utami', 'wulan',
+            'kartika', 'permata', 'cahaya', 'anggraini', 'rahayu', 'pratiwi'
+        ]
+        
+        self.indonesian_male_indicators = [
+            'budi', 'agus', 'adi', 'eko', 'hadi', 'joko', 'bambang', 'sutrisno',
+            'wahyu', 'yudi', 'dedi', 'rudi', 'andi', 'hendro', 'teguh', 'putra',
+            'wijaya', 'kusuma', 'pramono', 'santoso', 'nugroho'
+        ]
     
     def login(self):
         """Login to LinkedIn"""
@@ -100,17 +114,17 @@ class LinkedInCrawler:
         data['name'] = self.extract_name()
         print(f"→ {data['name']}")
         
-        print("\n[2/15] Extracting gender (from name)...")
-        data['gender'] = self.extract_gender_from_name(data['name'])
-        print(f"→ {data['gender']}")
-        
-        print("\n[3/15] Extracting location...")
+        print("\n[2/15] Extracting location...")
         data['location'] = self.extract_location()
         print(f"→ {data['location']}")
         
-        print("\n[4/15] Extracting about...")
+        print("\n[3/15] Extracting about...")
         data['about'] = self.extract_about()
         print(f"→ {len(data['about'])} characters")
+        
+        print("\n[4/15] Extracting gender (from name + about)...")
+        data['gender'] = self.extract_gender_from_name(data['name'], data['about'])
+        print(f"→ {data['gender']}")
         
         print("\n[5/15] Extracting experiences...")
         data['experiences'] = self.extract_experiences()
@@ -247,15 +261,39 @@ class LinkedInCrawler:
             print(f"  Error in pronoun extraction: {e}")
             return "N/A"
     
-    def extract_gender_from_name(self, full_name):
-        """Extract gender from name using gender-guesser library"""
+    def extract_gender_from_name(self, full_name, about_text=""):
+        """Extract gender from name using gender-guesser library with about text fallback"""
         if not full_name or full_name == 'N/A':
             return "Unknown"
         
-        return self._predict_gender_from_name(full_name)
+        # Try primary name first
+        result = self._predict_gender_from_name(full_name)
+        
+        # If unknown and about text is available, try to extract full name from about
+        if result == "Unknown" and about_text:
+            print("  Primary name unknown, checking about section...")
+            # Look for patterns like "Nama saya [Full Name]" or "My name is [Full Name]"
+            import re
+            patterns = [
+                r'[Nn]ama saya ([A-Z][a-z]+(?: [A-Z][a-z]+)+)',  # "Nama saya Deanira Maharani"
+                r'[Mm]y name is ([A-Z][a-z]+(?: [A-Z][a-z]+)+)',  # "My name is John Doe"
+                r'[Ss]aya ([A-Z][a-z]+(?: [A-Z][a-z]+)+)',  # "Saya Deanira Maharani"
+            ]
+            
+            for pattern in patterns:
+                match = re.search(pattern, about_text)
+                if match:
+                    full_name_from_about = match.group(1)
+                    print(f"  Found full name in about: '{full_name_from_about}'")
+                    result = self._predict_gender_from_name(full_name_from_about)
+                    if result != "Unknown":
+                        print(f"  ✓ Gender detected from about text: {result}")
+                        return result
+        
+        return result
     
     def _predict_gender_from_name(self, full_name):
-        """Predict gender from name using gender-guesser library"""
+        """Predict gender from name using gender-guesser library with Indonesian name fallback"""
         try:
             # Clean and extract first name
             # Handle cases like "Sri.Mah Gunawan" → try "Sri", "Mah", "Gunawan"
@@ -264,44 +302,57 @@ class LinkedInCrawler:
             if not name_parts:
                 return "Unknown"
             
-            # Try first name first
-            first_name = name_parts[0]
-            result = self.gender_detector.get_gender(first_name)
+            # Try each name part until we find a match
+            for idx, name_part in enumerate(name_parts):
+                result = self.gender_detector.get_gender(name_part)
+                
+                # gender-guesser returns: male, female, mostly_male, mostly_female, andy (androgynous), unknown
+                if result in ['male', 'mostly_male']:
+                    print(f"  Name prediction: '{name_part}' (part {idx+1}) → Male (confidence: {result})")
+                    return 'Male'
+                elif result in ['female', 'mostly_female']:
+                    print(f"  Name prediction: '{name_part}' (part {idx+1}) → Female (confidence: {result})")
+                    return 'Female'
+                elif result == 'andy':
+                    print(f"  Name prediction: '{name_part}' (part {idx+1}) → Ambiguous")
+                    # Continue to next name part
+                    continue
+                else:
+                    # Unknown, try next part
+                    print(f"  Name prediction: '{name_part}' (part {idx+1}) → Unknown, trying next...")
+                    continue
             
-            # gender-guesser returns: male, female, mostly_male, mostly_female, andy (androgynous), unknown
-            if result in ['male', 'mostly_male']:
-                print(f"  Name prediction: '{first_name}' → Male (confidence: {result})")
-                return 'Male'
-            elif result in ['female', 'mostly_female']:
-                print(f"  Name prediction: '{first_name}' → Female (confidence: {result})")
-                return 'Female'
-            elif result == 'andy':
-                print(f"  Name prediction: '{first_name}' → Ambiguous")
-                # Try second name if exists
-                if len(name_parts) > 1:
-                    second_name = name_parts[1]
-                    result2 = self.gender_detector.get_gender(second_name)
-                    if result2 in ['male', 'mostly_male']:
-                        print(f"  Second name '{second_name}' → Male")
-                        return 'Male'
-                    elif result2 in ['female', 'mostly_female']:
-                        print(f"  Second name '{second_name}' → Female")
-                        return 'Female'
-                return 'Unknown'
-            else:
-                print(f"  Name prediction: '{first_name}' → Unknown")
-                # Try last name as fallback (for cases like "Sri.Mah Gunawan")
-                if len(name_parts) > 1:
-                    last_name = name_parts[-1]
-                    result_last = self.gender_detector.get_gender(last_name)
-                    if result_last in ['male', 'mostly_male']:
-                        print(f"  Last name '{last_name}' → Male")
-                        return 'Male'
-                    elif result_last in ['female', 'mostly_female']:
-                        print(f"  Last name '{last_name}' → Female")
+            # If all parts are unknown, try with lowercase (some names work better in lowercase)
+            print("  Trying lowercase variants...")
+            for idx, name_part in enumerate(name_parts):
+                result = self.gender_detector.get_gender(name_part.lower())
+                
+                if result in ['male', 'mostly_male']:
+                    print(f"  Name prediction: '{name_part.lower()}' (part {idx+1}, lowercase) → Male (confidence: {result})")
+                    return 'Male'
+                elif result in ['female', 'mostly_female']:
+                    print(f"  Name prediction: '{name_part.lower()}' (part {idx+1}, lowercase) → Female (confidence: {result})")
+                    return 'Female'
+            
+            # Fallback: Check Indonesian name patterns
+            print("  Trying Indonesian name patterns...")
+            for idx, name_part in enumerate(name_parts):
+                name_lower = name_part.lower()
+                
+                # Check if name contains or matches Indonesian female indicators
+                for indicator in self.indonesian_female_indicators:
+                    if indicator in name_lower or name_lower in indicator:
+                        print(f"  Indonesian pattern match: '{name_part}' contains '{indicator}' → Female")
                         return 'Female'
                 
-                return 'Unknown'
+                # Check if name contains or matches Indonesian male indicators
+                for indicator in self.indonesian_male_indicators:
+                    if indicator in name_lower or name_lower in indicator:
+                        print(f"  Indonesian pattern match: '{name_part}' contains '{indicator}' → Male")
+                        return 'Male'
+            
+            print(f"  All methods exhausted, cannot determine gender")
+            return 'Unknown'
         
         except Exception as e:
             print(f"  Error in name-based prediction: {e}")
@@ -632,71 +683,65 @@ class LinkedInCrawler:
                             print(f"    [{i}] {line[:80]}")
                         
                         # Detect grouped: 
-                        # Grouped = Line 0 is company (no ·), Line 1 is duration (has ·), Line 2+ are roles
-                        # Normal = Line 0 is title (no ·), Line 1 is company (has ·)
+                        # Grouped = Line 0 is company (no ·), Line 1 has "Full-time · X yrs X mos" (total duration with time), Line 2 is location, Line 3+ are roles
+                        # Normal = Line 0 is title (no ·), Line 1 is "Company · Full-time" (company with type, NO duration), Line 2 is duration
                         is_grouped = False
-                        if len(lines) > 2 and '·' not in lines[0]:
-                            # Check line 1: if it's duration format (has · and looks like "Full-time · X yrs")
-                            # then line 0 is company name = GROUPED
-                            line1_is_duration = (
-                                '·' in lines[1] and 
-                                ('yr' in lines[1] or 'mo' in lines[1] or 'Full-time' in lines[1] or 'Part-time' in lines[1] or 'Contract' in lines[1])
+                        if len(lines) >= 4 and '·' not in lines[0]:
+                            # Key difference: Grouped has duration (yr/mo) in line 1, Single doesn't
+                            # Grouped line 1: "Full-time · 3 yrs 9 mos"
+                            # Single line 1: "PT Bank Mandiri · Full-time" (no yr/mo)
+                            line1_has_duration = ('yr' in lines[1] or 'mo' in lines[1])
+                            
+                            # Also check that line 3 looks like a role title (not a date)
+                            line3_is_role = (
+                                len(lines) > 3 and
+                                '-' not in lines[3] and  # Not a date range
+                                'Present' not in lines[3] and
+                                not any(month in lines[3] for month in ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'])
                             )
                             
-                            if line1_is_duration:
-                                # Line 0 = Company, Line 1 = Total duration, Line 2+ = Roles
+                            if line1_has_duration and line3_is_role:
+                                # Line 0 = Company, Line 1 = Total duration, Line 2 = Location, Line 3+ = Roles
                                 is_grouped = True
                         
                         if is_grouped:
                             print(f"  → GROUPED experience detected")
                             # Handle grouped: multiple roles at same company
-                            # Structure: Company, Total Duration, Role1 Title, Role1 Duration, Role1 Duration Dup, Role1 Location, Role2 Title...
+                            # Structure: Company, Total Duration, Location, Role1 Title, Role1 Duration, Role1 Duration Dup, Role2 Title...
                             
                             company = lines[0]
-                            # total_duration = lines[1]  # Not used per role
+                            company_location = lines[2] if len(lines) > 2 else ""
                             
-                            # Parse roles starting from line 2
-                            i = 2
+                            # Parse roles starting from line 3
+                            i = 3
                             while i < len(lines):
-                                # Each role: Title, Duration, Duration Dup, Location (optional), Skills (skip)
+                                # Each role: Title, Duration, Duration Dup (skip)
                                 if i >= len(lines):
                                     break
                                 
                                 role_title = lines[i]
                                 
+                                # Skip if this looks like a certificate or skills line
+                                if role_title.startswith('Certificate') or role_title.startswith('Skills:'):
+                                    i += 1
+                                    continue
+                                
                                 # Check if next line is duration (has - or Present)
                                 if i + 1 < len(lines) and ('-' in lines[i + 1] or 'Present' in lines[i + 1]):
                                     role_duration = lines[i + 1]
-                                    
-                                    # Skip duplicate duration line (line i+2)
-                                    # Location is at i+3 (if exists and doesn't look like next role title)
-                                    role_location = ""
-                                    if i + 3 < len(lines):
-                                        potential_location = lines[i + 3]
-                                        # Check if it's location (not a job title, not skills)
-                                        is_location = (
-                                            len(potential_location) < 100 and
-                                            '·' in potential_location and  # Location usually has · (e.g., "Indonesia · On-site")
-                                            not ('-' in potential_location and ('Present' in potential_location or '20' in potential_location)) and  # Not duration
-                                            'skill' not in potential_location.lower()  # Not skills line
-                                        )
-                                        if is_location:
-                                            role_location = potential_location
-                                            i += 4  # Move to next role (skip title, duration, dup, location)
-                                        else:
-                                            i += 3  # Move to next role (skip title, duration, dup)
-                                    else:
-                                        i += 3
                                     
                                     # Add this role as separate experience
                                     exp_data = {
                                         'title': role_title,
                                         'company': company,
                                         'duration': role_duration,
-                                        'location': role_location
+                                        'location': company_location
                                     }
                                     experiences.append(exp_data)
                                     print(f"  ✓ ADDED {len(experiences)}. {exp_data['title']} at {company}")
+                                    
+                                    # Skip duplicate duration line (line i+2) and move to next role
+                                    i += 3
                                 else:
                                     # Not a valid role, skip
                                     i += 1
@@ -704,30 +749,46 @@ class LinkedInCrawler:
                             continue
                         
                         # Normal single experience
-                        # Line 0 = Title, Line 1 = Company (has ·)
-                        if len(lines) >= 2 and '·' in lines[1]:
-                            location = ""
-                            # Duration is at line 2, duplicate at line 3, location at line 4
-                            if len(lines) > 4:
-                                potential_location = lines[4]
-                                is_location = (
-                                    len(potential_location) < 80 and
-                                    ' to ' not in potential_location and
-                                    'http' not in potential_location.lower() and
-                                    'www.' not in potential_location.lower() and
-                                    not (len(potential_location) > 50 and ' is ' in potential_location)
-                                )
-                                if is_location:
-                                    location = potential_location
+                        # Line 0 = Title, Line 1 = Company (has ·), Line 2 = Duration, Line 3 = Duration dup, Line 4 = Location
+                        if len(lines) >= 3:
+                            # Check if line 1 has company indicator (· for employment type or just company name)
+                            # Check if line 2 looks like duration
+                            line2_is_duration = (
+                                '-' in lines[2] or 
+                                'Present' in lines[2] or 
+                                'to' in lines[2].lower() or
+                                any(month in lines[2] for month in ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'])
+                            )
                             
-                            exp_data = {
-                                'title': lines[0],
-                                'company': lines[1],
-                                'duration': lines[2] if len(lines) > 2 else "",
-                                'location': location
-                            }
-                            experiences.append(exp_data)
-                            print(f"  ✓ ADDED {len(experiences)}. {exp_data['title']}")
+                            if line2_is_duration:
+                                location = ""
+                                # Location is at line 4 (after duplicate duration at line 3)
+                                if len(lines) > 4:
+                                    potential_location = lines[4]
+                                    is_location = (
+                                        len(potential_location) < 100 and
+                                        ' to ' not in potential_location and
+                                        'http' not in potential_location.lower() and
+                                        'www.' not in potential_location.lower() and
+                                        not potential_location.startswith('Certificate') and
+                                        not potential_location.startswith('Skills:') and
+                                        not (len(potential_location) > 50 and ' is ' in potential_location)
+                                    )
+                                    if is_location:
+                                        location = potential_location
+                                
+                                exp_data = {
+                                    'title': lines[0],
+                                    'company': lines[1],
+                                    'duration': lines[2],
+                                    'location': location
+                                }
+                                experiences.append(exp_data)
+                                print(f"  ✓ ADDED {len(experiences)}. {exp_data['title']} at {exp_data['company'][:50]}")
+                            else:
+                                print(f"  → SKIP: Line 2 doesn't look like duration: {lines[2][:50]}")
+                        else:
+                            print(f"  → SKIP: Not enough lines ({len(lines)})")
                     
                     except Exception as e:
                         print(f"  Error: {e}")
