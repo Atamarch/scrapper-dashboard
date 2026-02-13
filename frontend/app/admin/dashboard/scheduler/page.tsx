@@ -4,19 +4,10 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, Play, Pause, Trash2, Clock, Calendar } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { crawlerAPI, Schedule } from '@/lib/api';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 
-type ScheduledJob = {
-  id: string;
-  name: string;
-  startSchedule: string;
-  stopSchedule: string | null;
-  status: 'active' | 'paused';
-  lastRun: string | null;
-  nextRun: string;
-  stopTime: string | null;
-  created_at: string;
-};
+type ScheduledJob = Schedule;
 
 export default function CrawlerScheduler() {
   const router = useRouter();
@@ -49,50 +40,23 @@ export default function CrawlerScheduler() {
   }
 
   async function loadScheduledJobs() {
-    // Mock data - replace with actual Supabase query
-    setJobs([
-      {
-        id: '1',
-        name: 'Daily Lead Crawler',
-        startSchedule: '0 9 * * *',
-        stopSchedule: '0 18 * * *',
-        status: 'active',
-        lastRun: new Date(Date.now() - 86400000).toISOString(),
-        nextRun: new Date(Date.now() + 3600000).toISOString(),
-        stopTime: new Date(Date.now() + 2592000000).toISOString(),
-        created_at: new Date().toISOString(),
-      },
-      {
-        id: '2',
-        name: 'Weekly Company Update',
-        startSchedule: '0 0 * * 0',
-        stopSchedule: null,
-        status: 'active',
-        lastRun: new Date(Date.now() - 604800000).toISOString(),
-        nextRun: new Date(Date.now() + 86400000).toISOString(),
-        stopTime: null,
-        created_at: new Date().toISOString(),
-      },
-      {
-        id: '3',
-        name: 'Hourly Data Sync',
-        startSchedule: '0 * * * *',
-        stopSchedule: '0 23 * * *',
-        status: 'paused',
-        lastRun: new Date(Date.now() - 7200000).toISOString(),
-        nextRun: new Date(Date.now() + 3600000).toISOString(),
-        stopTime: new Date(Date.now() + 604800000).toISOString(),
-        created_at: new Date().toISOString(),
-      },
-    ]);
+    try {
+      const response = await crawlerAPI.getSchedules();
+      setJobs(response.schedules);
+    } catch (error) {
+      console.error('Failed to load schedules:', error);
+      alert('Failed to load schedules. Make sure API server is running.');
+    }
   }
 
   async function handleToggleStatus(jobId: string) {
-    setJobs(jobs.map(job => 
-      job.id === jobId 
-        ? { ...job, status: job.status === 'active' ? 'paused' : 'active' }
-        : job
-    ));
+    try {
+      await crawlerAPI.toggleSchedule(jobId);
+      await loadScheduledJobs(); // Reload data
+    } catch (error) {
+      console.error('Failed to toggle schedule:', error);
+      alert('Failed to toggle schedule status');
+    }
   }
 
   async function handleRemove(jobId: string) {
@@ -106,8 +70,14 @@ export default function CrawlerScheduler() {
   async function confirmDelete() {
     if (!jobToDelete) return;
     
-    setJobs(jobs.filter(j => j.id !== jobToDelete.id));
-    setJobToDelete(null);
+    try {
+      await crawlerAPI.deleteSchedule(jobToDelete.id);
+      await loadScheduledJobs(); // Reload data
+      setJobToDelete(null);
+    } catch (error) {
+      console.error('Failed to delete schedule:', error);
+      alert('Failed to delete schedule');
+    }
   }
 
   function handleScheduleTypeChange(type: string, field: 'start' | 'stop') {
@@ -143,28 +113,29 @@ export default function CrawlerScheduler() {
       return;
     }
 
-    const newJob: ScheduledJob = {
-      id: String(Date.now()),
-      name: formData.name,
-      startSchedule: formData.startSchedule,
-      stopSchedule: formData.enableStopTime && formData.stopSchedule ? formData.stopSchedule : null,
-      status: 'active',
-      lastRun: null,
-      nextRun: new Date(Date.now() + 3600000).toISOString(),
-      stopTime: formData.enableStopTime ? new Date(Date.now() + 86400000).toISOString() : null,
-      created_at: new Date().toISOString(),
-    };
+    try {
+      await crawlerAPI.createSchedule({
+        name: formData.name,
+        start_schedule: formData.startSchedule,
+        stop_schedule: formData.enableStopTime && formData.stopSchedule ? formData.stopSchedule : undefined,
+        profile_urls: [],
+        max_workers: 3,
+      });
 
-    setJobs([...jobs, newJob]);
-    setShowAddModal(false);
-    setFormData({ 
-      name: '', 
-      startSchedule: '', 
-      startScheduleType: 'custom', 
-      stopSchedule: '', 
-      stopScheduleType: 'custom',
-      enableStopTime: false 
-    });
+      await loadScheduledJobs(); // Reload data
+      setShowAddModal(false);
+      setFormData({ 
+        name: '', 
+        startSchedule: '', 
+        startScheduleType: 'custom', 
+        stopSchedule: '', 
+        stopScheduleType: 'custom',
+        enableStopTime: false 
+      });
+    } catch (error) {
+      console.error('Failed to create schedule:', error);
+      alert('Failed to create schedule');
+    }
   }
 
   function formatDate(dateString: string | null) {
@@ -296,13 +267,13 @@ export default function CrawlerScheduler() {
                         </td>
                         <td className="px-6 py-4">
                           <code className="rounded bg-zinc-900 px-2 py-1 text-sm text-gray-300">
-                            {job.startSchedule}
+                            {job.start_schedule}
                           </code>
                         </td>
                         <td className="px-6 py-4">
-                          {job.stopSchedule ? (
+                          {job.stop_schedule ? (
                             <code className="rounded bg-zinc-900 px-2 py-1 text-sm text-orange-400">
-                              {job.stopSchedule}
+                              {job.stop_schedule}
                             </code>
                           ) : (
                             <span className="text-sm text-gray-500">No limit</span>
@@ -325,10 +296,10 @@ export default function CrawlerScheduler() {
                           </span>
                         </td>
                         <td className="px-6 py-4 text-sm text-gray-400">
-                          {formatDate(job.lastRun)}
+                          {formatDate(job.last_run)}
                         </td>
                         <td className="px-6 py-4 text-sm text-gray-400">
-                          {formatDate(job.nextRun)}
+                          {formatDate(job.next_run)}
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center justify-end gap-2">
