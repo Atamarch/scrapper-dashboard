@@ -297,9 +297,17 @@ def main():
         print("  - data_scientist")
         print("  - devops_engineer")
     
-    requirements_id = input(f"\nRequirements ID (default: {DEFAULT_REQUIREMENTS_ID}): ").strip()
-    if not requirements_id:
+    # Check if running in non-interactive mode (background)
+    import sys
+    if not sys.stdin.isatty():
+        # Running in background, use default
         requirements_id = DEFAULT_REQUIREMENTS_ID
+        print(f"\n→ Running in background mode, using default: {requirements_id}")
+    else:
+        # Interactive mode, ask user
+        requirements_id = input(f"\nRequirements ID (default: {DEFAULT_REQUIREMENTS_ID}): ").strip()
+        if not requirements_id:
+            requirements_id = DEFAULT_REQUIREMENTS_ID
     
     print(f"→ Using requirements: {requirements_id}")
     

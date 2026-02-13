@@ -1,8 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = 'https://hzkgpdnlkihnlosxwwig.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh6a2dwZG5sa2lobmxvc3h3d2lnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc2ODQ1NzYsImV4cCI6MjA4MzI2MDU3Nn0.M8aoPh1BrSGr47ix0Fd9jUJdK16Vd_MIge4uXKcHlHc';
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error('Missing Supabase environment variables. Please check your .env.local file.');
+}
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export type Lead = {

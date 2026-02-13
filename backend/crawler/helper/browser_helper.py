@@ -9,11 +9,15 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 # Load delay configuration from environment
 try:
-    MIN_DELAY = float(os.getenv('MIN_DELAY', '0.5'))
-    MAX_DELAY = float(os.getenv('MAX_DELAY', '1.0'))
+    MIN_DELAY = float(os.getenv('MIN_DELAY', '2.0'))  # Increased from 0.5
+    MAX_DELAY = float(os.getenv('MAX_DELAY', '5.0'))  # Increased from 1.0
+    PROFILE_DELAY_MIN = float(os.getenv('PROFILE_DELAY_MIN', '10.0'))  # New: delay between profiles
+    PROFILE_DELAY_MAX = float(os.getenv('PROFILE_DELAY_MAX', '20.0'))  # New: delay between profiles
 except:
-    MIN_DELAY = 0.5
-    MAX_DELAY = 1.0
+    MIN_DELAY = 2.0
+    MAX_DELAY = 5.0
+    PROFILE_DELAY_MIN = 10.0
+    PROFILE_DELAY_MAX = 20.0
 
 
 def create_driver():
@@ -168,6 +172,13 @@ def human_delay(min_sec=None, max_sec=None):
     if max_sec is None:
         max_sec = MAX_DELAY
     delay = random.uniform(min_sec, max_sec)
+    time.sleep(delay)
+
+
+def profile_delay():
+    """Longer delay between profiles to avoid detection"""
+    delay = random.uniform(PROFILE_DELAY_MIN, PROFILE_DELAY_MAX)
+    print(f"⏳ Waiting {delay:.1f}s before next profile (anti-detection)...")
     time.sleep(delay)
 
 
