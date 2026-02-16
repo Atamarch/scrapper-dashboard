@@ -1,14 +1,481 @@
-"""LinkedIn profile data extractor - extraction logic only"""
+"""LinkedIn profile data extractor - ALL-IN-ONE VERSION
+Merged: crawler.py + browser_helper.py + auth_helper.py + extraction_helper.py
+"""
+import time
+import random
+import os
+import json
+from pathlib import Path
+from datetime import datetime
+import re
+
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException, TimeoutException
-from helper.browser_helper import human_delay, smooth_scroll, scroll_page_to_load, create_driver
-from helper.auth_helper import login
-from helper.extraction_helper import click_show_all, click_back_arrow, extract_items_from_detail_page
+from dotenv import load_dotenv
 import gender_guesser.detector as gender
-import re
-from datetime import datetime
+
+
+# ============================================================================
+# CONFIGURATION & CONSTANTS
+# ============================================================================
+
+COOKIES_FILE = "data/cookie/.linkedin_cookies.json"
+
+# Load delay configuration from environment
+try:
+    MIN_DELAY = float(os.getenv('MIN_DELAY', '2.0'))
+    MAX_DELAY = float(os.getenv('MAX_DELAY', '5.0'))
+    PROFILE_DELAY_MIN = float(os.getenv('PROFILE_DELAY_MIN', '10.0'))
+    PROFILE_DELAY_MAX = float(os.getenv('PROFILE_DELAY_MAX', '20.0'))
+    USE_MOBILE_MODE = os.getenv('USE_MOBILE_MODE', 'false').lower() == 'true'
+except:
+    MIN_DELAY = 2.0
+    MAX_DELAY = 5.0
+    PROFILE_DELAY_MIN = 10.0
+    PROFILE_DELAY_MAX = 20.0
+    USE_MOBILE_MODE = False
+
+
+# ============================================================================
+# BROWSER HELPER FUNCTIONS (from browser_helper.py)
+# ============================================================================
+
+def create_driver(mobile_mode=None):
+    """Create and configure Chrome driver with anti-detection"""
+    if mobile_mode is None:
+        mobile_mode = USE_MOBILE_MODE
+    
+    options = webdriver.ChromeOptions()
+    
+    # Anti-detection: Hide automation flags
+    options.add_argument('--disable-blink-features=AutomationControlled')
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option('useAutomationExtension', False)
+    
+    # Stealth mode
+    options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-gpu')
+    
+    # User agent and window size
+    if mobile_mode:
+        mobile_user_agents = [
+            'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+            'Mozilla/5.0 (Linux; Android 12; SM-S906N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36',
+        ]
+        selected_ua = random.choice(mobile_user_agents)
+        options.add_argument(f'user-agent={selected_ua}')
+        options.add_argument('--window-size=412,915')
+        mobile_emulation = {
+            "deviceMetrics": {"width": 412, "height": 915, "pixelRatio": 2.625},
+            "userAgent": selected_ua
+        }
+        options.add_experimental_option("mobileEmulation", mobile_emulation)
+        print("🔧 Using MOBILE mode (412x915)")
+    else:
+        user_agents = [
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0',
+        ]
+        selected_ua = random.choice(user_agents)
+        options.add_argument(f'user-agent={selected_ua}')
+        options.add_argument('--window-size=1920,1080')
+        options.add_argument('--start-maximized')
+        print("🔧 Using DESKTOP mode (1920x1080)")
+    
+    options.add_argument('--lang=en-US')
+    options.add_experimental_option('prefs', {'intl.accept_languages': 'en-US,en'})
+    
+    driver = None
+    try:
+        service = ChromeService()
+        driver = webdriver.Chrome(service=service, options=options)
+        print("✓ Using Selenium auto-managed ChromeDriver")
+    except Exception as e:
+        print(f"⚠ Selenium auto-download failed: {e}")
+        try:
+            print("  Trying webdriver-manager...")
+            from webdriver_manager.chrome import ChromeDriverManager
+            import shutil
+            cache_path = os.path.expanduser("~/.wdm")
+            if os.path.exists(cache_path):
+                shutil.rmtree(cache_path, ignore_errors=True)
+            driver_path = ChromeDriverManager().install()
+            service = ChromeService(executable_path=driver_path)
+            driver = webdriver.Chrome(service=service, options=options)
+            print("✓ Using webdriver-manager ChromeDriver")
+        except:
+            raise Exception("Failed to create ChromeDriver")
+    
+    if driver is None:
+        raise Exception("Failed to create ChromeDriver")
+    
+    driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+    driver.execute_cdp_cmd('Network.setUserAgentOverride', {
+        "userAgent": 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    })
+    driver.execute_script("""
+        Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+        Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+        const originalQuery = window.navigator.permissions.query;
+        window.navigator.permissions.query = (parameters) => (
+            parameters.name === 'notifications' ?
+                Promise.resolve({ state: Notification.permission }) :
+                originalQuery(parameters)
+        );
+        window.chrome = {runtime: {}};
+    """)
+    
+    return driver
+
+
+def human_delay(min_sec=None, max_sec=None):
+    """Random delay to mimic human behavior"""
+    if min_sec is None:
+        min_sec = MIN_DELAY
+    if max_sec is None:
+        max_sec = MAX_DELAY
+    delay = random.uniform(min_sec, max_sec)
+    time.sleep(delay)
+
+
+def profile_delay():
+    """Longer delay between profiles to avoid detection"""
+    delay = random.uniform(PROFILE_DELAY_MIN, PROFILE_DELAY_MAX)
+    print(f"⏳ Waiting {delay:.1f}s before next profile (anti-detection)...")
+    time.sleep(delay)
+
+
+def random_mouse_movement(driver):
+    """Simulate random mouse movements"""
+    try:
+        from selenium.webdriver.common.action_chains import ActionChains
+        actions = ActionChains(driver)
+        for _ in range(random.randint(2, 4)):
+            x_offset = random.randint(-100, 100)
+            y_offset = random.randint(-100, 100)
+            actions.move_by_offset(x_offset, y_offset)
+        actions.perform()
+    except:
+        pass
+
+
+def smooth_scroll(driver, element):
+    """Smooth scroll to element"""
+    driver.execute_script(
+        "arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});",
+        element
+    )
+    time.sleep(random.uniform(0.3, 0.6))
+
+
+def scroll_page_to_load(driver):
+    """Scroll entire page to load all lazy-loaded content"""
+    print("Scrolling page to load all content...")
+    last_height = driver.execute_script("return document.body.scrollHeight")
+    scroll_pause_time = random.uniform(0.8, 1.2)
+    
+    for i in range(5):
+        scroll_amount = random.randint(1000, 1500)
+        driver.execute_script(f"window.scrollBy(0, {scroll_amount});")
+        time.sleep(random.uniform(0.5, 0.8))
+        if random.random() > 0.85:
+            driver.execute_script(f"window.scrollBy(0, -{random.randint(100, 300)});")
+            time.sleep(random.uniform(0.3, 0.5))
+    
+    driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+    time.sleep(scroll_pause_time)
+    new_height = driver.execute_script("return document.body.scrollHeight")
+    if new_height > last_height:
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        time.sleep(scroll_pause_time)
+    driver.execute_script("window.scrollTo(0, 0);")
+    time.sleep(random.uniform(0.5, 0.8))
+
+
+# ============================================================================
+# AUTH HELPER FUNCTIONS (from auth_helper.py)
+# ============================================================================
+
+def save_cookies(driver):
+    """Save cookies to JSON file for session persistence"""
+    try:
+        Path("data/cookie").mkdir(parents=True, exist_ok=True)
+        cookies = driver.get_cookies()
+        with open(COOKIES_FILE, 'w') as f:
+            json.dump(cookies, f, indent=2)
+        print("✓ Cookies saved for future sessions")
+    except Exception as e:
+        print(f"⚠ Could not save cookies: {e}")
+
+
+def load_cookies(driver):
+    """Load cookies from JSON file"""
+    try:
+        if not os.path.exists(COOKIES_FILE):
+            return False
+        
+        driver.get('https://www.linkedin.com')
+        human_delay(2, 3)
+        
+        with open(COOKIES_FILE, 'r') as f:
+            cookies = json.load(f)
+        
+        for cookie in cookies:
+            try:
+                driver.add_cookie(cookie)
+            except:
+                pass
+        
+        driver.refresh()
+        human_delay(2, 3)
+        
+        current_url = driver.current_url
+        if 'feed' in current_url or 'mynetwork' in current_url:
+            print("✓ Logged in using saved session!")
+            return True
+        
+        return False
+    except Exception as e:
+        print(f"⚠ Could not load cookies: {e}")
+        return False
+
+
+def login(driver):
+    """Login to LinkedIn with automatic verification detection"""
+    load_dotenv()
+    
+    print("Checking for saved session...")
+    if load_cookies(driver):
+        return
+    
+    email = os.getenv('LINKEDIN_EMAIL')
+    password = os.getenv('LINKEDIN_PASSWORD')
+    
+    if not email or not password:
+        raise ValueError("LinkedIn credentials not found in .env file")
+    
+    print("Attempting automatic login...")
+    driver.get('https://www.linkedin.com/login')
+    human_delay(2, 3)
+    
+    try:
+        wait = WebDriverWait(driver, 10)
+        
+        print("Filling email...")
+        email_field = wait.until(EC.presence_of_element_located((By.ID, 'username')))
+        email_field.clear()
+        email_field.send_keys(email)
+        human_delay(0.5, 1.0)
+        
+        print("Filling password...")
+        password_field = driver.find_element(By.ID, 'password')
+        password_field.clear()
+        password_field.send_keys(password)
+        human_delay(0.5, 1.0)
+        
+        print("Clicking login button...")
+        login_button = driver.find_element(By.XPATH, "//button[@type='submit']")
+        login_button.click()
+        
+        print("Checking login status...")
+        human_delay(3, 5)
+        
+        current_url = driver.current_url
+        
+        verification_indicators = [
+            'checkpoint/challenge', 'challenge', 'verify', 'captcha',
+            '/uas/login-submit', 'phone',
+        ]
+        
+        needs_verification = any(indicator in current_url for indicator in verification_indicators)
+        
+        if needs_verification:
+            print("\n" + "="*60)
+            print("⚠ VERIFICATION REQUIRED!")
+            print("="*60)
+            page_text = driver.page_source.lower()
+            if 'phone' in page_text or 'number' in page_text:
+                print("Type: PHONE VERIFICATION")
+            elif 'captcha' in page_text or 'puzzle' in page_text:
+                print("Type: CAPTCHA/PUZZLE")
+            elif 'pin' in page_text or 'code' in page_text:
+                print("Type: PIN/CODE (check your email)")
+            else:
+                print("Type: SECURITY CHECK")
+            
+            print("\nSilakan selesaikan verifikasi di browser")
+            print("Tekan ENTER setelah verifikasi selesai...")
+            print("="*60 + "\n")
+            
+            input("Tekan ENTER setelah verifikasi selesai dan Anda sudah login...")
+            
+            current_url = driver.current_url
+            if 'feed' in current_url or 'mynetwork' in current_url or '/in/' in current_url:
+                print("✓ Login berhasil!")
+                save_cookies(driver)
+            else:
+                print("⚠ Warning: Sepertinya belum berhasil login.")
+                retry = input("Lanjutkan scraping? (y/n): ")
+                if retry.lower() != 'y':
+                    raise Exception("Login dibatalkan")
+        else:
+            if 'feed' in current_url or 'mynetwork' in current_url or '/in/' in current_url:
+                print("✓ Login otomatis berhasil tanpa verifikasi!")
+                save_cookies(driver)
+            else:
+                print(f"⚠ Login status tidak jelas. Current URL: {current_url}")
+                input("Tekan ENTER jika sudah login di browser...")
+                save_cookies(driver)
+    
+    except Exception as e:
+        print(f"\nError during login: {e}")
+        import traceback
+        traceback.print_exc()
+        print("\nSilakan login manual di browser yang terbuka...")
+        input("Tekan ENTER setelah berhasil login...")
+        save_cookies(driver)
+
+
+# ============================================================================
+# EXTRACTION HELPER FUNCTIONS (from extraction_helper.py)
+# ============================================================================
+
+def click_show_all(driver, section):
+    """Click 'Show all' link in section"""
+    try:
+        smooth_scroll(driver, section)
+        human_delay(0.5, 0.8)
+        
+        selectors = [
+            ".//a[contains(text(), 'Show all')]",
+            ".//a[contains(., 'Show all')]",
+            ".//div[contains(@class, 'pvs-list__footer')]//a",
+        ]
+        
+        for selector in selectors:
+            try:
+                button = section.find_element(By.XPATH, selector)
+                button_text = button.text.strip()
+                print(f"  Found: '{button_text}'")
+                driver.execute_script("arguments[0].click();", button)
+                print("  ✓ Clicked 'Show all'")
+                human_delay(2, 2.5)
+                return True
+            except NoSuchElementException:
+                continue
+        
+        print("  ⚠ No 'Show all' button found")
+        return False
+    except Exception as e:
+        print(f"  Error clicking show all: {e}")
+        return False
+
+
+def click_back_arrow(driver):
+    """Click back arrow button on detail page"""
+    try:
+        back_selectors = [
+            "//button[@aria-label='Back']",
+            "//button[contains(@class, 'app-aware-link')]//li-icon[@type='arrow-left']",
+            "//button[.//li-icon[@type='arrow-left']]",
+            "//a[@aria-label='Back']",
+        ]
+        
+        for selector in back_selectors:
+            try:
+                back_button = driver.find_element(By.XPATH, selector)
+                print("  Found back button")
+                driver.execute_script("arguments[0].click();", back_button)
+                print("  ✓ Clicked back")
+                human_delay(1.5, 2)
+                return True
+            except NoSuchElementException:
+                continue
+        
+        print("  Using browser back()")
+        driver.back()
+        human_delay(1.5, 2)
+        return True
+    except Exception as e:
+        print(f"  Error clicking back: {e}")
+        return False
+
+
+def extract_items_from_detail_page(driver):
+    """Extract list items from detail page (after show all)"""
+    items = []
+    
+    print("  Waiting for detail page to load...")
+    human_delay(2, 2.5)
+    
+    print("  Scrolling to load all items...")
+    last_count = 0
+    no_change_count = 0
+    max_scrolls = 20
+    
+    for i in range(max_scrolls):
+        driver.execute_script("window.scrollBy(0, 1500);")
+        human_delay(1, 1.5)
+        
+        current_items = driver.find_elements(By.XPATH, "//main//ul[contains(@class, 'pvs-list')]/li")
+        current_count = len(current_items)
+        
+        print(f"    Scroll {i + 1}/{max_scrolls}: {current_count} items")
+        
+        if current_count == last_count:
+            no_change_count += 1
+            if no_change_count >= 4:
+                print(f"    No new items after 4 scrolls, stopping")
+                break
+        else:
+            no_change_count = 0
+        
+        last_count = current_count
+        
+        at_bottom = driver.execute_script(
+            "return (window.innerHeight + window.scrollY) >= document.body.scrollHeight - 100;"
+        )
+        if at_bottom and no_change_count >= 2:
+            print(f"    Reached bottom of page")
+            break
+    
+    print(f"  Final item count after scrolling: {last_count}")
+    
+    print("  Scrolling back to top...")
+    driver.execute_script("window.scrollTo(0, 0);")
+    human_delay(1, 1.5)
+    driver.execute_script("window.scrollTo(0, document.body.scrollHeight / 2);")
+    human_delay(0.8, 1)
+    
+    selectors = [
+        "//main//ul[contains(@class, 'pvs-list')]/li[contains(@class, 'pvs-list__paged-list-item')]",
+        "//main//ul[contains(@class, 'pvs-list')]/li",
+        "//div[contains(@class, 'scaffold-finite-scroll__content')]//ul/li",
+        "//main//ul/li[contains(@class, 'artdeco-list__item')]",
+    ]
+    
+    for selector in selectors:
+        items = driver.find_elements(By.XPATH, selector)
+        if items and len(items) > 0:
+            print(f"  ✓ Found {len(items)} items using selector")
+            break
+    
+    if not items:
+        print("  ⚠ No items found on detail page!")
+    
+    return items
+
+
+# ============================================================================
+# MAIN CRAWLER CLASS
+# ============================================================================
 
 
 class LinkedInCrawler:

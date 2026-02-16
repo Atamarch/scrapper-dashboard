@@ -1,17 +1,217 @@
 """
-LinkedIn Profile Scraper with Scoring Integration
-Scrape profiles and send to scoring queue
+LinkedIn Profile Scraper with Scoring Integration - ALL-IN-ONE VERSION
+Merged: crawler_consumer.py + rabbitmq_helper.py + main.py utilities
 """
 import json
 import glob
 import os
 import threading
 import time
+import hashlib
 import pika
+from datetime import datetime
+from dotenv import load_dotenv
 from crawler import LinkedInCrawler
-from helper.rabbitmq_helper import RabbitMQManager, ack_message, nack_message
-from main import save_profile_data
 
+load_dotenv()
+
+
+# ============================================================================
+# RABBITMQ HELPER (from rabbitmq_helper.py)
+# ============================================================================
+
+class RabbitMQManager:
+    def __init__(self):
+        """Initialize RabbitMQ connection"""
+        self.host = os.getenv('RABBITMQ_HOST', 'localhost')
+        self.port = int(os.getenv('RABBITMQ_PORT', '5672'))
+        self.username = os.getenv('RABBITMQ_USER', 'guest')
+        self.password = os.getenv('RABBITMQ_PASS', 'guest')
+        self.queue_name = os.getenv('RABBITMQ_QUEUE', 'linkedin_profiles')
+        self.connection = None
+        self.channel = None
+    
+    def connect(self):
+        """Connect to RabbitMQ"""
+        try:
+            credentials = pika.PlainCredentials(self.username, self.password)
+            parameters = pika.ConnectionParameters(
+                host=self.host,
+                port=self.port,
+                credentials=credentials,
+                heartbeat=600,
+                blocked_connection_timeout=300
+            )
+            self.connection = pika.BlockingConnection(parameters)
+            self.channel = self.connection.channel()
+            self.channel.queue_declare(queue=self.queue_name, durable=True)
+            print(f"✓ Connected to RabbitMQ at {self.host}:{self.port}")
+            return True
+        except Exception as e:
+            print(f"✗ Failed to connect to RabbitMQ: {e}")
+            return False
+    
+    def publish_url(self, url):
+        """Publish a LinkedIn profile URL to queue"""
+        try:
+            message = json.dumps({'url': url})
+            self.channel.basic_publish(
+                exchange='',
+                routing_key=self.queue_name,
+                body=message,
+                properties=pika.BasicProperties(delivery_mode=2)
+            )
+            return True
+        except Exception as e:
+            print(f"✗ Failed to publish URL: {e}")
+            return False
+    
+    def publish_urls(self, urls):
+        """Publish multiple URLs to queue"""
+        success_count = 0
+        for url in urls:
+            if self.publish_url(url):
+                success_count += 1
+        print(f"✓ Published {success_count}/{len(urls)} URLs to queue")
+        return success_count
+    
+    def consume(self, callback, auto_ack=False):
+        """Consume messages from queue"""
+        try:
+            self.channel.basic_qos(prefetch_count=1)
+            self.channel.basic_consume(
+                queue=self.queue_name,
+                on_message_callback=callback,
+                auto_ack=auto_ack
+            )
+            print(f"✓ Waiting for messages in queue '{self.queue_name}'...")
+            print("  Press Ctrl+C to stop")
+            self.channel.start_consuming()
+        except KeyboardInterrupt:
+            print("\n⚠ Interrupted by user")
+            self.stop_consuming()
+        except Exception as e:
+            print(f"✗ Error consuming messages: {e}")
+    
+    def stop_consuming(self):
+        """Stop consuming messages"""
+        if self.channel:
+            self.channel.stop_consuming()
+    
+    def get_queue_size(self):
+        """Get number of messages in queue"""
+        try:
+            queue_state = self.channel.queue_declare(
+                queue=self.queue_name, 
+                durable=True, 
+                passive=True
+            )
+            return queue_state.method.message_count
+        except Exception as e:
+            print(f"✗ Failed to get queue size: {e}")
+            return 0
+    
+    def purge_queue(self):
+        """Delete all messages from queue"""
+        try:
+            self.channel.queue_purge(queue=self.queue_name)
+            print(f"✓ Purged queue '{self.queue_name}'")
+            return True
+        except Exception as e:
+            print(f"✗ Failed to purge queue: {e}")
+            return False
+    
+    def close(self):
+        """Close connection"""
+        try:
+            if self.connection and not self.connection.is_closed:
+                self.connection.close()
+                print("✓ Closed RabbitMQ connection")
+        except Exception as e:
+            print(f"⚠ Error closing connection: {e}")
+
+
+def ack_message(channel, delivery_tag):
+    """Acknowledge a message (mark as processed)"""
+    if channel.is_open:
+        channel.basic_ack(delivery_tag)
+
+
+def nack_message(channel, delivery_tag, requeue=True):
+    """Negative acknowledge (reject) a message"""
+    if channel.is_open:
+        channel.basic_nack(delivery_tag, requeue=requeue)
+
+
+# ============================================================================
+# UTILITY FUNCTIONS (from main.py)
+# ============================================================================
+
+def get_profile_hash(profile_url):
+    """Generate unique hash from profile URL"""
+    return hashlib.md5(profile_url.encode()).hexdigest()[:8]
+
+
+def check_if_already_crawled(profile_url, output_dir='data/output'):
+    """Check if profile URL has already been crawled"""
+    if not os.path.exists(output_dir):
+        return False, None
+    
+    url_hash = get_profile_hash(profile_url)
+    pattern = os.path.join(output_dir, f"*_{url_hash}.json")
+    existing_files = glob.glob(pattern)
+    
+    if existing_files:
+        return True, existing_files[0]
+    
+    all_files = glob.glob(os.path.join(output_dir, "*.json"))
+    for filepath in all_files:
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                if data.get('profile_url') == profile_url:
+                    return True, filepath
+        except:
+            continue
+    
+    return False, None
+
+
+def save_profile_data(profile_data, output_dir='data/output'):
+    """Save profile data to JSON file (with duplicate prevention)"""
+    os.makedirs(output_dir, exist_ok=True)
+    
+    profile_url = profile_data.get('profile_url', '')
+    
+    if profile_url:
+        already_exists, existing_file = check_if_already_crawled(profile_url, output_dir)
+        if already_exists:
+            print(f"\n⚠ Profile already exists: {existing_file}")
+            print(f"  Skipping save to avoid duplication")
+            return existing_file
+    
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    name = profile_data.get('name', 'unknown')
+    if not name or name == 'N/A' or len(name.strip()) == 0:
+        name = 'unknown'
+    
+    name_slug = name.replace(' ', '_').replace('/', '_').replace('\\', '_').lower()
+    name_slug = ''.join(c for c in name_slug if c.isalnum() or c in ('_', '-'))
+    
+    url_hash = get_profile_hash(profile_url) if profile_url else 'nohash'
+    filename = f"{name_slug}_{timestamp}_{url_hash}.json"
+    filepath = os.path.join(output_dir, filename)
+    
+    with open(filepath, 'w', encoding='utf-8') as f:
+        json.dump(profile_data, indent=2, ensure_ascii=False, fp=f)
+    
+    print(f"\n✓ Profile data saved to: {filepath}")
+    return filepath
+
+
+# ============================================================================
+# MAIN CONSUMER CODE
+# ============================================================================
 
 # Configuration
 SCORING_QUEUE = os.getenv('SCORING_QUEUE', 'scoring_queue')

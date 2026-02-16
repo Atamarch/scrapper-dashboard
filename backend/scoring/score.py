@@ -67,7 +67,24 @@ class Scorer:
         
         # 3. Age (10 points)
         age_range = self.requirements.get('required_age_range', {})
-        profile_age = profile.get('age')
+        
+        # Try multiple sources for age with fallback
+        profile_age = None
+        age_source = "N/A"
+        
+        # Priority 1: Direct 'age' field
+        if profile.get('age'):
+            profile_age = profile.get('age')
+            age_source = "direct"
+        # Priority 2: estimated_age object (from crawler)
+        elif profile.get('estimated_age'):
+            estimated = profile.get('estimated_age', {})
+            if isinstance(estimated, dict):
+                profile_age = estimated.get('estimated_age')
+                age_source = f"estimated ({estimated.get('based_on', 'unknown')})"
+            else:
+                profile_age = estimated
+                age_source = "estimated"
         
         if age_range and profile_age:
             min_age = age_range.get('min', 0)
@@ -77,7 +94,7 @@ class Scorer:
                 age = int(profile_age)
                 if min_age <= age <= max_age:
                     age_score = 10
-                    details['age'] = {'score': 10, 'match': True, 'value': age, 'range': f"{min_age}-{max_age}"}
+                    details['age'] = {'score': 10, 'match': True, 'value': age, 'range': f"{min_age}-{max_age}", 'source': age_source}
                 else:
                     # Partial score if close to range
                     if age < min_age:
@@ -86,12 +103,19 @@ class Scorer:
                     else:
                         diff = age - max_age
                         age_score = max(0, 10 - (diff * 2))  # -2 points per year above
-                    details['age'] = {'score': round(age_score, 2), 'match': False, 'value': age, 'range': f"{min_age}-{max_age}"}
+                    details['age'] = {'score': round(age_score, 2), 'match': False, 'value': age, 'range': f"{min_age}-{max_age}", 'source': age_source}
             except:
                 age_score = 0
-                details['age'] = {'score': 0, 'match': False, 'value': profile_age, 'range': f"{min_age}-{max_age}"}
+                details['age'] = {'score': 0, 'match': False, 'value': profile_age, 'range': f"{min_age}-{max_age}", 'source': age_source}
         else:
             age_score = 0
+            # Store N/A with reason
+            if not age_range:
+                details['age'] = {'score': 0, 'match': False, 'value': 'N/A', 'reason': 'no age requirement'}
+            elif not profile_age:
+                details['age'] = {'score': 0, 'match': False, 'value': 'N/A', 'reason': 'age not found in profile'}
+            else:
+                details['age'] = {'score': 0, 'match': False, 'value': 'N/A', 'reason': 'unknown'}
             details['age'] = {'score': 0, 'match': False, 'value': profile_age or 'N/A'}
         
         total += age_score

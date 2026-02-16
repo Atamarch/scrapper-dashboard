@@ -273,19 +273,66 @@ restart_all() {
     start_all
 }
 
+start_crawler_visible() {
+    print_header "Starting Crawler with VISIBLE Browser"
+    
+    # 1. Start RabbitMQ
+    print_info "Starting RabbitMQ..."
+    cd backend/crawler
+    if docker ps | grep -q linkedin-rabbitmq; then
+        print_info "RabbitMQ already running"
+    else
+        docker compose up -d 2>/dev/null || docker-compose up -d 2>/dev/null
+        sleep 3
+        print_success "RabbitMQ started"
+    fi
+    
+    # 2. Setup venv
+    if [ ! -d "venv" ]; then
+        print_info "Creating virtual environment..."
+        python3 -m venv venv
+        source venv/bin/activate
+        pip install -q -r requirements.txt
+    else
+        source venv/bin/activate
+    fi
+    
+    # 3. Check .env
+    if [ ! -f ".env" ]; then
+        print_error ".env file not found!"
+        print_info "Please create .env file with LinkedIn credentials"
+        cd ../..
+        exit 1
+    fi
+    
+    echo ""
+    print_success "Setup complete!"
+    echo ""
+    print_info "Browser window will appear shortly..."
+    print_info "Press Ctrl+C to stop"
+    echo ""
+    print_info "RabbitMQ Management: http://localhost:15672 (guest/guest)"
+    echo ""
+    
+    # 4. Run crawler in foreground (browser visible)
+    python crawler_consumer.py
+}
+
 show_help() {
     echo "Usage: ./start-all.sh [command]"
     echo ""
     echo "Commands:"
-    echo "  start    - Start all services in background"
-    echo "  stop     - Stop all services"
-    echo "  restart  - Restart all services"
-    echo "  status   - Show status of all services"
-    echo "  logs     - View service logs"
-    echo "  help     - Show this help"
+    echo "  start          - Start all services in background"
+    echo "  start-visible  - Start crawler with VISIBLE browser (foreground)"
+    echo "  stop           - Stop all services"
+    echo "  restart        - Restart all services"
+    echo "  status         - Show status of all services"
+    echo "  logs           - View service logs"
+    echo "  help           - Show this help"
     echo ""
     echo "Examples:"
     echo "  ./start-all.sh start"
+    echo "  ./start-all.sh start-visible    # Browser akan muncul"
     echo "  ./start-all.sh status"
     echo "  ./start-all.sh logs"
     echo "  ./start-all.sh stop"
@@ -295,6 +342,9 @@ show_help() {
 case "${1:-help}" in
     start)
         start_all
+        ;;
+    start-visible)
+        start_crawler_visible
         ;;
     stop)
         stop_all

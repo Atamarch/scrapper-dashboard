@@ -1,57 +1,120 @@
-# LinkedIn Profile Scraper
+# LinkedIn Profile Crawler
 
-Scraper LinkedIn profiles dengan RabbitMQ queue system.
+Simplified crawler with only 2 main files.
+
+## File Structure
+
+```
+crawler/
+├── crawler.py              # Main crawler class + all helper functions
+├── crawler_consumer.py     # RabbitMQ consumer + utilities
+├── .env                    # Configuration
+├── requirements.txt        # Dependencies
+└── data/
+    ├── cookie/            # LinkedIn session cookies
+    └── output/            # Scraped profiles (JSON)
+```
+
+## Features
+
+- **All-in-one design**: No helper folders, just 2 files
+- **Browser restart**: Prevents memory leak every N profiles
+- **Mobile/Desktop mode**: Choose scraping mode
+- **Anti-detection**: Random delays, human-like scrolling
+- **Cookie persistence**: Login once, reuse session
+- **Duplicate prevention**: Skip already crawled profiles
+- **RabbitMQ integration**: Queue-based processing
+- **Scoring integration**: Auto-send to scoring queue
 
 ## Setup
 
-### 1. Install Dependencies
+1. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Setup .env
+2. Configure `.env`:
 ```bash
 cp .env.example .env
+# Edit .env with your credentials
 ```
-Edit `.env` dan isi credentials LinkedIn lu.
 
-### 3. Start RabbitMQ
+3. Start RabbitMQ:
 ```bash
 docker-compose up -d
 ```
 
 ## Usage
 
-### Multiple URLs (Recommended - Auto dari JSON)
+### Consumer Mode (Recommended)
+Process URLs from `profile/*.json` files with RabbitMQ:
+
 ```bash
-python multiple.py
+python crawler_consumer.py
 ```
 
-**Cara kerja:**
-1. Auto-load URLs dari semua file `profile/*.json`
-2. Skip URLs yang ada kata "sales"
-3. Process dengan 3 workers (default)
-4. Output ke `data/output/`
+Features:
+- Auto-load URLs from profile folder
+- Skip already crawled profiles
+- Skip sales URLs
+- Multi-worker processing
+- Send to scoring queue
 
-**Format JSON di folder profile:**
-```json
-[
-  {
-    "name": "John Doe",
-    "profile_url": "https://www.linkedin.com/in/johndoe"
-  },
-  {
-    "name": "Jane Doe",
-    "profile_url": "https://www.linkedin.com/in/janedoe"
-  }
-]
+### Direct Import
+Use crawler directly in your code:
+
+```python
+from crawler import LinkedInCrawler
+
+crawler = LinkedInCrawler()
+crawler.login()
+profile_data = crawler.get_profile("https://linkedin.com/in/username")
+crawler.close()
 ```
 
-### Simple Mode (Manual Input)
+## Configuration
+
+Edit `.env` file:
+
 ```bash
-python main.py
+# LinkedIn Credentials
+LINKEDIN_EMAIL=your@email.com
+LINKEDIN_PASSWORD=yourpassword
+
+# Delays (seconds)
+MIN_DELAY=2.0
+MAX_DELAY=5.0
+PROFILE_DELAY_MIN=10.0
+PROFILE_DELAY_MAX=20.0
+
+# Mode
+USE_MOBILE_MODE=false
+
+# RabbitMQ
+RABBITMQ_HOST=localhost
+RABBITMQ_PORT=5672
+RABBITMQ_USER=guest
+RABBITMQ_PASS=guest
+RABBITMQ_QUEUE=linkedin_profiles
+
+# Scoring
+SCORING_QUEUE=scoring_queue
+DEFAULT_REQUIREMENTS_ID=desk_collection
 ```
-Input URLs manual, tunggu selesai.
+
+## How It Works
+
+**crawler.py** contains:
+- `LinkedInCrawler` class
+- Browser helper functions (create_driver, delays, scrolling)
+- Auth helper functions (login, cookies)
+- Extraction helper functions (show all, navigation)
+
+**crawler_consumer.py** contains:
+- `RabbitMQManager` class
+- Consumer worker threads
+- Profile save utilities
+- Scoring integration
 
 ## Monitoring
 
@@ -60,14 +123,16 @@ RabbitMQ Management UI: http://localhost:15672
 
 ## Output
 
-JSON files di folder: `data/output/`
+JSON files saved to: `data/output/`
 
-## Data Structure
-
+Example structure:
 ```json
 {
   "profile_url": "...",
   "name": "...",
+  "location": "...",
+  "gender": "...",
+  "estimated_age": {...},
   "about": "...",
   "experiences": [...],
   "education": [...],
@@ -82,10 +147,25 @@ JSON files di folder: `data/output/`
 }
 ```
 
-## Files
+## Troubleshooting
 
-- `multiple.py` - **Main file** (auto-load dari JSON, 3 workers)
-- `main.py` - Simple mode (manual input)
-- `crawler.py` - Scraper logic
-- `helper/` - Helper functions
-- `profile/` - **Put your JSON files here**
+**ChromeDriver not found:**
+```bash
+pip install webdriver-manager
+```
+
+**Login verification required:**
+- Complete verification in browser
+- Press ENTER in terminal after login
+- Cookies will be saved for next time
+
+**Memory leak / data becomes empty:**
+- Browser restarts automatically every 10 profiles
+- This prevents memory leak and keeps accuracy high
+
+## Notes
+
+- First 10 profiles are usually accurate
+- Browser restart prevents memory leak after that
+- Mobile mode = simpler HTML, no "See all" buttons
+- Desktop mode = full features, more data
