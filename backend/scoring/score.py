@@ -115,8 +115,7 @@ class Scorer:
             elif not profile_age:
                 details['age'] = {'score': 0, 'match': False, 'value': 'N/A', 'reason': 'age not found in profile'}
             else:
-                details['age'] = {'score': 0, 'match': False, 'value': 'N/A', 'reason': 'unknown'}
-            details['age'] = {'score': 0, 'match': False, 'value': profile_age or 'N/A'}
+                details['age'] = {'score': 0, 'match': False, 'value': profile_age or 'N/A', 'reason': 'unknown'}
         
         total += age_score
         
