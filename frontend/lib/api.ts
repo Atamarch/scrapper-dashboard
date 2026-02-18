@@ -2,7 +2,7 @@
  * API client for crawler backend
  */
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 export type Schedule = {
   id: string;
@@ -81,47 +81,47 @@ class CrawlerAPI {
 
   // Health check
   async healthCheck() {
-    return this.request<{ status: string; scheduler_running: boolean; timestamp: string }>('/health');
+    return this.request<{ status: string; scheduler_running: boolean; timestamp: string }>('/api/health');
   }
 
   // Schedules
   async getSchedules() {
-    return this.request<{ schedules: Schedule[] }>('/schedules');
+    return this.request<{ schedules: Schedule[] }>('/api/schedules');
   }
 
   async getSchedule(id: string) {
-    return this.request<Schedule>(`/schedules/${id}`);
+    return this.request<Schedule>(`/api/schedules/${id}`);
   }
 
   async createSchedule(data: ScheduleCreate) {
-    return this.request<{ message: string; schedule_id: string }>('/schedules', {
+    return this.request<{ message: string; schedule_id: string }>('/api/schedules', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
   async updateSchedule(id: string, data: ScheduleUpdate) {
-    return this.request<{ message: string }>(`/schedules/${id}`, {
+    return this.request<{ message: string }>(`/api/schedules/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
   }
 
   async deleteSchedule(id: string) {
-    return this.request<{ message: string }>(`/schedules/${id}`, {
+    return this.request<{ message: string }>(`/api/schedules/${id}`, {
       method: 'DELETE',
     });
   }
 
   async toggleSchedule(id: string) {
-    return this.request<{ message: string; status: string }>(`/schedules/${id}/toggle`, {
+    return this.request<{ message: string; status: string }>(`/api/schedules/${id}/toggle`, {
       method: 'POST',
     });
   }
 
   // Manual crawl
   async manualCrawl(data: CrawlRequest) {
-    return this.request<{ message: string; profile_count: number; max_workers: number }>('/crawl', {
+    return this.request<{ message: string; profile_count: number; max_workers: number }>('/api/crawl', {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -129,7 +129,7 @@ class CrawlerAPI {
 
   // Statistics
   async getStats() {
-    return this.request<Stats>('/stats');
+    return this.request<Stats>('/api/stats');
   }
 }
 
