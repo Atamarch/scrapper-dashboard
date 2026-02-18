@@ -556,19 +556,30 @@ def save_score_result(profile_data, score_result, requirements_id):
     return filepath
 
 
-def update_supabase_score(profile_url, total_score):
-    """Update score in Supabase leads_list table"""
+def update_supabase_score(profile_url, total_score, profile_data=None):
+    """Update score and profile data in Supabase leads_list table"""
     try:
         print(f"📤 Updating Supabase...")
         
+        # Prepare update data
+        update_data = {'score': total_score}
+        
+        # Add profile data if provided
+        if profile_data:
+            # Update name if available
+            if profile_data.get('name'):
+                update_data['name'] = profile_data.get('name')
+            
+            # Update other fields if they exist in the table
+            if profile_data.get('connection_status'):
+                update_data['connection_status'] = profile_data.get('connection_status')
+        
         # Update score in leads_list table where profile_url matches
-        response = supabase.table('leads_list').update({
-            'score': total_score
-        }).eq('profile_url', profile_url).execute()
+        response = supabase.table('leads_list').update(update_data).eq('profile_url', profile_url).execute()
         
         # Check if update was successful
         if response.data:
-            print(f"✓ Supabase updated: {profile_url} → score: {total_score}")
+            print(f"✓ Supabase updated: {profile_url} → score: {total_score}, name: {update_data.get('name', 'N/A')}")
             return True
         else:
             print(f"⚠ No matching profile_url found in Supabase: {profile_url}")

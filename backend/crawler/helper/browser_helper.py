@@ -1,11 +1,13 @@
 """Browser automation helper functions"""
 import time
 import random
+from dotenv import load_dotenv
 import os
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.common.action_chains import ActionChains
 
+load_dotenv()
 
 # Load delay configuration from environment
 try:

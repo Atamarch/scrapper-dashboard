@@ -5,6 +5,7 @@ import os
 import threading
 import time
 import hashlib
+import pika
 from datetime import datetime
 from dotenv import load_dotenv
 from crawler import LinkedInCrawler

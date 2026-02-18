@@ -58,18 +58,62 @@ def load_cookies(driver):
 
 
 def login(driver):
-    """Login to LinkedIn with automatic verification detection"""
+    """Login to LinkedIn with automatic verification detection and OAuth support"""
     load_dotenv()
     
     print("Checking for saved session...")
     if load_cookies(driver):
         return
     
+    # Check if OAuth mode is enabled
+    use_oauth = os.getenv('USE_OAUTH_LOGIN', 'false').lower() == 'true'
+    
+    if use_oauth:
+        print("\n" + "="*60)
+        print("🔐 OAUTH LOGIN MODE")
+        print("="*60)
+        print("Silakan login manual menggunakan Google/Microsoft/Apple")
+        print("Browser akan terbuka ke halaman login LinkedIn")
+        print("="*60 + "\n")
+        
+        driver.get('https://www.linkedin.com/login')
+        human_delay(2, 3)
+        
+        print("⏳ Menunggu Anda login...")
+        print("   Tekan ENTER setelah berhasil login dan melihat feed/homepage")
+        input("\nTekan ENTER setelah login berhasil...")
+        
+        # Verify login success
+        current_url = driver.current_url
+        if 'feed' in current_url or 'mynetwork' in current_url or '/in/' in current_url:
+            print("✓ Login berhasil!")
+            save_cookies(driver)
+            return
+        else:
+            print(f"⚠ Warning: URL saat ini: {current_url}")
+            retry = input("Apakah Anda sudah login? (y/n): ")
+            if retry.lower() == 'y':
+                save_cookies(driver)
+                return
+            else:
+                raise Exception("Login dibatalkan")
+    
+    # Original email/password login flow
     email = os.getenv('LINKEDIN_EMAIL')
     password = os.getenv('LINKEDIN_PASSWORD')
     
     if not email or not password:
-        raise ValueError("LinkedIn credentials not found in .env file")
+        print("\n⚠ LinkedIn credentials not found in .env file")
+        print("  Falling back to manual login mode...")
+        print("  (Set USE_OAUTH_LOGIN=true in .env to skip this message)")
+        
+        driver.get('https://www.linkedin.com/login')
+        human_delay(2, 3)
+        
+        print("\n⏳ Silakan login manual di browser...")
+        input("Tekan ENTER setelah berhasil login...")
+        save_cookies(driver)
+        return
     
     print("Attempting automatic login...")
     driver.get('https://www.linkedin.com/login')

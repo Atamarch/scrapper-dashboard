@@ -16,7 +16,7 @@ function LeadsPageContent() {
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
-  const [selectedTemplate, setSelectedTemplate] = useState<string>('all');
+  const [selectedTemplate, setSelectedTemplate] = useState<string>('');
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [showTemplateDropdown, setShowTemplateDropdown] = useState(false);
@@ -58,6 +58,14 @@ function LeadsPageContent() {
     async function fetchLeads() {
       setLoading(true);
       try {
+        // Jika belum pilih template, jangan fetch data
+        if (!selectedTemplate) {
+          setLeads([]);
+          setTotalCount(0);
+          setLoading(false);
+          return;
+        }
+
         // Fetch all data in batches (karena data > 1000)
         let allData: Lead[] = [];
         let from = 0;
@@ -66,9 +74,8 @@ function LeadsPageContent() {
 
         let baseQuery = supabase.from('leads_list').select('*');
         
-        if (selectedTemplate !== 'all') {
-          baseQuery = baseQuery.eq('template_id', selectedTemplate);
-        }
+        // Filter berdasarkan template yang dipilih
+        baseQuery = baseQuery.eq('template_id', selectedTemplate);
 
         // Fetch in batches
         while (hasMore) {
@@ -116,10 +123,10 @@ function LeadsPageContent() {
     setSelectedTemplate(templateId);
     setCurrentPage(1);
     setShowTemplateDropdown(false);
-    if (templateId === 'all') {
-      router.push('/leads');
-    } else {
+    if (templateId) {
       router.push(`/leads?template=${templateId}`);
+    } else {
+      router.push('/leads');
     }
   };
 
@@ -134,9 +141,8 @@ function LeadsPageContent() {
 
       let query = supabase.from('leads_list').select('*');
 
-      if (selectedTemplate !== 'all') {
-        query = query.eq('template_id', selectedTemplate);
-      }
+      // Filter berdasarkan template yang dipilih (export CSV)
+      query = query.eq('template_id', selectedTemplate);
 
       while (hasMore) {
         const { data: batchData, error: batchError } = await query
@@ -183,7 +189,7 @@ function LeadsPageContent() {
       const link = document.createElement('a');
       const url = URL.createObjectURL(blob);
 
-      const templateName = templates.find(t => t.id === selectedTemplate)?.name || 'all';
+      const templateName = templates.find(t => t.id === selectedTemplate)?.name || 'unknown';
       link.setAttribute('href', url);
       link.setAttribute('download', `leads_${templateName}_${new Date().toISOString().split('T')[0]}.csv`);
       link.style.visibility = 'hidden';
@@ -210,9 +216,8 @@ function LeadsPageContent() {
 
       let query = supabase.from('leads_list').select('*');
 
-      if (selectedTemplate !== 'all') {
-        query = query.eq('template_id', selectedTemplate);
-      }
+      // Filter berdasarkan template yang dipilih (export JSON)
+      query = query.eq('template_id', selectedTemplate);
 
       while (hasMore) {
         const { data: batchData, error: batchError } = await query
@@ -243,7 +248,7 @@ function LeadsPageContent() {
       const link = document.createElement('a');
       const url = URL.createObjectURL(blob);
 
-      const templateName = templates.find(t => t.id === selectedTemplate)?.name || 'all';
+      const templateName = templates.find(t => t.id === selectedTemplate)?.name || 'unknown';
       link.setAttribute('href', url);
       link.setAttribute('download', `leads_${templateName}_${new Date().toISOString().split('T')[0]}.json`);
       link.style.visibility = 'hidden';
@@ -280,9 +285,9 @@ function LeadsPageContent() {
                   className="flex items-center gap-2 rounded-lg border border-gray-700 bg-[#1a1f2e] px-4 py-2 text-white hover:border-gray-600 focus:border-blue-500 focus:outline-none min-w-[200px] justify-between"
                 >
                   <span className="truncate">
-                    {selectedTemplate === 'all' 
-                      ? 'All Templates' 
-                      : templates.find(t => t.id === selectedTemplate)?.name || 'Select Template'}
+                    {selectedTemplate 
+                      ? templates.find(t => t.id === selectedTemplate)?.name || 'Select Template'
+                      : 'Select Template'}
                   </span>
                   {showTemplateDropdown ? (
                     <ChevronUp className="h-4 w-4 flex-shrink-0" />
@@ -293,14 +298,6 @@ function LeadsPageContent() {
 
                 {showTemplateDropdown && (
                   <div className="absolute top-full left-0 mt-2 w-full min-w-[300px] max-h-[400px] overflow-y-auto rounded-lg border border-gray-700 bg-[#1a1f2e] shadow-lg z-10">
-                    <button
-                      onClick={() => handleTemplateChange('all')}
-                      className={`w-full px-4 py-2.5 text-left text-sm transition-colors hover:bg-gray-700/50 ${
-                        selectedTemplate === 'all' ? 'bg-gray-700/50 text-white' : 'text-gray-400'
-                      }`}
-                    >
-                      All Templates
-                    </button>
                     {templates.map((template) => (
                       <button
                         key={template.id}
@@ -337,7 +334,7 @@ function LeadsPageContent() {
             <div className="relative export-menu-container">
               <button
                 onClick={() => setShowExportMenu(!showExportMenu)}
-                disabled={exporting || totalCount === 0}
+                disabled={exporting || totalCount === 0 || !selectedTemplate}
                 className="flex items-center gap-2 rounded-lg border border-gray-700 bg-[#1A2E1C] px-4 py-2 text-white transition-colors hover:bg-[#2A472C] disabled:opacity-50"
               >
                 <Download className="h-4 w-4" />
@@ -370,10 +367,10 @@ function LeadsPageContent() {
             </div>
           </div>
 
-          <div className="rounded-xl border border-gray-700">
+          <div className="rounded-xl border border-gray-700 bg-[#1a1f2e]">
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead className="border-b border-gray-700 bg-[#1a1f2e]">
+                <thead className="border-b border-gray-700">
                   <tr>
                     <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Name</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Date</th>
@@ -402,13 +399,19 @@ function LeadsPageContent() {
                     <tr>
                       <td colSpan={6} className="px-6 py-20">
                         <div className="flex flex-col items-center justify-center">
-                          <div className="mb-6 space-y-2">
-                            <div className="h-1 w-16 rounded-full bg-gray-700" />
-                            <div className="h-1 w-16 rounded-full bg-gray-700" />
-                            <div className="h-1 w-16 rounded-full bg-gray-700" />
+                          <div className="mb-6">
+                            <img 
+                              src="/logo_without_bg.png" 
+                              alt="Logo" 
+                              className="w-16 h-16 opacity-30"
+                            />
                           </div>
-                          <p className="text-lg text-gray-400">No leads found</p>
-                          <p className="mt-2 text-sm text-gray-500">Try adjusting your filter</p>
+                          <p className="text-lg text-gray-400">
+                            {!selectedTemplate ? 'Please select a template to view leads' : 'No leads found'}
+                          </p>
+                          <p className="mt-2 text-sm text-gray-500">
+                            {!selectedTemplate ? 'Choose a template from the dropdown above' : 'Try adjusting your filter'}
+                          </p>
                         </div>
                       </td>
                     </tr>
@@ -471,7 +474,7 @@ function LeadsPageContent() {
             </div>
 
             {!loading && totalPages > 1 && (
-              <div className="flex items-center justify-center gap-2 border-t bg-[#1a1f2e] border-gray-700 p-6">
+              <div className="flex items-center justify-center gap-2 border-t rounded-xl bg-[#1a1f2e] border-gray-700 p-6">
                 <button
                   onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                   disabled={currentPage === 1}

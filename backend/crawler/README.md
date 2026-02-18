@@ -77,9 +77,12 @@ crawler.close()
 Edit `.env` file:
 
 ```bash
-# LinkedIn Credentials
+# LinkedIn Credentials (for email/password login)
 LINKEDIN_EMAIL=your@email.com
 LINKEDIN_PASSWORD=yourpassword
+
+# OAuth Login (for Google/Microsoft/Apple login)
+USE_OAUTH_LOGIN=false  # Set to true if using OAuth
 
 # Delays (seconds)
 MIN_DELAY=2.0
@@ -100,6 +103,43 @@ RABBITMQ_QUEUE=linkedin_profiles
 # Scoring
 SCORING_QUEUE=scoring_queue
 DEFAULT_REQUIREMENTS_ID=desk_collection
+```
+
+### OAuth Login Setup
+
+Jika akun LinkedIn Anda menggunakan OAuth (Google/Microsoft/Apple):
+
+1. Set di `.env`:
+```bash
+LINKEDIN_EMAIL=
+LINKEDIN_PASSWORD=
+USE_OAUTH_LOGIN=true
+```
+
+2. Jalankan crawler:
+```bash
+python crawler_consumer.py
+```
+
+3. Browser akan terbuka, login manual dengan OAuth
+4. Cookie tersimpan otomatis di `data/cookie/.linkedin_cookies.json`
+5. Login berikutnya otomatis menggunakan cookie
+
+**Lihat panduan lengkap**: [OAUTH_LOGIN.md](OAUTH_LOGIN.md)
+
+### Cookie Management
+
+Kelola cookie dengan script helper:
+
+```bash
+# Interactive menu
+python manage_cookies.py
+
+# Or direct commands
+python manage_cookies.py check    # Check cookie status
+python manage_cookies.py backup   # Backup cookies
+python manage_cookies.py restore  # Restore from backup
+python manage_cookies.py delete   # Delete cookies
 ```
 
 ## How It Works
