@@ -1,9 +1,9 @@
 # LinkedIn Crawler & Scoring System
 
 Project ini terdiri dari 3 komponen utama:
-1. **Frontend** - Dashboard admin untuk monitoring crawler dan scheduler
-2. **Backend Crawler** - Scraping profil LinkedIn
-3. **Backend Scoring** - Sistem penilaian kandidat
+1. **Frontend** - Dashboard admin untuk monitoring crawler dan scheduler.
+2. **Backend Crawler** - Scraping profil LinkedIn.
+3. **Backend Scoring** - Sistem penilaian kandidat.
 
 ## 📋 Prerequisites
 
