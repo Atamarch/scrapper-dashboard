@@ -241,23 +241,50 @@ class Scorer:
         return total
     
     def _score_experience(self, experiences):
-        """Score experience (25 points) - STRICT: Only Desk Collection related experience counts"""
+        """Score experience (25 points) - Dynamic based on requirements"""
         min_years = self.requirements.get('min_experience_years', 0)
         
-        # Define strict keywords for Desk Collection related positions
-        # These are the ONLY positions that count
-        desk_collection_keywords = [
-            'desk collection',
-            'call collection', 
-            'telecollection',
-            'telemarketing',
-            'debt collection',
-            'collection',
-            'penagihan',
-            'collector'
-        ]
+        # Priority 1: Use explicit experience keywords if provided
+        required_exp_keywords = self.requirements.get('required_experience_keywords', [])
+        preferred_exp_keywords = self.requirements.get('preferred_experience_keywords', [])
         
-        # Calculate only Desk Collection related experience
+        experience_keywords = []
+        
+        if required_exp_keywords:
+            # Use explicit required experience keywords
+            experience_keywords.extend([kw.lower() for kw in required_exp_keywords])
+        
+        if preferred_exp_keywords:
+            # Add preferred experience keywords (for bonus matching)
+            experience_keywords.extend([kw.lower() for kw in preferred_exp_keywords])
+        
+        # Priority 2: Fallback to skills if no explicit experience keywords
+        if not experience_keywords:
+            # Get keywords from required_skills and preferred_skills
+            required_skills = self.requirements.get('required_skills', {})
+            if required_skills:
+                experience_keywords.extend([skill.lower() for skill in required_skills.keys()])
+            
+            preferred_skills = self.requirements.get('preferred_skills', {})
+            if preferred_skills:
+                experience_keywords.extend([skill.lower() for skill in preferred_skills.keys()])
+            
+            # Add position name as keyword
+            position = self.requirements.get('position', '')
+            if position:
+                position_words = position.lower().split()
+                experience_keywords.extend(position_words)
+        
+        # Remove duplicates and filter out common words
+        common_words = ['and', 'or', 'the', 'a', 'an', 'in', 'on', 'at', 'to', 'for', '-']
+        experience_keywords = list(set([kw for kw in experience_keywords if kw not in common_words and len(kw) > 2]))
+        
+        if not experience_keywords:
+            # Fallback: if no keywords, count all experience
+            print("  ⚠ No experience keywords found, counting all experience")
+            experience_keywords = ['']  # Empty string will match everything
+        
+        # Calculate relevant experience
         relevant_months = 0
         relevant_experiences = []
         
@@ -265,7 +292,7 @@ class Scorer:
             if not isinstance(exp, dict):
                 continue
             
-            # Check if experience is Desk Collection related
+            # Check if experience is relevant
             title = exp.get('title', '').lower()
             company = exp.get('company', '').lower()
             description = exp.get('description', '').lower()
@@ -273,11 +300,11 @@ class Scorer:
             # Combine all text for matching
             exp_text = f"{title} {company} {description}"
             
-            # Check if any Desk Collection keyword matches
+            # Check if any keyword matches
             is_relevant = False
             matched_keywords = []
             
-            for keyword in desk_collection_keywords:
+            for keyword in experience_keywords:
                 # Direct substring match
                 if keyword in exp_text:
                     is_relevant = True
@@ -286,7 +313,7 @@ class Scorer:
                     # Fuzzy match for typos/variations
                     for word_chunk in exp_text.split():
                         ratio = fuzz.ratio(keyword, word_chunk)
-                        if ratio >= 85:  # High threshold for strict matching
+                        if ratio >= 80:  # Threshold for matching
                             is_relevant = True
                             matched_keywords.append(keyword)
                             break
@@ -312,13 +339,12 @@ class Scorer:
                         'company': exp.get('company', 'N/A'),
                         'duration': duration,
                         'months': exp_months,
-                        'matched_keywords': matched_keywords
+                        'matched_keywords': list(set(matched_keywords))
                     })
         
         relevant_years = relevant_months / 12
         
-        # STRICT: Must meet minimum years requirement
-        # No partial credit - either meets requirement or gets 0
+        # Scoring based on experience
         if relevant_years >= min_years:
             score = 25
         else:
@@ -334,7 +360,8 @@ class Scorer:
             'required_years': min_years,
             'relevant_experiences': relevant_experiences,
             'total_experiences': len(experiences),
-            'meets_requirement': relevant_years >= min_years
+            'meets_requirement': relevant_years >= min_years,
+            'keywords_used': experience_keywords[:10]  # Show first 10 keywords used
         }
         
         return score
@@ -414,10 +441,10 @@ def batch_score(profiles_dir, requirements_id):
     print(f"Found: {len(files)} profiles")
     print(f"\nScoring weights:")
     print(f"  - Demographics: 40 points (Gender: 15, Location: 15, Age: 10)")
-    print(f"  - Experience: 25 points (STRICT: Only Desk Collection experience)")
+    print(f"  - Experience: 25 points (Dynamic based on position requirements)")
     print(f"  - Skills: 25 points (18 required + 7 preferred)")
     print(f"  - Education: 10 points")
-    print(f"  - Fuzzy threshold: 70% (flexible)\n")
+    print(f"  - Fuzzy threshold: 70-80% (flexible)\n")
     
     # Score each profile
     results = []
