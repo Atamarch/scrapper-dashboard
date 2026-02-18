@@ -3,3 +3,5 @@ rapidfuzz==3.6.1
 scikit-learn==1.4.0
 numpy==1.26.3
 supabase==2.3.4
+requests==2.31.0
+beautifulsoup4==4.12.3
