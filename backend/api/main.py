@@ -32,8 +32,23 @@ app.add_middleware(
 )
 
 # Initialize services
-db = Database()
-scheduler = SchedulerService(db)
+db = None
+scheduler = None
+
+# Try to initialize database and scheduler, but continue without them if it fails
+def init_services():
+    global db, scheduler
+    try:
+        db = Database()
+        scheduler = SchedulerService(db)
+        print("✓ Database and Scheduler initialized")
+        return True
+    except Exception as e:
+        print(f"⚠ Database initialization failed: {e}")
+        print("  Running in limited mode (requirements generator only)")
+        db = None
+        scheduler = None
+        return False
 
 # Pydantic models
 class ScheduleCreate(BaseModel):
@@ -72,15 +87,20 @@ class RequirementsSaveRequest(BaseModel):
 @app.on_event("startup")
 async def startup_event():
     """Initialize database and start scheduler"""
-    db.init_db()
-    scheduler.start()
-    print("✓ Scheduler started")
+    init_services()
+    if db and scheduler:
+        db.init_db()
+        scheduler.start()
+        print("✓ Scheduler started")
+    else:
+        print("⚠ Running without scheduler (database not available)")
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Stop scheduler gracefully"""
-    scheduler.stop()
-    print("✓ Scheduler stopped")
+    if scheduler:
+        scheduler.stop()
+        print("✓ Scheduler stopped")
 
 
 # Health check
@@ -96,7 +116,8 @@ async def root():
 async def health_check():
     return {
         "status": "healthy",
-        "scheduler_running": scheduler.is_running(),
+        "scheduler_running": scheduler.is_running() if scheduler else False,
+        "database_available": db is not None,
         "timestamp": datetime.now().isoformat()
     }
 
@@ -105,12 +126,16 @@ async def health_check():
 @app.get("/api/schedules")
 async def get_schedules():
     """Get all scheduled jobs"""
+    if not db:
+        raise HTTPException(status_code=503, detail="Database not available")
     schedules = db.get_all_schedules()
     return {"schedules": schedules}
 
 @app.get("/api/schedules/{schedule_id}")
 async def get_schedule(schedule_id: str):
     """Get specific schedule"""
+    if not db:
+        raise HTTPException(status_code=503, detail="Database not available")
     schedule = db.get_schedule(schedule_id)
     if not schedule:
         raise HTTPException(status_code=404, detail="Schedule not found")
@@ -119,6 +144,8 @@ async def get_schedule(schedule_id: str):
 @app.post("/api/schedules")
 async def create_schedule(schedule: ScheduleCreate):
     """Create new scheduled job"""
+    if not db or not scheduler:
+        raise HTTPException(status_code=503, detail="Scheduler not available")
     try:
         schedule_id = db.create_schedule(
             name=schedule.name,
@@ -141,6 +168,8 @@ async def create_schedule(schedule: ScheduleCreate):
 @app.put("/api/schedules/{schedule_id}")
 async def update_schedule(schedule_id: str, schedule: ScheduleUpdate):
     """Update existing schedule"""
+    if not db or not scheduler:
+        raise HTTPException(status_code=503, detail="Scheduler not available")
     try:
         db.update_schedule(schedule_id, schedule.dict(exclude_unset=True))
         
@@ -154,6 +183,8 @@ async def update_schedule(schedule_id: str, schedule: ScheduleUpdate):
 @app.delete("/api/schedules/{schedule_id}")
 async def delete_schedule(schedule_id: str):
     """Delete schedule"""
+    if not db or not scheduler:
+        raise HTTPException(status_code=503, detail="Scheduler not available")
     try:
         scheduler.remove_job(schedule_id)
         db.delete_schedule(schedule_id)
@@ -164,6 +195,8 @@ async def delete_schedule(schedule_id: str):
 @app.post("/api/schedules/{schedule_id}/toggle")
 async def toggle_schedule(schedule_id: str):
     """Toggle schedule status (active/paused)"""
+    if not db or not scheduler:
+        raise HTTPException(status_code=503, detail="Scheduler not available")
     try:
         schedule = db.get_schedule(schedule_id)
         if not schedule:
@@ -189,6 +222,8 @@ async def toggle_schedule(schedule_id: str):
 @app.post("/api/crawl")
 async def manual_crawl(request: CrawlRequest, background_tasks: BackgroundTasks):
     """Trigger manual crawl immediately"""
+    if not scheduler:
+        raise HTTPException(status_code=503, detail="Scheduler not available")
     try:
         # Run crawl in background
         background_tasks.add_task(
@@ -210,6 +245,8 @@ async def manual_crawl(request: CrawlRequest, background_tasks: BackgroundTasks)
 @app.get("/api/stats")
 async def get_stats():
     """Get crawler statistics"""
+    if not db:
+        raise HTTPException(status_code=503, detail="Database not available")
     stats = db.get_stats()
     return stats
 

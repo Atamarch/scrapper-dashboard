@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { Loader2, Download, Save, Link as LinkIcon, FileText } from 'lucide-react'
+import { Loader2, Download, Save, Link as LinkIcon, FileText, Plus } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -102,194 +103,197 @@ export default function RequirementsGeneratorPage() {
   }
 
   return (
-    <div className="container mx-auto p-6 max-w-6xl">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Requirements Generator</h1>
-        <p className="text-gray-600 mt-2">
-          Generate job requirements from URL or job description
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Input Section */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold mb-4">Input</h2>
-          <p className="text-sm text-gray-600 mb-4">
-            Enter job details to generate requirements
-          </p>
-
-          <div className="space-y-4">
-            {/* Mode Selection */}
-            <div className="flex gap-2">
-              <button
-                onClick={() => setMode('url')}
-                className={`flex-1 px-4 py-2 rounded-lg font-medium transition ${
-                  mode === 'url'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                From URL
-              </button>
-              <button
-                onClick={() => setMode('text')}
-                className={`flex-1 px-4 py-2 rounded-lg font-medium transition ${
-                  mode === 'text'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                From Text
-              </button>
-            </div>
-
-            {/* Position Title */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Position Title *
-              </label>
-              <input
-                type="text"
-                value={position}
-                onChange={(e) => setPosition(e.target.value)}
-                placeholder="e.g., Desk Collection - BPR KS Bandung"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-
-            {/* URL Input */}
-            {mode === 'url' && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Job Posting URL *
-                </label>
-                <input
-                  type="url"
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  placeholder="https://example.com/job-posting"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-                <p className="text-sm text-gray-500 mt-1">
-                  Enter the URL of the job posting page
-                </p>
-              </div>
-            )}
-
-            {/* Text Input */}
-            {mode === 'text' && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Job Description *
-                </label>
-                <textarea
-                  value={jobDescription}
-                  onChange={(e) => setJobDescription(e.target.value)}
-                  placeholder="Paste job description here (can include HTML)"
-                  rows={10}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-                <p className="text-sm text-gray-500 mt-1">
-                  Paste the job description or kualifikasi section
-                </p>
-              </div>
-            )}
-
-            {/* Generate Button */}
+    <div className="min-h-screen bg-black text-white">
+      {/* Header */}
+      <header className="border-b border-gray-800 bg-zinc-950">
+        <div className="px-6 py-4">
+          <div className="flex items-center justify-between">
+            <h1 className="text-2xl font-bold">Requirements Generator</h1>
             <button
               onClick={handleGenerate}
               disabled={loading}
-              className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition"
+              className="flex items-center gap-2 rounded-md bg-white px-4 py-2 text-sm font-medium text-black transition-colors hover:bg-gray-200 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed"
             >
               {loading ? (
-                <span className="flex items-center justify-center">
-                  <svg className="animate-spin h-5 w-5 mr-2" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
                   Generating...
-                </span>
+                </>
               ) : (
-                'Generate Requirements'
+                <>
+                  <Plus className="h-4 w-4" />
+                  Generate
+                </>
               )}
             </button>
-
-            {/* Alerts */}
-            {error && (
-              <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg">
-                {error}
-              </div>
-            )}
-
-            {success && (
-              <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg">
-                {success}
-              </div>
-            )}
           </div>
         </div>
+      </header>
 
-        {/* Output Section */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold mb-4">Generated Requirements</h2>
-          <p className="text-sm text-gray-600 mb-4">
-            Review and save the generated requirements
-          </p>
-
-          {!requirements ? (
-            <div className="text-center py-12 text-gray-400">
-              <svg className="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              <p>No requirements generated yet</p>
-              <p className="text-sm mt-2">Fill in the form and click Generate</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {/* Parsed Data Summary */}
-              {parsedData && (
-                <div className="bg-blue-50 p-4 rounded-lg space-y-2 text-sm">
-                  <h3 className="font-semibold text-blue-900">Extracted Information:</h3>
-                  <div className="grid grid-cols-2 gap-2 text-blue-800">
-                    <div>Gender: {parsedData.gender || 'Not specified'}</div>
-                    <div>Location: {parsedData.location || 'Not specified'}</div>
-                    <div>Min Experience: {parsedData.min_experience_years} years</div>
-                    <div>Age Range: {parsedData.age_range ? `${parsedData.age_range.min}-${parsedData.age_range.max}` : 'Not specified'}</div>
-                  </div>
-                  {parsedData.experience_keywords?.length > 0 && (
-                    <div>
-                      <span className="font-medium">Keywords:</span> {parsedData.experience_keywords.join(', ')}
-                    </div>
-                  )}
+      <main className="px-6 py-8">
+        <div className="grid gap-6">
+          {/* Input Section */}
+          <div className="rounded-lg border border-gray-800 bg-zinc-950">
+            <div className="p-6">
+              <h2 className="text-lg font-semibold mb-4">Input</h2>
+              
+              <div className="space-y-4">
+                {/* Mode Selection */}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setMode('url')}
+                    className={cn(
+                      'flex-1 px-4 py-2 rounded-md text-sm font-medium transition-colors',
+                      mode === 'url'
+                        ? 'bg-white text-black'
+                        : 'bg-zinc-900 text-gray-400 hover:bg-zinc-800 hover:text-white'
+                    )}
+                  >
+                    From URL
+                  </button>
+                  <button
+                    onClick={() => setMode('text')}
+                    className={cn(
+                      'flex-1 px-4 py-2 rounded-md text-sm font-medium transition-colors',
+                      mode === 'text'
+                        ? 'bg-white text-black'
+                        : 'bg-zinc-900 text-gray-400 hover:bg-zinc-800 hover:text-white'
+                    )}
+                  >
+                    From Text
+                  </button>
                 </div>
-              )}
 
-              {/* JSON Preview */}
-              <div className="bg-gray-50 p-4 rounded-lg">
-                <pre className="text-xs overflow-auto max-h-96 text-gray-800">
-                  {JSON.stringify(requirements, null, 2)}
-                </pre>
+                {/* Position Title */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Position Title
+                  </label>
+                  <input
+                    type="text"
+                    value={position}
+                    onChange={(e) => setPosition(e.target.value)}
+                    placeholder="e.g., Desk Collection - BPR KS Bandung"
+                    className="w-full rounded-md border border-gray-700 bg-zinc-900 px-4 py-2.5 text-white placeholder-gray-500 focus:border-gray-600 focus:outline-none focus:ring-1 focus:ring-gray-600"
+                  />
+                </div>
+
+                {/* URL Input */}
+                {mode === 'url' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">
+                      Job Posting URL
+                    </label>
+                    <input
+                      type="url"
+                      value={url}
+                      onChange={(e) => setUrl(e.target.value)}
+                      placeholder="https://example.com/job-posting"
+                      className="w-full rounded-md border border-gray-700 bg-zinc-900 px-4 py-2.5 text-white placeholder-gray-500 focus:border-gray-600 focus:outline-none focus:ring-1 focus:ring-gray-600"
+                    />
+                  </div>
+                )}
+
+                {/* Text Input */}
+                {mode === 'text' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">
+                      Job Description
+                    </label>
+                    <textarea
+                      value={jobDescription}
+                      onChange={(e) => setJobDescription(e.target.value)}
+                      placeholder="Paste job description here..."
+                      rows={8}
+                      className="w-full rounded-md border border-gray-700 bg-zinc-900 px-4 py-2.5 text-white placeholder-gray-500 focus:border-gray-600 focus:outline-none focus:ring-1 focus:ring-gray-600 resize-none"
+                    />
+                  </div>
+                )}
+
+                {/* Alerts */}
+                {error && (
+                  <div className="rounded-md border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-400">
+                    {error}
+                  </div>
+                )}
+
+                {success && (
+                  <div className="rounded-md border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-400">
+                    {success}
+                  </div>
+                )}
               </div>
+            </div>
+          </div>
 
-              {/* Action Buttons */}
-              <div className="flex gap-2">
-                <button
-                  onClick={handleSave}
-                  className="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-700 transition"
-                >
-                  Save to Server
-                </button>
-                <button
-                  onClick={handleDownload}
-                  className="flex-1 bg-gray-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-gray-700 transition"
-                >
-                  Download JSON
-                </button>
+          {/* Stats Cards */}
+          {parsedData && (
+            <div className="grid gap-4 md:grid-cols-4">
+              <div className="rounded-lg border border-gray-800 bg-zinc-950 p-6">
+                <p className="text-sm text-gray-400">Gender</p>
+                <p className="mt-2 text-2xl font-bold">{parsedData.gender || 'Any'}</p>
+              </div>
+              <div className="rounded-lg border border-gray-800 bg-zinc-950 p-6">
+                <p className="text-sm text-gray-400">Location</p>
+                <p className="mt-2 text-2xl font-bold">{parsedData.location || 'Any'}</p>
+              </div>
+              <div className="rounded-lg border border-gray-800 bg-zinc-950 p-6">
+                <p className="text-sm text-gray-400">Min Experience</p>
+                <p className="mt-2 text-2xl font-bold">{parsedData.min_experience_years} years</p>
+              </div>
+              <div className="rounded-lg border border-gray-800 bg-zinc-950 p-6">
+                <p className="text-sm text-gray-400">Age Range</p>
+                <p className="mt-2 text-2xl font-bold">
+                  {parsedData.age_range ? `${parsedData.age_range.min}-${parsedData.age_range.max}` : 'Any'}
+                </p>
               </div>
             </div>
           )}
+
+          {/* Generated Requirements */}
+          <div className="rounded-lg border border-gray-800 bg-zinc-950">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold">Generated Requirements</h2>
+                {requirements && (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleSave}
+                      className="rounded-md border border-gray-700 px-3 py-2 text-sm transition-colors hover:bg-zinc-800"
+                    >
+                      <Save className="h-4 w-4 inline mr-1" />
+                      Save
+                    </button>
+                    <button
+                      onClick={handleDownload}
+                      className="rounded-md border border-gray-700 px-3 py-2 text-sm transition-colors hover:bg-zinc-800"
+                    >
+                      <Download className="h-4 w-4 inline mr-1" />
+                      Download
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {!requirements ? (
+                <div className="py-12 text-center text-gray-500">
+                  <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>No requirements generated yet</p>
+                  <p className="text-sm mt-2">Fill in the form and click Generate</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <div className="rounded-md border border-gray-800 bg-zinc-900">
+                    <pre className="p-4 text-xs text-gray-300 overflow-auto max-h-96">
+                      {JSON.stringify(requirements, null, 2)}
+                    </pre>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
-      </div>
+      </main>
     </div>
   )
 }

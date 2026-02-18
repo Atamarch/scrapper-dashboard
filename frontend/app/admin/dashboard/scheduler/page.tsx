@@ -13,6 +13,7 @@ export default function CrawlerScheduler() {
   const router = useRouter();
   const [jobs, setJobs] = useState<ScheduledJob[]>([]);
   const [loading, setLoading] = useState(true);
+  const [apiAvailable, setApiAvailable] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [jobToDelete, setJobToDelete] = useState<ScheduledJob | null>(null);
@@ -43,9 +44,12 @@ export default function CrawlerScheduler() {
     try {
       const response = await crawlerAPI.getSchedules();
       setJobs(response.schedules);
+      setApiAvailable(true);
     } catch (error) {
       console.error('Failed to load schedules:', error);
-      alert('Failed to load schedules. Make sure API server is running.');
+      // Don't show alert, just set empty jobs
+      setJobs([]);
+      setApiAvailable(false);
     }
   }
 
@@ -166,7 +170,8 @@ export default function CrawlerScheduler() {
             <h1 className="text-2xl font-bold">Crawler Scheduler</h1>
             <button
               onClick={() => setShowAddModal(true)}
-              className="flex items-center gap-2 rounded-md bg-white px-4 py-2 text-sm font-medium text-black transition-colors hover:bg-gray-200"
+              disabled={!apiAvailable}
+              className="flex items-center gap-2 rounded-md bg-white px-4 py-2 text-sm font-medium text-black transition-colors hover:bg-gray-200 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed"
             >
               <Plus className="h-4 w-4" />
               Add Schedule
@@ -176,6 +181,22 @@ export default function CrawlerScheduler() {
       </header>
 
       <main className="px-6 py-8">
+        {!apiAvailable && (
+          <div className="mb-6 rounded-lg border border-yellow-800 bg-yellow-950/20 p-4">
+            <div className="flex items-center gap-3">
+              <svg className="h-5 w-5 text-yellow-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <div>
+                <p className="font-medium text-yellow-500">API Server Not Available</p>
+                <p className="text-sm text-yellow-600">
+                  Scheduler requires API server with database. Start the API server to use this feature.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+        
         <div className="grid gap-6">
           {/* Stats Cards */}
           <div className="grid gap-4 md:grid-cols-3">
@@ -253,7 +274,19 @@ export default function CrawlerScheduler() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-800">
-                  {jobs.length === 0 ? (
+                  {!apiAvailable ? (
+                    <tr>
+                      <td colSpan={7} className="px-6 py-12 text-center">
+                        <div className="text-yellow-500">
+                          <svg className="w-12 h-12 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                          </svg>
+                          <p className="font-medium">API Server Not Running</p>
+                          <p className="text-sm text-gray-400 mt-1">Start the API server to manage schedules</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : jobs.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
                         No scheduled jobs yet. Click "Add Schedule" to create one.

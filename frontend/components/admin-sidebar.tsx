@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Calendar, LogOut, ChevronLeft, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, Calendar, LogOut, ChevronLeft, ChevronRight, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase';
 const navigation = [
   { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
   { name: 'Crawler Scheduler', href: '/admin/dashboard/scheduler', icon: Calendar },
+  { name: 'Requirements Generator', href: '/admin/dashboard/requirements', icon: FileText },
 ];
 
 export function AdminSidebar() {
