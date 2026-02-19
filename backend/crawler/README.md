@@ -7,7 +7,7 @@ Simplified crawler with only 2 main files
 ```
 crawler/
 ├── crawler.py              # Main crawler class + all helper functions
-├── crawler_consumer.py     # RabbitMQ consumer + utilities
+├── crawler_consumer.py     # RabbitMQ consumerr + utilities
 ├── .env                    # Configuration
 ├── requirements.txt        # Dependencies
 └── data/
