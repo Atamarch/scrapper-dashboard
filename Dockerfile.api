@@ -1,0 +1,17 @@
+# API Service Dockerfile (from root)
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Copy requirements from subdirectory
+COPY backend/api/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy all API files
+COPY backend/api/ .
+
+# Expose port
+EXPOSE 8000
+
+# Start API server
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

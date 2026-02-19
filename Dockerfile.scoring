@@ -1,0 +1,17 @@
+# Scoring Service Dockerfile (from root)
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Copy requirements from subdirectory
+COPY backend/scoring/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy all scoring files
+COPY backend/scoring/ .
+
+# Create data directory
+RUN mkdir -p data/scores
+
+# Start scoring consumer
+CMD ["python", "scoring_consumer.py"]
