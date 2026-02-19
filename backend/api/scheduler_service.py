@@ -20,7 +20,7 @@ class SchedulerService:
             self.scheduler.start()
             self.running = True
             
-            # Load existing schedules
+            # Load existing scheduless
             self._load_schedules()
     
     def stop(self):
