@@ -1,6 +1,6 @@
 # LinkedIn Profile Crawler
 
-Simplified crawler with only 2 main files.
+Simplified crawler with only 2 main files
 
 ## File Structure
 
