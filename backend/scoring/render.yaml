@@ -1,0 +1,26 @@
+# Render Blueprint for Scoring Service
+# Docs: https://render.com/docs/blueprint-spec
+
+services:
+  - type: worker  # Background worker (not web service)
+    name: linkedin-scoring
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    region: singapore  # or oregon, frankfurt
+    plan: free  # or starter ($7/month)
+    branch: main
+    envVars:
+      - key: RABBITMQ_HOST
+        sync: false  # Set manually in Render dashboard
+      - key: RABBITMQ_PORT
+        value: 5672
+      - key: RABBITMQ_USER
+        value: guest
+      - key: RABBITMQ_PASS
+        value: guest
+      - key: SCORING_QUEUE
+        value: scoring_queue
+      - key: DEFAULT_REQUIREMENTS_ID
+        value: desk_collection
+    autoDeploy: true

@@ -1,0 +1,23 @@
+{
+  "enabled": true,
+  "name": "Auto Documentation Update",
+  "description": "Monitors Python and TypeScript source files for changes and prompts the agent to update relevant documentation in README files or docs folder",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "*.py",
+      "*.ts",
+      "*.tsx",
+      "*.json",
+      "*.sql",
+      "*.sh"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "On each completed commit:\n\n- Inspect the most recent commit only.\n- Detect documentation-impacting changes.\n- Update the closest README.md file in the same directory.\n- If none exists, update the root README.md.\n- Append new sections instead of rewriting entire documentation.\n- Preserve existing structure and formatting.\n- Do not create unnecessary files.\n- Do not modify source code.\n"
+  },
+  "workspaceFolderName": "scrapper-dashboard",
+  "shortName": "auto-doc-update"
+}

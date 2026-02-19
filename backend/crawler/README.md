@@ -187,6 +187,27 @@ Example structure:
 }
 ```
 
+## Docker Testing
+
+Test the Docker build locally before deploying to production:
+
+```bash
+./test-docker.sh
+```
+
+This script will:
+- Build the Docker image locally
+- Validate the build process
+- Start a test container with your `.env` configuration
+- Stream container logs for monitoring
+- Automatically cleanup on exit
+
+**Requirements:**
+- Docker installed and running
+- `.env` file with required credentials (LINKEDIN_EMAIL, LINKEDIN_PASSWORD, RABBITMQ_HOST, etc.)
+
+**Note:** First build downloads Chrome (~500MB) and may take 5-10 minutes.
+
 ## Troubleshooting
 
 **ChromeDriver not found:**
@@ -202,6 +223,11 @@ pip install webdriver-manager
 **Memory leak / data becomes empty:**
 - Browser restarts automatically every 10 profiles
 - This prevents memory leak and keeps accuracy high
+
+**Docker build fails:**
+- Ensure Docker is running
+- Check `.env` file exists with all required variables
+- Try `docker system prune` to free up space
 
 ## Notes
 

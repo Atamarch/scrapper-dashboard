@@ -7,11 +7,20 @@ Folder ini berisi helper modules yang digunakan oleh LinkedIn crawler untuk memi
 ### 1. `browser_helper.py`
 **Fungsi**: Mengelola browser automation dan anti-detection
 - `create_driver()` - Setup Chrome WebDriver dengan konfigurasi anti-detection
+  - Deteksi otomatis production mode (Docker/Render) via environment variables
+  - Mode headless otomatis di production untuk stabilitas
+  - Support mobile dan desktop mode
 - `human_delay()` - Random delay untuk meniru behavior manusia
 - `profile_delay()` - Delay lebih lama antar profil
 - `random_mouse_movement()` - Simulasi gerakan mouse
 - `smooth_scroll()` - Scroll smooth ke element
 - `scroll_page_to_load()` - Scroll halaman untuk load lazy content
+
+**Environment Variables**:
+- `RENDER=true` atau `DOCKER=true` - Aktifkan headless mode untuk production
+- `USE_MOBILE_MODE=true` - Gunakan mobile emulation
+- `MIN_DELAY`, `MAX_DELAY` - Konfigurasi delay antar aksi
+- `PROFILE_DELAY_MIN`, `PROFILE_DELAY_MAX` - Delay antar profil
 
 ### 2. `auth_helper.py`
 **Fungsi**: Menangani autentikasi LinkedIn

@@ -291,3 +291,77 @@ Jika ada masalah, cek:
 ---
 
 **Happy Crawling! 🚀**
+
+## 🌐 CORS Configuration (API)
+
+The backend API (`backend/api/main.py`) is configured to accept requests from multiple origins:
+
+### Allowed Origins
+- `http://localhost:3000` - Local development (primary)
+- `http://localhost:3001` - Local development (alternate)
+- `https://*.vercel.app` - All Vercel preview and production deployments
+- Custom production URL via `FRONTEND_URL` environment variable
+
+### Configuration
+The API uses both static origins and regex patterns to support:
+- Local development environments
+- Vercel preview deployments (automatically generated URLs)
+- Production deployments
+
+### Environment Variable
+To set a custom production frontend URL, add to `backend/api/.env`:
+```
+FRONTEND_URL=https://your-production-domain.com
+```
+
+This ensures the API can communicate with your frontend regardless of deployment environment.
+
+## 🐳 Docker Testing (API)
+
+Before deploying the API to production, you can test the Docker build locally using the provided test script.
+
+### Testing Docker Build
+
+```bash
+# Navigate to API directory
+cd backend/api
+
+# Set environment variables (required)
+export SUPABASE_URL="your_supabase_url"
+export SUPABASE_KEY="your_supabase_key"
+
+# Run the test script
+bash test-docker.sh
+```
+
+### What the Script Does
+
+1. **Builds** the Docker image as `linkedin-api:test`
+2. **Starts** a container named `linkedin-api-test` on port 8000
+3. **Waits** for the service to initialize (5 seconds)
+4. **Tests** the health endpoint at `http://localhost:8000/health`
+5. **Reports** success or failure with appropriate cleanup
+
+### After Testing
+
+If successful, the API will be running at:
+- API: `http://localhost:8000`
+- Docs: `http://localhost:8000/docs`
+
+To stop and remove the test container:
+```bash
+docker stop linkedin-api-test
+docker rm linkedin-api-test
+```
+
+### Troubleshooting Docker Tests
+
+If the health check fails, the script will:
+- Display container logs automatically
+- Stop and remove the container
+- Exit with error code
+
+Common issues:
+- Missing environment variables (SUPABASE_URL, SUPABASE_KEY)
+- Port 8000 already in use
+- Docker daemon not running

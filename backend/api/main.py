@@ -22,10 +22,21 @@ from database import Database
 
 app = FastAPI(title="LinkedIn Crawler API", version="1.0.0")
 
-# CORS
+# CORS - Allow Vercel and localhost
+ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "https://*.vercel.app",  # All Vercel preview deployments
+    os.getenv("FRONTEND_URL", ""),  # Production frontend URL from env
+]
+
+# Filter out empty strings
+ALLOWED_ORIGINS = [origin for origin in ALLOWED_ORIGINS if origin]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=r"https://.*\.vercel\.app",  # Regex for Vercel domains
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

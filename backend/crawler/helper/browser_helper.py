@@ -31,6 +31,9 @@ def create_driver(mobile_mode=None):
     
     options = webdriver.ChromeOptions()
     
+    # Check if running in production (Docker/Render)
+    is_production = os.getenv('RENDER', 'false').lower() == 'true' or os.getenv('DOCKER', 'false').lower() == 'true'
+    
     # Anti-detection: Hide automation flags
     options.add_argument('--disable-blink-features=AutomationControlled')
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
@@ -40,6 +43,12 @@ def create_driver(mobile_mode=None):
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-gpu')
+    
+    # Production mode: headless
+    if is_production:
+        options.add_argument('--headless=new')  # New headless mode (more stable)
+        options.add_argument('--disable-software-rasterizer')
+        print("🔧 Running in HEADLESS mode (production)")
     
     # User agent and window size
     if mobile_mode:

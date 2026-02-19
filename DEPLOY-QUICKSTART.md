@@ -1,131 +1,88 @@
-# ⚡ Quick Deploy ke Vercel (5 Menit)
+# 🚀 Quick Deploy Guide
 
-Panduan super cepat deploy frontend ke Vercel.
+Deploy dalam 15 menit!
+
+## Prerequisites
+
+- [ ] GitHub account
+- [ ] Supabase account (free)
+- [ ] Render account (free)
+- [ ] Vercel account (free)
 
 ---
 
-## 🚀 Step-by-Step (5 Menit)
+## 🎯 Quick Steps
 
-### 1️⃣ Push ke GitHub (1 menit)
+### 1️⃣ Setup Database (5 min)
 
 ```bash
-# Pastikan di root project
-git add .
-git commit -m "Ready for Vercel deployment"
-git push origin main
+1. Login ke supabase.com
+2. Create new project
+3. SQL Editor → Run backend/api/supabase_migration.sql
+4. Copy API keys (Project Settings → API)
 ```
 
----
-
-### 2️⃣ Import ke Vercel (2 menit)
-
-1. Buka: https://vercel.com/new
-2. Login dengan GitHub
-3. Klik **"Import"** pada repository Anda
-4. **Root Directory:** Ketik `frontend` ✅
-5. Centang **"Include source files outside of the Root Directory"** ✅
-6. Klik **"Continue"**
-
----
-
-### 3️⃣ Set Environment Variables (1 menit)
-
-Scroll ke bawah, tambahkan 2 variables ini:
-
-**Variable 1:**
-```
-Name: NEXT_PUBLIC_SUPABASE_URL
-Value: https://your-project.supabase.co
-```
-
-**Variable 2:**
-```
-Name: NEXT_PUBLIC_SUPABASE_ANON_KEY
-Value: your-anon-key-here
-```
-
-**Cara dapat Supabase credentials:**
-- Buka: https://supabase.com/dashboard
-- Pilih project → Settings → API
-- Copy **URL** dan **anon public** key
-
----
-
-### 4️⃣ Deploy! (1 menit)
-
-1. Klik **"Deploy"**
-2. Tunggu 2-3 menit ☕
-3. Selesai! 🎉
-
-URL Anda: `https://your-project.vercel.app`
-
----
-
-## ✅ Test Dashboard
-
-Buka URL Vercel Anda dan test:
-
-- ✅ Homepage: `/`
-- ✅ Admin Login: `/admin`
-- ✅ Dashboard: `/admin/dashboard`
-- ✅ Scheduler: `/admin/dashboard/scheduler`
-
----
-
-## 🔄 Update Dashboard
-
-Setiap kali ada perubahan:
+### 2️⃣ Deploy Backend (5 min)
 
 ```bash
-git add .
-git commit -m "Update feature"
-git push origin main
+1. Login ke render.com
+2. New Web Service → Connect GitHub
+3. Configure:
+   - Root Directory: backend/api
+   - Runtime: Docker
+   - Plan: Free
+4. Add environment variables (see .env.production.example)
+5. Deploy!
 ```
 
-Vercel akan **auto deploy** dalam 2-3 menit! 🚀
+### 3️⃣ Deploy Frontend (5 min)
 
----
-
-## 🐛 Troubleshooting
-
-### Build Failed?
-
-**Cek build di local:**
 ```bash
-cd frontend
-npm run build
+1. Login ke vercel.com
+2. Import Project → Connect GitHub
+3. Configure:
+   - Root Directory: frontend
+   - Framework: Next.js
+4. Add environment variables (see .env.production.example)
+5. Deploy!
 ```
 
-Perbaiki error, lalu push lagi.
+---
+
+## ✅ Verification
+
+```bash
+# Test API
+curl https://your-api.onrender.com/health
+
+# Test Frontend
+open https://your-app.vercel.app
+```
 
 ---
 
-### Environment Variables Tidak Ketemu?
+## 📚 Full Guide
 
-1. Vercel Dashboard → Project → Settings
-2. Environment Variables
-3. Tambahkan variables
-4. Klik **"Redeploy"**
+See [DEPLOYMENT-GUIDE.md](./DEPLOYMENT-GUIDE.md) for detailed instructions.
 
 ---
 
-### Masih Error?
+## 💰 Cost
 
-Lihat panduan lengkap: [DEPLOY.md](DEPLOY.md)
+**Total: $0/month** (Free tier)
 
----
+- Frontend (Vercel): $0
+- Backend (Render): $0
+- Database (Supabase): $0
 
-## 📝 Checklist
+⚠️ Render free tier sleeps after 15 min (cold start ~30s)
 
-- [ ] Code sudah di-push ke GitHub
-- [ ] Supabase URL dan Key sudah disiapkan
-- [ ] Build berhasil di local (`npm run build`)
-- [ ] Environment variables sudah ditambahkan di Vercel
-- [ ] Deploy berhasil
-- [ ] Dashboard bisa diakses
+Upgrade to Starter ($7/month) for no sleep.
 
 ---
 
-**Selesai! Dashboard Anda sudah online! 🎉**
+## 🆘 Issues?
 
-URL: `https://your-project.vercel.app`
+1. Check [DEPLOYMENT-GUIDE.md](./DEPLOYMENT-GUIDE.md)
+2. Check service logs
+3. Verify environment variables
