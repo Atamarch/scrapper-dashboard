@@ -1,17 +1,25 @@
-# API Service Dockerfile (from root)
+# API Service Dockerfile
 FROM python:3.11-slim
 
+# Set working directory
 WORKDIR /app
 
-# Copy requirements from subdirectory
-COPY backend/api/requirements.txt .
+# Copy requirements
+COPY backend/api/requirements.txt ./requirements.txt
+
+# Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy all API files
-COPY backend/api/ .
+# Copy application code
+COPY backend/api/*.py ./
+COPY backend/api/*.sql ./
+COPY backend/api/*.sh ./
 
-# Expose port
+# Set Python path
+ENV PYTHONUNBUFFERED=1
+
+# Expose port (Railway will override with $PORT)
 EXPOSE 8000
 
 # Start API server
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
