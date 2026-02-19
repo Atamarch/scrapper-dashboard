@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 
 
-# Template requirements untuk berbagai posisi
+# Template requirements untuk berbagai posisii
 TEMPLATES = {
     "desk_collection": {
         "required_experience_keywords": [
