@@ -168,7 +168,7 @@ function LeadsPageContent() {
         return;
       }
 
-      const headers = ['Name', 'Date', 'Connection Status', 'Score', 'Note Sent', 'Profile URL', 'Search URL'];
+      const headers = ['Name', 'Date', 'Connection Status', 'Score', 'Scored At', 'Note Sent', 'Profile URL', 'Search URL'];
       const csvRows = [headers.join(',')];
 
       allData.forEach(lead => {
@@ -177,6 +177,7 @@ function LeadsPageContent() {
           lead.date || '',
           lead.connection_status || '',
           lead.score || '',
+          lead.scored_at || '',
           `"${lead.note_sent || ''}"`,
           lead.profile_url || '',
           lead.search_url || ''
@@ -376,6 +377,7 @@ function LeadsPageContent() {
                     <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Date</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Status</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Score</th>
+                    <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Scored At</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Note Sent</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Profile</th>
                   </tr>
@@ -385,7 +387,7 @@ function LeadsPageContent() {
                     <>
                       {[1, 2, 3, 4, 5].map((i) => (
                         <tr key={i} className="border-b border-gray-700/50">
-                          <td colSpan={6} className="px-6 py-4">
+                          <td colSpan={7} className="px-6 py-4">
                             <div className="space-y-2">
                               <div className="h-3 w-3/4 animate-pulse rounded bg-gray-700" />
                               <div className="h-2 w-1/2 animate-pulse rounded bg-gray-700" />
@@ -397,7 +399,7 @@ function LeadsPageContent() {
                     </>
                   ) : leads.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-6 py-20">
+                      <td colSpan={7} className="px-6 py-20">
                         <div className="flex flex-col items-center justify-center">
                           <div className="mb-6">
                             <img 
@@ -445,6 +447,17 @@ function LeadsPageContent() {
                             }`}>
                             {lead.score != null ? lead.score.toFixed(1) : '-'}
                           </span>
+                        </td>
+                        <td className="px-6 py-4 text-gray-400">
+                          {lead.scored_at ? (
+                            new Date(lead.scored_at).toLocaleDateString('en-GB', { 
+                              day: 'numeric', 
+                              month: 'short', 
+                              year: 'numeric'
+                            })
+                          ) : (
+                            <span className="text-gray-500">-</span>
+                          )}
                         </td>
                         <td className="px-6 py-4 text-gray-400">
                           <span className="line-clamp-1" title={lead.note_sent || '-'}>

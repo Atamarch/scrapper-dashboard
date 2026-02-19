@@ -496,10 +496,11 @@ def batch_score(profiles_dir, requirements_id):
     # Save CSV
     os.makedirs('data/scores', exist_ok=True)
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    scored_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     csv_file = f'data/scores/scores_{requirements_id}_{timestamp}.csv'
     
     with open(csv_file, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=['rank', 'name', 'profile_url', 'score', 'gender', 'location', 'age', 'relevant_exp', 'skills_matched'])
+        writer = csv.DictWriter(f, fieldnames=['rank', 'name', 'profile_url', 'score', 'gender', 'location', 'age', 'relevant_exp', 'skills_matched', 'scored_at'])
         writer.writeheader()
         for rank, result in enumerate(results, 1):
             writer.writerow({
@@ -511,7 +512,8 @@ def batch_score(profiles_dir, requirements_id):
                 'location': result['location'],
                 'age': result['age'],
                 'relevant_exp': result['relevant_exp'],
-                'skills_matched': result['skills_matched']
+                'skills_matched': result['skills_matched'],
+                'scored_at': scored_at
             })
     
     print(f"\n{'='*60}")

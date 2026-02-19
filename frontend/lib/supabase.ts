@@ -18,6 +18,7 @@ export type Lead = {
   profile_url: string | null;
   connection_status: string | null;
   score: number | null;
+  scored_at: string | null;
 };
 
 export type Company = {
