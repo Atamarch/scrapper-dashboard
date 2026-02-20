@@ -128,8 +128,8 @@ export function RequirementModal({ isOpen, onClose, onStart, jobName, jsonFileId
 
   return (
     <>
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
-        <div className="w-full max-w-2xl rounded-lg border border-gray-800 bg-zinc-950 p-6">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 overflow-y-auto">
+        <div className="w-full max-w-2xl my-8 rounded-lg border border-gray-800 bg-zinc-950 p-6 max-h-[90vh] overflow-y-auto">
           <div className="mb-4 flex items-center justify-between">
             <div>
               <h2 className="text-xl font-semibold text-white">Configure Crawler Job</h2>
@@ -368,8 +368,8 @@ export function RequirementModal({ isOpen, onClose, onStart, jobName, jsonFileId
 
       {/* Preview Modal */}
       {previewRequirement && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4">
-          <div className="w-full max-w-2xl rounded-lg border border-gray-800 bg-zinc-950 p-6">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4 overflow-y-auto">
+          <div className="w-full max-w-2xl my-8 rounded-lg border border-gray-800 bg-zinc-950 p-6 max-h-[90vh] flex flex-col">
             <div className="mb-4 flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-semibold text-white">Requirement JSON</h2>

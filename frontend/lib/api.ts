@@ -14,6 +14,8 @@ export type Schedule = {
   max_workers: number;
   last_run: string | null;
   next_run: string | null;
+  file_id?: string | null;
+  file_name?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -26,7 +28,6 @@ export type ScheduleCreate = {
   max_workers?: number;
   file_id?: string;
   file_name?: string;
-  requirement_id?: string;
 };
 
 export type ScheduleUpdate = {

@@ -40,14 +40,36 @@ export default function CrawlerScheduler() {
 
   async function loadJsonFiles() {
     try {
-      const { data, error } = await supabase
+      // Get all JSON files
+      const { data: allFiles, error: filesError } = await supabase
         .from('crawler_jobs')
         .select('*')
         .order('created_at', { ascending: false });
       
-      if (!error && data) {
-        setJsonFiles(data);
+      if (filesError) {
+        console.error('Error loading JSON files:', filesError);
+        return;
       }
+
+      // Get all file_ids that are already linked to schedules
+      const { data: schedules, error: schedulesError } = await supabase
+        .from('crawler_schedules')
+        .select('file_id')
+        .not('file_id', 'is', null);
+
+      if (schedulesError) {
+        console.error('Error loading schedules:', schedulesError);
+        setJsonFiles(allFiles || []);
+        return;
+      }
+
+      // Extract file_ids that are already used
+      const usedFileIds = new Set(schedules?.map(s => s.file_id) || []);
+
+      // Filter out files that are already linked to schedules
+      const availableFiles = allFiles?.filter(file => !usedFileIds.has(file.id)) || [];
+      
+      setJsonFiles(availableFiles);
     } catch (error) {
       console.error('Failed to load JSON files:', error);
     }
@@ -79,12 +101,24 @@ export default function CrawlerScheduler() {
 
   async function loadScheduledJobs() {
     try {
-      const response = await crawlerAPI.getSchedules();
-      setJobs(response.schedules);
+      // Fetch directly from Supabase to get file_name and file_id
+      const { data, error } = await supabase
+        .from('crawler_schedules')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching schedules:', error);
+        setJobs([]);
+        setApiAvailable(false);
+        return;
+      }
+
+      console.log('Schedules data:', data); // Debug log
+      setJobs(data || []);
       setApiAvailable(true);
     } catch (error) {
       console.error('Failed to load schedules:', error);
-      // Don't show alert, just set empty jobs
       setJobs([]);
       setApiAvailable(false);
     }
@@ -170,10 +204,10 @@ export default function CrawlerScheduler() {
         max_workers: 3,
         file_id: formData.fileId || undefined,
         file_name: selectedJson?.file_name || undefined,
-        requirement_id: formData.requirementId || undefined,
       });
 
       await loadScheduledJobs();
+      await loadJsonFiles(); // Reload JSON files to update available list
       setShowAddModal(false);
       setFormData({ 
         name: '', 
@@ -220,7 +254,10 @@ export default function CrawlerScheduler() {
           <div className="flex items-center justify-between">
             <h1 className="text-2xl font-bold">Crawler Scheduler</h1>
             <button
-              onClick={() => setShowAddModal(true)}
+              onClick={() => {
+                setShowAddModal(true);
+                loadJsonFiles(); // Reload JSON files when modal opens
+              }}
               disabled={!apiAvailable}
               className="flex items-center gap-2 rounded-md bg-white px-4 py-2 text-sm font-medium text-black transition-colors hover:bg-gray-200 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed"
             >
@@ -305,6 +342,9 @@ export default function CrawlerScheduler() {
                       Name
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">
+                      JSON File
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">
                       Start Schedule
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">
@@ -327,7 +367,7 @@ export default function CrawlerScheduler() {
                 <tbody className="divide-y divide-gray-800">
                   {!apiAvailable ? (
                     <tr>
-                      <td colSpan={7} className="px-6 py-12 text-center">
+                      <td colSpan={8} className="px-6 py-12 text-center">
                         <div className="text-yellow-500">
                           <svg className="w-12 h-12 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
@@ -339,7 +379,7 @@ export default function CrawlerScheduler() {
                     </tr>
                   ) : jobs.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                      <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
                         No scheduled jobs yet. Click "Add Schedule" to create one.
                       </td>
                     </tr>
@@ -348,6 +388,18 @@ export default function CrawlerScheduler() {
                       <tr key={job.id} className="transition-colors hover:bg-zinc-900">
                         <td className="px-6 py-4">
                           <div className="font-medium">{job.name}</div>
+                        </td>
+                        <td className="px-6 py-4">
+                          {job.file_name ? (
+                            <div className="flex items-center gap-2">
+                              <svg className="h-4 w-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                              </svg>
+                              <span className="text-sm text-blue-400">{job.file_name}</span>
+                            </div>
+                          ) : (
+                            <span className="text-sm text-gray-500">No file</span>
+                          )}
                         </td>
                         <td className="px-6 py-4">
                           <code className="rounded bg-zinc-900 px-2 py-1 text-sm text-gray-300">
@@ -424,22 +476,25 @@ export default function CrawlerScheduler() {
           onClick={() => setShowAddModal(false)}
         >
           <div 
-            className="w-full max-w-lg rounded-lg border border-gray-800 bg-zinc-950 p-6 shadow-xl"
+            className="w-full max-w-lg my-8 rounded-lg border border-gray-800 bg-zinc-950 shadow-xl max-h-[90vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mb-6 flex items-center justify-between">
-              <h3 className="text-xl font-semibold">Add New Schedule</h3>
-              <button
-                onClick={() => setShowAddModal(false)}
-                className="rounded-md p-1 text-gray-400 transition-colors hover:bg-zinc-900 hover:text-white"
-              >
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
+            <div className="flex-shrink-0 p-6 border-b border-gray-800">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-semibold">Add New Schedule</h3>
+                <button
+                  onClick={() => setShowAddModal(false)}
+                  className="rounded-md p-1 text-gray-400 transition-colors hover:bg-zinc-900 hover:text-white"
+                >
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
             </div>
 
-            <form onSubmit={handleAddSchedule} className="space-y-5">
+            <div className="flex-1 overflow-y-auto p-6 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent hover:scrollbar-thumb-gray-600">
+              <form id="add-schedule-form" onSubmit={handleAddSchedule} className="space-y-5">
               {/* Job Name */}
               <div>
                 <label htmlFor="name" className="mb-2 block text-sm font-medium text-gray-300">
@@ -461,22 +516,31 @@ export default function CrawlerScheduler() {
                 <label htmlFor="jsonFile" className="mb-2 block text-sm font-medium text-gray-300">
                   JSON File (Optional)
                 </label>
-                <select
-                  id="jsonFile"
-                  value={formData.fileId}
-                  onChange={(e) => setFormData({ ...formData, fileId: e.target.value })}
-                  className="w-full rounded-md border border-gray-700 bg-zinc-900 px-4 py-2.5 text-white focus:border-gray-600 focus:outline-none focus:ring-1 focus:ring-gray-600"
-                >
-                  <option value="">No JSON file</option>
-                  {jsonFiles.map((file) => (
-                    <option key={file.id} value={file.id}>
-                      {file.file_name} ({file.value?.length || 0} profiles)
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-1 text-xs text-gray-500">
-                  Select a JSON file to automatically populate profile URLs
-                </p>
+                {jsonFiles.length === 0 ? (
+                  <div className="rounded-md border border-gray-800 bg-zinc-900 px-4 py-8 text-center">
+                    <p className="text-sm text-gray-400">No available JSON files</p>
+                    <p className="mt-1 text-xs text-gray-500">All JSON files are already linked to schedules</p>
+                  </div>
+                ) : (
+                  <>
+                    <select
+                      id="jsonFile"
+                      value={formData.fileId}
+                      onChange={(e) => setFormData({ ...formData, fileId: e.target.value })}
+                      className="w-full rounded-md border border-gray-700 bg-zinc-900 px-4 py-2.5 text-white focus:border-gray-600 focus:outline-none focus:ring-1 focus:ring-gray-600"
+                    >
+                      <option value="">No JSON file</option>
+                      {jsonFiles.map((file) => (
+                        <option key={file.id} value={file.id}>
+                          {file.file_name} ({file.value?.length || 0} profiles)
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-xs text-gray-500">
+                      Select a JSON file to automatically populate profile URLs
+                    </p>
+                  </>
+                )}
               </div>
 
               {/* Requirement Selector */}
@@ -620,9 +684,12 @@ export default function CrawlerScheduler() {
                   </div>
                 </div>
               </div>
+            </form>
+            </div>
 
+            <div className="flex-shrink-0 border-t border-gray-800 p-6">
               {/* Action Buttons */}
-              <div className="flex gap-3 pt-2">
+              <div className="flex gap-3">
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
@@ -633,6 +700,7 @@ export default function CrawlerScheduler() {
                 </button>
                 <button
                   type="submit"
+                  form="add-schedule-form"
                   disabled={isSubmitting}
                   className="flex-1 rounded-md bg-white px-4 py-2.5 text-sm font-medium text-black transition-colors hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50 flex items-center justify-center gap-2"
                 >
@@ -649,7 +717,7 @@ export default function CrawlerScheduler() {
                   )}
                 </button>
               </div>
-            </form>
+            </div>
           </div>
         </div>
       )}

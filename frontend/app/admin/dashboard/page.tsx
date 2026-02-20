@@ -133,20 +133,33 @@ export default function AdminDashboard() {
       }
 
       if (mode === 'existing') {
+        // Validate existing schedule ID
+        if (!scheduleData.existingScheduleId) {
+          alert('Please select a schedule');
+          return;
+        }
+
+        const updateData = {
+          file_id: selectedJob.id,
+          file_name: selectedJob.file_name,
+          profile_urls: profileUrls
+        };
+
+        console.log('Updating schedule with data:', updateData); // Debug log
+        console.log('Schedule ID:', scheduleData.existingScheduleId); // Debug log
+
         // Link JSON file to existing schedule
-        const { error } = await supabase
+        const { data: updatedData, error } = await supabase
           .from('crawler_schedules')
-          .update({
-            file_id: selectedJob.id,
-            file_name: selectedJob.file_name,
-            profile_urls: profileUrls,
-            requirement_id: requirement
-          })
-          .eq('id', scheduleData.existingScheduleId);
+          .update(updateData)
+          .eq('id', scheduleData.existingScheduleId)
+          .select();
+
+        console.log('Update result:', { updatedData, error }); // Debug log
 
         if (error) {
           console.error('Error linking to schedule:', error);
-          alert('Failed to link to schedule');
+          alert(`Failed to link to schedule: ${error.message}`);
           return;
         }
 
@@ -163,18 +176,24 @@ export default function AdminDashboard() {
           ? '* * * * *'
           : scheduleData.cronSchedule || '0 9 * * *';
 
-        const { error: scheduleError } = await supabase
+        const insertData = {
+          name: jobName,
+          status: 'active',
+          start_schedule: finalCronSchedule,
+          profile_urls: profileUrls,
+          file_id: selectedJob.id,
+          file_name: selectedJob.file_name,
+          created_at: new Date().toISOString()
+        };
+
+        console.log('Inserting schedule with data:', insertData); // Debug log
+
+        const { data: insertedData, error: scheduleError } = await supabase
           .from('crawler_schedules')
-          .insert({
-            name: jobName,
-            status: 'active',
-            start_schedule: finalCronSchedule,
-            profile_urls: profileUrls,
-            requirement_id: requirement,
-            file_id: selectedJob.id,
-            file_name: selectedJob.file_name,
-            created_at: new Date().toISOString()
-          });
+          .insert(insertData)
+          .select();
+
+        console.log('Insert result:', { insertedData, scheduleError }); // Debug log
 
         if (scheduleError) {
           console.error('Error creating schedule:', scheduleError);
