@@ -24,6 +24,9 @@ export type ScheduleCreate = {
   stop_schedule?: string;
   profile_urls?: string[];
   max_workers?: number;
+  file_id?: string;
+  file_name?: string;
+  requirement_id?: string;
 };
 
 export type ScheduleUpdate = {

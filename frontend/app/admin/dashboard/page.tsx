@@ -111,28 +111,93 @@ export default function AdminDashboard() {
     }
   }
 
-  async function handleStartWithRequirements(jobName: string, requirement: string) {
+  async function handleStartWithRequirements(
+    jobName: string,
+    requirement: string,
+    mode: 'existing' | 'new',
+    scheduleData: {
+      scheduleType?: 'now' | 'scheduled';
+      cronSchedule?: string;
+      existingScheduleId?: string;
+    }
+  ) {
     if (!selectedJob) return;
     
     try {
-      // Update job with new name and status
-      const { error } = await supabase
-        .from('crawler_jobs')
-        .update({
-          file_name: jobName,
-          status: 'processing'
-        })
-        .eq('id', selectedJob.id);
-
-      if (error) {
-        console.error('Error updating job:', error);
-        alert('Failed to start job');
+      // Extract profile URLs from JSON data
+      const profileUrls = selectedJob.value?.map((item: any) => item.profile_url || item.url).filter(Boolean) || [];
+      
+      if (profileUrls.length === 0) {
+        alert('No profile URLs found in JSON');
         return;
       }
 
-      console.log('Job started:', selectedJob.id, 'with requirement:', requirement);
+      if (mode === 'existing') {
+        // Link JSON file to existing schedule
+        const { error } = await supabase
+          .from('crawler_schedules')
+          .update({
+            file_id: selectedJob.id,
+            file_name: selectedJob.file_name,
+            profile_urls: profileUrls,
+            requirement_id: requirement
+          })
+          .eq('id', scheduleData.existingScheduleId);
+
+        if (error) {
+          console.error('Error linking to schedule:', error);
+          alert('Failed to link to schedule');
+          return;
+        }
+
+        // Update job status
+        await supabase
+          .from('crawler_jobs')
+          .update({ status: 'processing' })
+          .eq('id', selectedJob.id);
+
+        alert(`JSON file linked to existing schedule!`);
+      } else {
+        // Create new schedule
+        const finalCronSchedule = scheduleData.scheduleType === 'now' 
+          ? '* * * * *'
+          : scheduleData.cronSchedule || '0 9 * * *';
+
+        const { error: scheduleError } = await supabase
+          .from('crawler_schedules')
+          .insert({
+            name: jobName,
+            status: 'active',
+            start_schedule: finalCronSchedule,
+            profile_urls: profileUrls,
+            requirement_id: requirement,
+            file_id: selectedJob.id,
+            file_name: selectedJob.file_name,
+            created_at: new Date().toISOString()
+          });
+
+        if (scheduleError) {
+          console.error('Error creating schedule:', scheduleError);
+          alert('Failed to create schedule');
+          return;
+        }
+
+        // Update job status
+        await supabase
+          .from('crawler_jobs')
+          .update({
+            file_name: jobName,
+            status: 'processing'
+          })
+          .eq('id', selectedJob.id);
+
+        const message = scheduleData.scheduleType === 'now'
+          ? `Schedule created! Crawler will process ${profileUrls.length} profiles immediately.`
+          : `Schedule created! Crawler will process ${profileUrls.length} profiles at: ${finalCronSchedule}`;
+        
+        alert(message);
+      }
       
-      // Reload jobs to get updated data
       await loadJobs();
     } catch (err) {
       console.error('Error starting job:', err);
@@ -336,6 +401,7 @@ export default function AdminDashboard() {
         onClose={() => setRequirementModalOpen(false)}
         onStart={handleStartWithRequirements}
         jobName={selectedJob?.file_name || ''}
+        jsonFileId={selectedJob?.id || ''}
       />
 
       <JsonPreviewModal

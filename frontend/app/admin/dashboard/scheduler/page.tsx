@@ -25,12 +25,48 @@ export default function CrawlerScheduler() {
     stopSchedule: '',
     stopScheduleType: 'custom',
     enableStopTime: false,
+    fileId: '',
+    requirementId: '',
   });
+  const [jsonFiles, setJsonFiles] = useState<any[]>([]);
+  const [requirements, setRequirements] = useState<any[]>([]);
 
   useEffect(() => {
     checkAuth();
     loadScheduledJobs();
+    loadJsonFiles();
+    loadRequirements();
   }, []);
+
+  async function loadJsonFiles() {
+    try {
+      const { data, error } = await supabase
+        .from('crawler_jobs')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (!error && data) {
+        setJsonFiles(data);
+      }
+    } catch (error) {
+      console.error('Failed to load JSON files:', error);
+    }
+  }
+
+  async function loadRequirements() {
+    try {
+      const { data, error } = await supabase
+        .from('requirements')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (!error && data) {
+        setRequirements(data);
+      }
+    } catch (error) {
+      console.error('Failed to load requirements:', error);
+    }
+  }
 
   async function checkAuth() {
     const { data: { user } } = await supabase.auth.getUser();
@@ -118,19 +154,26 @@ export default function CrawlerScheduler() {
       return;
     }
 
-    if (isSubmitting) return; // Prevent double submission
+    if (isSubmitting) return;
 
     setIsSubmitting(true);
     try {
+      // Get profile URLs from selected JSON file
+      const selectedJson = jsonFiles.find(f => f.id === formData.fileId);
+      const profileUrls = selectedJson?.value?.map((item: any) => item.profile_url || item.url).filter(Boolean) || [];
+
       await crawlerAPI.createSchedule({
         name: formData.name,
         start_schedule: formData.startSchedule,
         stop_schedule: formData.enableStopTime && formData.stopSchedule ? formData.stopSchedule : undefined,
-        profile_urls: [],
+        profile_urls: profileUrls,
         max_workers: 3,
+        file_id: formData.fileId || undefined,
+        file_name: selectedJson?.file_name || undefined,
+        requirement_id: formData.requirementId || undefined,
       });
 
-      await loadScheduledJobs(); // Reload data
+      await loadScheduledJobs();
       setShowAddModal(false);
       setFormData({ 
         name: '', 
@@ -138,7 +181,9 @@ export default function CrawlerScheduler() {
         startScheduleType: 'custom', 
         stopSchedule: '', 
         stopScheduleType: 'custom',
-        enableStopTime: false 
+        enableStopTime: false,
+        fileId: '',
+        requirementId: '',
       });
     } catch (error) {
       console.error('Failed to create schedule:', error);
@@ -409,6 +454,49 @@ export default function CrawlerScheduler() {
                   className="w-full rounded-md border border-gray-700 bg-zinc-900 px-4 py-2.5 text-white placeholder-gray-500 focus:border-gray-600 focus:outline-none focus:ring-1 focus:ring-gray-600"
                   required
                 />
+              </div>
+
+              {/* JSON File Selector */}
+              <div>
+                <label htmlFor="jsonFile" className="mb-2 block text-sm font-medium text-gray-300">
+                  JSON File (Optional)
+                </label>
+                <select
+                  id="jsonFile"
+                  value={formData.fileId}
+                  onChange={(e) => setFormData({ ...formData, fileId: e.target.value })}
+                  className="w-full rounded-md border border-gray-700 bg-zinc-900 px-4 py-2.5 text-white focus:border-gray-600 focus:outline-none focus:ring-1 focus:ring-gray-600"
+                >
+                  <option value="">No JSON file</option>
+                  {jsonFiles.map((file) => (
+                    <option key={file.id} value={file.id}>
+                      {file.file_name} ({file.value?.length || 0} profiles)
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-gray-500">
+                  Select a JSON file to automatically populate profile URLs
+                </p>
+              </div>
+
+              {/* Requirement Selector */}
+              <div>
+                <label htmlFor="requirement" className="mb-2 block text-sm font-medium text-gray-300">
+                  Requirement (Optional)
+                </label>
+                <select
+                  id="requirement"
+                  value={formData.requirementId}
+                  onChange={(e) => setFormData({ ...formData, requirementId: e.target.value })}
+                  className="w-full rounded-md border border-gray-700 bg-zinc-900 px-4 py-2.5 text-white focus:border-gray-600 focus:outline-none focus:ring-1 focus:ring-gray-600"
+                >
+                  <option value="">No requirement</option>
+                  {requirements.map((req) => (
+                    <option key={req.id} value={req.id}>
+                      {req.template_name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {/* Start Schedule Section */}

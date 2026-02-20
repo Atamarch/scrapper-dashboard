@@ -260,6 +260,39 @@ npm run dev
 - **Security**: Jangan commit file `.env` ke git
 - **Supabase**: Pastikan sudah setup database schema yang sesuai
 
+## 🔄 Frontend Components
+
+### Requirement Modal (`frontend/components/requirement-modal.tsx`)
+
+The requirement modal component provides a dual-mode interface for configuring crawler jobs:
+
+#### Features
+- **Two Operating Modes:**
+  - **Create New Schedule**: Configure a new crawler job with custom settings
+  - **Use Existing Schedule**: Attach requirements to an existing active schedule
+
+- **Schedule Management:**
+  - Fetches active schedules from Supabase `schedules` table
+  - Orders schedules by creation date (newest first)
+  - Displays schedule name and cron expression
+  - Real-time loading states for better UX
+
+- **Requirement Selection:**
+  - Browse and select from available requirements
+  - Preview requirement JSON before selection
+  - Visual feedback for selected items
+
+- **Schedule Types (New Mode):**
+  - **Run Now**: Execute crawler immediately
+  - **Scheduled**: Set up cron-based recurring execution
+
+#### Database Integration
+The component queries the following Supabase tables:
+- `requirements` - Job requirement configurations
+- `schedules` - Active crawler schedules (filtered by `status = 'active'`)
+
+Both queries are ordered by `created_at` in descending order to show the most recent items first.
+
 ## 🔐 Environment Variables
 
 ### Frontend (.env.local)
