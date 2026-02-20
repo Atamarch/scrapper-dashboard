@@ -264,6 +264,76 @@ pip install webdriver-manager
 - Check `.env` file exists with all required variables
 - Try `docker system prune` to free up space
 
+**Outreach: Connect button not found:**
+- Check debug screenshots in `data/output/outreach_screenshots/debug_no_connect_*.png`
+- Review HTML page source saved alongside screenshots for detailed inspection
+- LinkedIn UI may have changed - verify button exists on profile page
+- Ensure profile is not already connected (system now double-checks for "Message" button)
+- Page automatically scrolls to top and waits 20 seconds for content to load
+- Check console logs for which selectors were attempted and their results
+
+## Outreach Testing
+
+Test the automated outreach functionality before sending real connection requests:
+
+```bash
+python test_outreach.py
+```
+
+This script allows you to:
+- Send test outreach jobs to the RabbitMQ queue
+- Verify the outreach worker processes jobs correctly
+- Test message personalization with `{lead_name}` placeholder
+- Run in dry-run mode (no actual connection requests sent)
+
+**Before running:**
+1. Ensure RabbitMQ is running: `docker-compose up -d`
+2. Edit `test_outreach.py` to customize the test job:
+   - `name`: Lead's name for personalization
+   - `profile_url`: LinkedIn profile URL
+   - `message`: Connection request message template
+   - `dry_run`: Set to `True` for testing (no real send), `False` for production
+
+**Configuration in `.env`:**
+```bash
+OUTREACH_QUEUE=outreach_queue  # Queue name for outreach jobs
+```
+
+**After sending test job:**
+```bash
+python crawler_outreach.py  # Start the outreach worker to process the job
+```
+
+The worker will:
+- Navigate to the profile
+- Click Connect button (with improved selector detection)
+- Add a personalized note
+- Type the message with human-like behavior
+- Take a screenshot for verification
+- In dry-run mode: Close modal without sending
+- In production mode: Send actual connection requests (controlled by `dry_run` flag in job payload)
+
+**Recent Improvements (Latest):**
+- Enhanced Connect button detection with 6 optimized selectors for better reliability
+- Improved page load handling with explicit wait for main content (20 seconds timeout)
+- Auto-scroll to top before button detection to ensure visibility
+- Better "already connected" detection with double-check for Message button
+- Debug artifacts: Screenshots + HTML page source saved when Connect button not found
+- Detailed progress logging with selector preview and error messages
+- Filters for visible and enabled buttons only to avoid false positives
+- Production-ready: Worker now supports both dry-run testing and live connection requests based on job payload
+
+**Production Mode:**
+The outreach worker is now production-ready. Control the behavior using the `dry_run` flag in each job:
+- `dry_run: true` - Test mode: Types message but doesn't send (for verification)
+- `dry_run: false` - Production mode: Sends actual connection requests
+
+**Safety Features:**
+- Rate limiting: Fixed 3-minute delay between all connection requests (both testing and production modes)
+- Screenshot capture for every attempt (success or failure)
+- Detailed logging for debugging and audit trails
+- Graceful error handling with no automatic retries to prevent spam
+
 ## Notes
 
 - First 10 profiles are usually accurate

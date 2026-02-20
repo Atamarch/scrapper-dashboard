@@ -20,6 +20,7 @@ function LeadsPageContent() {
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [showTemplateDropdown, setShowTemplateDropdown] = useState(false);
+  const [showSortDropdown, setShowSortDropdown] = useState(false);
   const [sortBy, setSortBy] = useState<'date' | 'score'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
@@ -29,11 +30,17 @@ function LeadsPageContent() {
       if (showExportMenu && !target.closest('.export-menu-container')) {
         setShowExportMenu(false);
       }
+      if (showTemplateDropdown && !target.closest('.template-dropdown-container')) {
+        setShowTemplateDropdown(false);
+      }
+      if (showSortDropdown && !target.closest('.sort-dropdown-container')) {
+        setShowSortDropdown(false);
+      }
     };
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showExportMenu]);
+  }, [showExportMenu, showTemplateDropdown, showSortDropdown]);
 
   useEffect(() => {
     const templateId = searchParams.get('template');
@@ -280,10 +287,10 @@ function LeadsPageContent() {
           <div className="mb-6 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <span className="bg-slate-800 p-2 rounded-xl text-sm text-gray-400">Filter by Template</span>:
-              <div className="relative">
+              <div className="relative template-dropdown-container">
                 <button
                   onClick={() => setShowTemplateDropdown(!showTemplateDropdown)}
-                  className="flex items-center gap-2 rounded-lg border border-gray-700 bg-[#1a1f2e] px-4 py-2 text-white hover:border-gray-600 focus:border-blue-500 focus:outline-none min-w-[200px] justify-between"
+                  className="flex items-center gap-2 rounded-lg border border-gray-700 bg-[#1a1f2e] px-4 py-2 text-white hover:border-gray-600 focus:border-blue-500 focus:outline-none min-w-[350px] justify-between"
                 >
                   <span className="truncate">
                     {selectedTemplate 
@@ -298,7 +305,13 @@ function LeadsPageContent() {
                 </button>
 
                 {showTemplateDropdown && (
-                  <div className="absolute top-full left-0 mt-2 w-full min-w-[300px] max-h-[400px] overflow-y-auto rounded-lg border border-gray-700 bg-[#1a1f2e] shadow-lg z-10">
+                  <div 
+                    className="absolute top-full left-0 mt-2 w-full min-w-[300px] max-h-[400px] overflow-y-auto rounded-lg border border-gray-700 bg-[#1a1f2e] shadow-lg z-10"
+                    style={{ 
+                      scrollbarWidth: 'thin', 
+                      scrollbarColor: '#4B5563 #1a1f2e' 
+                    }}
+                  >
                     {templates.map((template) => (
                       <button
                         key={template.id}
@@ -315,21 +328,81 @@ function LeadsPageContent() {
               </div>
 
               <span className="bg-slate-800 p-2 rounded-xl text-sm text-gray-400">Sort by</span>:
-              <select
-                value={`${sortBy}-${sortOrder}`}
-                onChange={(e) => {
-                  const [newSortBy, newSortOrder] = e.target.value.split('-') as ['date' | 'score', 'asc' | 'desc'];
-                  setSortBy(newSortBy);
-                  setSortOrder(newSortOrder);
-                  setCurrentPage(1);
-                }}
-                className="rounded-lg border border-gray-700 bg-[#1a1f2e] px-4 py-2 text-white hover:border-gray-600 focus:border-blue-500 focus:outline-none"
-              >
-                <option value="date-desc">Date (Newest)</option>
-                <option value="date-asc">Date (Oldest)</option>
-                <option value="score-desc">Score (High to Low)</option>
-                <option value="score-asc">Score (Low to High)</option>
-              </select>
+              <div className="relative sort-dropdown-container">
+                <button
+                  onClick={() => setShowSortDropdown(!showSortDropdown)}
+                  className="flex items-center gap-2 rounded-lg border border-gray-700 bg-[#1a1f2e] px-4 py-2 text-white hover:border-gray-600 focus:border-blue-500 focus:outline-none min-w-[180px] justify-between"
+                >
+                  <span className="truncate">
+                    {sortBy === 'date' && sortOrder === 'desc' && 'Date (Newest)'}
+                    {sortBy === 'date' && sortOrder === 'asc' && 'Date (Oldest)'}
+                    {sortBy === 'score' && sortOrder === 'desc' && 'Score (High to Low)'}
+                    {sortBy === 'score' && sortOrder === 'asc' && 'Score (Low to High)'}
+                  </span>
+                  {showSortDropdown ? (
+                    <ChevronUp className="h-4 w-4 flex-shrink-0" />
+                  ) : (
+                    <ChevronDown className="h-4 w-4 flex-shrink-0" />
+                  )}
+                </button>
+
+                {showSortDropdown && (
+                  <div className="absolute top-full left-0 mt-2 w-full rounded-lg border border-gray-700 bg-[#1a1f2e] shadow-lg z-10">
+                    <button
+                      onClick={() => {
+                        setSortBy('date');
+                        setSortOrder('desc');
+                        setCurrentPage(1);
+                        setShowSortDropdown(false);
+                      }}
+                      className={`w-full px-4 py-2.5 text-left text-sm transition-colors hover:bg-gray-700/50 ${
+                        sortBy === 'date' && sortOrder === 'desc' ? 'bg-gray-700/50 text-white' : 'text-gray-400'
+                      }`}
+                    >
+                      Date (Newest)
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSortBy('date');
+                        setSortOrder('asc');
+                        setCurrentPage(1);
+                        setShowSortDropdown(false);
+                      }}
+                      className={`w-full px-4 py-2.5 text-left text-sm transition-colors hover:bg-gray-700/50 ${
+                        sortBy === 'date' && sortOrder === 'asc' ? 'bg-gray-700/50 text-white' : 'text-gray-400'
+                      }`}
+                    >
+                      Date (Oldest)
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSortBy('score');
+                        setSortOrder('desc');
+                        setCurrentPage(1);
+                        setShowSortDropdown(false);
+                      }}
+                      className={`w-full px-4 py-2.5 text-left text-sm transition-colors hover:bg-gray-700/50 ${
+                        sortBy === 'score' && sortOrder === 'desc' ? 'bg-gray-700/50 text-white' : 'text-gray-400'
+                      }`}
+                    >
+                      Score (High to Low)
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSortBy('score');
+                        setSortOrder('asc');
+                        setCurrentPage(1);
+                        setShowSortDropdown(false);
+                      }}
+                      className={`w-full px-4 py-2.5 text-left text-sm transition-colors hover:bg-gray-700/50 ${
+                        sortBy === 'score' && sortOrder === 'asc' ? 'bg-gray-700/50 text-white' : 'text-gray-400'
+                      }`}
+                    >
+                      Score (Low to High)
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="relative export-menu-container">

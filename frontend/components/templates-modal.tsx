@@ -21,6 +21,7 @@ export function TemplatesModal({ companyId, companyName, isOpen, onClose }: Temp
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (isOpen && companyId) {
@@ -65,6 +66,18 @@ export function TemplatesModal({ companyId, companyName, isOpen, onClose }: Temp
     onClose();
   };
 
+  const toggleNoteExpansion = (templateId: string) => {
+    setExpandedNotes(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(templateId)) {
+        newSet.delete(templateId);
+      } else {
+        newSet.add(templateId);
+      }
+      return newSet;
+    });
+  };
+
   if (!isOpen) return null;
 
   const totalPages = Math.ceil(filteredTemplates.length / ITEMS_PER_PAGE);
@@ -73,7 +86,7 @@ export function TemplatesModal({ companyId, companyName, isOpen, onClose }: Temp
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="relative w-full max-w-5xl max-h-[90vh] overflow-hidden rounded-xl border border-gray-700 bg-[#0f1419]">
+      <div className="relative w-full max-w-5xl max-h-[80vh] overflow-hidden rounded-xl border border-gray-700 bg-[#0f1419]">
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-700 bg-[#1a1f2e] p-6">
           <div>
             <h2 className="text-2xl font-bold text-white">Requirements - {companyName}</h2>
@@ -102,7 +115,7 @@ export function TemplatesModal({ companyId, companyName, isOpen, onClose }: Temp
           </div>
 
           {loading ? (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-4 md:min-h-150 md:grid-cols-2 lg:grid-cols-3">
               {[1, 2, 3, 4, 5, 6].map((i) => (
                 <div key={i} className="rounded-xl border border-gray-700 bg-[#1a1f2e] p-6">
                   <div className="mb-4 flex h-12 w-12 animate-pulse rounded-lg bg-gray-700" />
@@ -127,10 +140,14 @@ export function TemplatesModal({ companyId, companyName, isOpen, onClose }: Temp
           ) : (
             <>
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 animate-flip-in">
-                {paginatedTemplates.map((template) => (
+                {paginatedTemplates.map((template) => {
+                  const isExpanded = expandedNotes.has(template.id);
+                  const hasLongNote = template.note && template.note.length > 100;
+                  
+                  return (
                   <div
                     key={template.id}
-                    className="rounded-xl border border-gray-700 bg-[#1a1f2e] p-5 transition-all hover:border-gray-600"
+                    className="rounded-xl min-h-80 border border-gray-700 bg-[#1a1f2e] p-5 transition-all hover:border-gray-600 flex flex-col"
                   >
                     <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-blue-500/10">
                       <FileText className="h-5 w-5 text-blue-500" />
@@ -141,10 +158,27 @@ export function TemplatesModal({ companyId, companyName, isOpen, onClose }: Temp
                       <p className="mb-2 text-sm text-gray-500">{template.job_title}</p>
                     )}
                     {template.note && (
-                      <p className="mb-3 line-clamp-2 text-sm text-gray-400">{template.note}</p>
+                      <div className="mb-3 flex-1">
+                        <div 
+                          className={`text-sm text-gray-400 overflow-y-auto ${
+                            isExpanded ? 'max-h-23' : 'line-clamp-2'
+                          }`}
+                          style={isExpanded ? { scrollbarWidth: 'thin', scrollbarColor: '#4B5563 #1a1f2e' } : {}}
+                        >
+                          {template.note}
+                        </div>
+                        {hasLongNote && (
+                          <button
+                            onClick={() => toggleNoteExpansion(template.id)}
+                            className="mt-1 text-xs text-blue-500 hover:text-blue-400 transition-colors"
+                          >
+                            {isExpanded ? 'Show Less' : 'Show More'}
+                          </button>
+                        )}
+                      </div>
                     )}
 
-                    <div className="flex items-center justify-between border-t border-gray-700 pt-3">
+                    <div className="flex items-center justify-between border-t border-gray-700 pt-3 mt-auto">
                       <span className="text-xs text-gray-500">
                         {new Date(template.created_at).toLocaleDateString('en-GB', {
                           day: 'numeric',
@@ -160,7 +194,8 @@ export function TemplatesModal({ companyId, companyName, isOpen, onClose }: Temp
                       </button>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
 
               {totalPages > 1 && (
