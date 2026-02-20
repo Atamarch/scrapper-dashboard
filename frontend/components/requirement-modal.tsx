@@ -78,6 +78,7 @@ export function RequirementModal({ isOpen, onClose, onStart, jobName, jsonFileId
         .from('crawler_schedules')
         .select('*')
         .eq('status', 'active')
+        .is('file_id', null) // Only show schedules without linked JSON file
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -213,16 +214,16 @@ export function RequirementModal({ isOpen, onClose, onStart, jobName, jsonFileId
           {/* New Schedule Mode */}
           {mode === 'new' && (
             <>
-              {/* Job Name Input */}
+              {/* Schedule Name Input */}
               <div className="mb-6">
                 <label className="mb-2 block text-sm font-medium text-gray-300">
-                  New Job Name
+                  Schedule Name
                 </label>
                 <input
                   type="text"
                   value={newJobName}
                   onChange={(e) => setNewJobName(e.target.value)}
-                  placeholder="Enter job name..."
+                  placeholder="Enter schedule name..."
                   className="w-full rounded-md border border-gray-700 bg-zinc-900 px-3 py-2 text-white placeholder-gray-500 focus:border-white focus:outline-none focus:ring-1 focus:ring-white"
                 />
               </div>
