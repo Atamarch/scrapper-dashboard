@@ -235,10 +235,7 @@ export default function AdminDashboard() {
         // Update job status
         await supabase
           .from('crawler_jobs')
-          .update({
-            file_name: jobName,
-            status: 'processing'
-          })
+          .update({ status: 'processing' })
           .eq('id', selectedJob.id);
 
         const message = scheduleData.scheduleType === 'now'
