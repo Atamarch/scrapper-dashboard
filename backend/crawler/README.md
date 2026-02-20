@@ -7,7 +7,8 @@ Simplified crawler with only 2 main files
 ```
 crawler/
 ├── crawler.py              # Main crawler class + all helper functions
-├── crawler_consumer.py     # RabbitMQ consumerr + utilities
+├── crawler_consumer.py     # RabbitMQ consumer + utilities
+├── scheduler_daemon.py     # Scheduled crawl job executor
 ├── .env                    # Configuration
 ├── requirements.txt        # Dependencies
 └── data/
@@ -45,6 +46,31 @@ docker-compose up -d
 ```
 
 ## Usage
+
+### Scheduler Daemon (Production)
+Run scheduled crawl jobs from Supabase:
+
+```bash
+python scheduler_daemon.py
+```
+
+Features:
+- Polls Supabase for active schedules
+- Executes crawl jobs based on schedule timing
+- Saves profiles directly to `leads_list` table
+- Updates `last_run` timestamp automatically
+- Configurable poll interval via `POLL_INTERVAL` env var
+
+The daemon:
+1. Checks for active schedules every 5 minutes (default)
+2. Executes schedules that haven't run in the last hour
+3. Scrapes all profile URLs in the schedule
+4. Saves results to Supabase `leads_list` table with:
+   - `profile_url`: LinkedIn profile URL
+   - `name`: Extracted from profile data
+   - `profile_data`: Full JSON profile data
+   - `connection_status`: Set to 'scraped'
+   - `date`: Current date
 
 ### Consumer Mode (Recommended)
 Process URLs from `profile/*.json` files with RabbitMQ:
@@ -103,6 +129,9 @@ RABBITMQ_QUEUE=linkedin_profiles
 # Scoring
 SCORING_QUEUE=scoring_queue
 DEFAULT_REQUIREMENTS_ID=desk_collection
+
+# Scheduler Daemon
+POLL_INTERVAL=300  # Check for schedules every 5 minutes
 ```
 
 ### OAuth Login Setup
@@ -155,6 +184,12 @@ python manage_cookies.py delete   # Delete cookies
 - Consumer worker threads
 - Profile save utilities
 - Scoring integration
+
+**scheduler_daemon.py** contains:
+- Supabase schedule polling
+- Scheduled job execution
+- Direct `leads_list` table integration
+- Automatic last_run tracking
 
 ## Monitoring
 

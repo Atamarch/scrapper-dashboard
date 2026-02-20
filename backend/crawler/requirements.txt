@@ -3,3 +3,4 @@ python-dotenv
 pika==1.3.2
 webdriver-manager==4.0.1
 gender-guesser==0.4.0
+supabase>=2.3.4

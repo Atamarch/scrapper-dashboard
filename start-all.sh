@@ -324,6 +324,7 @@ show_help() {
     echo "Commands:"
     echo "  start          - Start all services in background"
     echo "  start-visible  - Start crawler with VISIBLE browser (foreground)"
+    echo "  start-scheduler - Start scheduler daemon (auto-crawl from Supabase)"
     echo "  stop           - Stop all services"
     echo "  restart        - Restart all services"
     echo "  status         - Show status of all services"
@@ -333,9 +334,56 @@ show_help() {
     echo "Examples:"
     echo "  ./start-all.sh start"
     echo "  ./start-all.sh start-visible    # Browser akan muncul"
+    echo "  ./start-all.sh start-scheduler  # Auto-crawl dari schedule"
     echo "  ./start-all.sh status"
     echo "  ./start-all.sh logs"
     echo "  ./start-all.sh stop"
+}
+
+start_scheduler_daemon() {
+    print_header "Starting Scheduler Daemon"
+    
+    cd backend/crawler
+    
+    # Setup venv
+    if [ ! -d "venv" ]; then
+        print_info "Creating virtual environment..."
+        python3 -m venv venv
+        source venv/bin/activate
+        pip install -q -r requirements.txt
+    else
+        source venv/bin/activate
+    fi
+    
+    # Check .env
+    if [ ! -f ".env" ]; then
+        print_error ".env file not found!"
+        print_info "Please create .env file with Supabase credentials"
+        cd ../..
+        exit 1
+    fi
+    
+    # Check Supabase credentials
+    if ! grep -q "SUPABASE_URL=https://" .env; then
+        print_error "SUPABASE_URL not configured in .env!"
+        print_info "Please update .env with your Supabase credentials"
+        cd ../..
+        exit 1
+    fi
+    
+    echo ""
+    print_success "Setup complete!"
+    echo ""
+    print_info "Scheduler daemon will:"
+    echo "  - Check Supabase every 5 minutes for pending schedules"
+    echo "  - Auto-crawl profiles when schedule time arrives"
+    echo "  - Save results to Supabase"
+    echo ""
+    print_info "Press Ctrl+C to stop"
+    echo ""
+    
+    # Run scheduler daemon
+    python scheduler_daemon.py
 }
 
 # Main
@@ -345,6 +393,9 @@ case "${1:-help}" in
         ;;
     start-visible)
         start_crawler_visible
+        ;;
+    start-scheduler)
+        start_scheduler_daemon
         ;;
     stop)
         stop_all
