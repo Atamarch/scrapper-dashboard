@@ -293,7 +293,7 @@ def send_connection_request(driver, profile_url, lead_name, message_template, dr
             
             print("8️⃣  Clicking Send...")
             send_button.click()
-            human_delay(2, 3)
+            human_delay(2, 3)dadadad
             
             print("\n" + "="*60)
             print("✅ CONNECTION REQUEST SENT!")

@@ -5,6 +5,7 @@ import { Sidebar } from '@/components/sidebar';
 import { TemplatesModal } from '@/components/templates-modal';
 import { supabase, type Company } from '@/lib/supabase';
 import { Building2, ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 const ITEMS_PER_PAGE = 9;
 
@@ -34,7 +35,7 @@ export default function CompanyPage() {
 
         if (error) {
           console.error('Supabase error:', error);
-          alert(`Error: ${error.message}`);
+          toast.error(`Error: ${error.message}`);
         } else {
           console.log('Companies data:', data);
           console.log('Number of companies:', data?.length);
@@ -43,7 +44,7 @@ export default function CompanyPage() {
         }
       } catch (error) {
         console.error('Catch error:', error);
-        alert(`Catch error: ${error}`);
+        toast.error(`Failed to load companies`);
       } finally {
         setLoading(false);
       }

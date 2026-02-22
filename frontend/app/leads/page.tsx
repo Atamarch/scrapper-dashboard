@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { Sidebar } from '@/components/sidebar';
 import { supabase, type Lead, type Template } from '@/lib/supabase';
 import { ExternalLink, ChevronLeft, ChevronRight, Download, ChevronDown, ChevronUp } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -23,6 +24,8 @@ function LeadsPageContent() {
   const [showSortDropdown, setShowSortDropdown] = useState(false);
   const [sortBy, setSortBy] = useState<'date' | 'score'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [selectedLeads, setSelectedLeads] = useState<string[]>([]);
+  const [selectAll, setSelectAll] = useState(false);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -130,11 +133,58 @@ function LeadsPageContent() {
     setSelectedTemplate(templateId);
     setCurrentPage(1);
     setShowTemplateDropdown(false);
+    setSelectedLeads([]);
+    setSelectAll(false);
     if (templateId) {
       router.push(`/leads?template=${templateId}`);
     } else {
       router.push('/leads');
     }
+  };
+
+  const handleSelectAll = () => {
+    if (selectAll) {
+      // Unselect all leads on current page
+      const currentPageLeadIds = leads.map(lead => lead.id);
+      setSelectedLeads(selectedLeads.filter(id => !currentPageLeadIds.includes(id)));
+      setSelectAll(false);
+    } else {
+      // Select all leads on current page
+      const currentPageLeadIds = leads.map(lead => lead.id);
+      const newSelected = [...new Set([...selectedLeads, ...currentPageLeadIds])];
+      setSelectedLeads(newSelected);
+      setSelectAll(true);
+    }
+  };
+
+  const handleSelectLead = (leadId: string) => {
+    if (selectedLeads.includes(leadId)) {
+      setSelectedLeads(selectedLeads.filter(id => id !== leadId));
+      setSelectAll(false);
+    } else {
+      const newSelected = [...selectedLeads, leadId];
+      setSelectedLeads(newSelected);
+      // Check if all leads on current page are selected
+      const currentPageLeadIds = leads.map(lead => lead.id);
+      const allCurrentPageSelected = currentPageLeadIds.every(id => newSelected.includes(id));
+      setSelectAll(allCurrentPageSelected);
+    }
+  };
+
+  // Update selectAll checkbox state when page changes
+  useEffect(() => {
+    if (leads.length > 0) {
+      const currentPageLeadIds = leads.map(lead => lead.id);
+      const allCurrentPageSelected = currentPageLeadIds.every(id => selectedLeads.includes(id));
+      setSelectAll(allCurrentPageSelected);
+    } else {
+      setSelectAll(false);
+    }
+  }, [leads, selectedLeads]);
+
+  const handleSendOutreach = () => {
+    // TODO: Implement outreach functionality
+    toast.success(`Outreach feature coming soon! Selected ${selectedLeads.length} leads`);
   };
 
   const exportToCSV = async () => {
@@ -171,7 +221,7 @@ function LeadsPageContent() {
       }
 
       if (allData.length === 0) {
-        alert('No data to export');
+        toast.error('No data to export');
         return;
       }
 
@@ -204,9 +254,10 @@ function LeadsPageContent() {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      toast.success('CSV exported successfully!');
     } catch (error) {
       console.error('Error exporting CSV:', error);
-      alert('Failed to export CSV');
+      toast.error('Failed to export CSV');
     } finally {
       setExporting(false);
       setShowExportMenu(false);
@@ -247,7 +298,7 @@ function LeadsPageContent() {
       }
 
       if (allData.length === 0) {
-        alert('No data to export');
+        toast.error('No data to export');
         return;
       }
 
@@ -263,9 +314,10 @@ function LeadsPageContent() {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      toast.success('JSON exported successfully!');
     } catch (error) {
       console.error('Error exporting JSON:', error);
-      alert('Failed to export JSON');
+      toast.error('Failed to export JSON');
     } finally {
       setExporting(false);
       setShowExportMenu(false);
@@ -405,39 +457,62 @@ function LeadsPageContent() {
               </div>
             </div>
 
-            <div className="relative export-menu-container">
+            <div className="flex items-center gap-3">
+              {/* Send Outreach Button */}
               <button
-                onClick={() => setShowExportMenu(!showExportMenu)}
-                disabled={exporting || totalCount === 0 || !selectedTemplate}
-                className="flex items-center gap-2 rounded-lg border border-gray-700 bg-[#1A2E1C] px-4 py-2 text-white transition-colors hover:bg-[#2A472C] disabled:opacity-50"
+                onClick={handleSendOutreach}
+                disabled={selectedLeads.length === 0}
+                className="flex items-center gap-2 rounded-lg border border-gray-700 bg-[#1A2E3C] px-4 py-2 text-white transition-colors hover:bg-[#2A4E5C] disabled:cursor-not-allowed disabled:opacity-50"
+                title={selectedLeads.length === 0 ? 'Select leads to send outreach' : `Send outreach to ${selectedLeads.length} selected lead(s)`}
               >
-                <Download className="h-4 w-4" />
-                {exporting ? 'Exporting...' : 'Export'}
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                Send Outreach {selectedLeads.length > 0 && `(${selectedLeads.length})`}
               </button>
 
-              {showExportMenu && (
-                <div className="absolute right-0 top-full mt-2 w-40 rounded-lg border border-gray-700 bg-[#141A14] shadow-lg z-10">
-                  <button
-                    onClick={exportToCSV}
-                    className="w-full px-4 py-2.5 text-left text-sm text-white transition-colors hover:bg-[#2F6A32] rounded-t-lg"
-                  >
-                    Export as CSV
-                  </button>
-                  <button
-                    onClick={exportToJSON}
-                    className="w-full px-4 py-2.5 text-left text-sm text-white transition-colors hover:bg-[#817F37] rounded-b-lg"
-                  >
-                    Export as JSON
-                  </button>
-                </div>
-              )}
+              {/* Export Button */}
+              <div className="relative export-menu-container">
+                <button
+                  onClick={() => setShowExportMenu(!showExportMenu)}
+                  disabled={exporting || totalCount === 0 || !selectedTemplate}
+                  className="flex items-center gap-2 rounded-lg border border-gray-700 bg-[#1A2E1C] px-4 py-2 text-white transition-colors hover:bg-[#2A472C] disabled:opacity-50"
+                >
+                  <Download className="h-4 w-4" />
+                  {exporting ? 'Exporting...' : 'Export'}
+                </button>
+
+                {showExportMenu && (
+                  <div className="absolute right-0 top-full mt-2 w-40 rounded-lg border border-gray-700 bg-[#141A14] shadow-lg z-10">
+                    <button
+                      onClick={exportToCSV}
+                      className="w-full px-4 py-2.5 text-left text-sm text-white transition-colors hover:bg-[#2F6A32] rounded-t-lg"
+                    >
+                      Export as CSV
+                    </button>
+                    <button
+                      onClick={exportToJSON}
+                      className="w-full px-4 py-2.5 text-left text-sm text-white transition-colors hover:bg-[#817F37] rounded-b-lg"
+                    >
+                      Export as JSON
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
           <div className="rounded-xl bg-gradient-to-r from-[#233567] to-[#324886] p-6 mb-4">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-semibold text-white">Leads List</h2>
-              <span className="text-sm text-gray-400">{totalCount} leads</span>
+              <div className="flex items-center gap-4">
+                {selectedLeads.length > 0 && (
+                  <span className="text-sm text-blue-300">
+                    {selectedLeads.length} selected
+                  </span>
+                )}
+                <span className="text-sm text-gray-400">{totalCount} leads</span>
+              </div>
             </div>
           </div>
 
@@ -446,6 +521,16 @@ function LeadsPageContent() {
               <table className="w-full">
                 <thead className="border-b border-gray-700">
                   <tr>
+                    <th className="px-4 py-4 text-left w-12">
+                      <input
+                        type="checkbox"
+                        checked={selectAll}
+                        onChange={handleSelectAll}
+                        disabled={leads.length === 0}
+                        className="h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50"
+                      />
+                    </th>
+                    <th className="px-3 py-4 text-left text-sm font-medium text-gray-400 w-16">No</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Name</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Date</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Status</th>
@@ -460,6 +545,12 @@ function LeadsPageContent() {
                     <>
                       {[1, 2, 3, 4, 5].map((i) => (
                         <tr key={i} className="border-b border-gray-700/50">
+                          <td className="px-4 py-4">
+                            <div className="h-4 w-4 animate-pulse rounded bg-gray-700" />
+                          </td>
+                          <td className="px-3 py-4">
+                            <div className="h-3 w-6 animate-pulse rounded bg-gray-700" />
+                          </td>
                           <td colSpan={7} className="px-6 py-4">
                             <div className="space-y-2">
                               <div className="h-3 w-3/4 animate-pulse rounded bg-gray-700" />
@@ -472,7 +563,7 @@ function LeadsPageContent() {
                     </>
                   ) : leads.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-6 py-20">
+                      <td colSpan={9} className="px-6 py-20">
                         <div className="flex flex-col items-center justify-center">
                           <div className="mb-6">
                             <img 
@@ -492,67 +583,87 @@ function LeadsPageContent() {
                     </tr>
                   ) : (
                     <>
-                      {leads.map((lead) => (
-                      <tr key={lead.id} className="border-b border-gray-700/50 transition-colors hover:bg-gray-800/30">
-                        <td className="px-6 py-4 text-white">{lead.name}</td>
-                        <td className="px-6 py-4 text-gray-400">
-                          {new Date(lead.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className={`rounded-full px-3 py-1 text-xs font-medium ${lead.connection_status === 'connected'
-                            ? 'bg-green-500/10 text-green-500'
-                            : lead.connection_status === 'pending'
-                              ? 'bg-yellow-500/10 text-yellow-500'
-                              : 'bg-gray-500/10 text-gray-500'
-                            }`}>
-                            {lead.connection_status}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className={`font-semibold ${
-                            lead.score != null && lead.score >= 80
-                              ? 'text-green-500'
-                              : lead.score != null && lead.score >= 50
-                                ? 'text-yellow-500'
-                                : lead.score != null
-                                  ? 'text-red-500'
-                                  : 'text-gray-500'
-                            }`}>
-                            {lead.score != null ? lead.score.toFixed(1) : '-'}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-gray-400">
-                          {lead.scored_at ? (
-                            new Date(lead.scored_at).toLocaleDateString('en-GB', { 
-                              day: 'numeric', 
-                              month: 'short', 
-                              year: 'numeric'
-                            })
-                          ) : (
-                            <span className="text-gray-500">-</span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 text-gray-400">
-                          <span className="line-clamp-1" title={lead.note_sent || '-'}>
-                            {lead.note_sent || '-'}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          {lead.profile_url ? (
-                            <a
-                              href={lead.profile_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-blue-500 hover:text-blue-400"
-                            >
-                              View <ExternalLink className="h-3 w-3" />
-                            </a>
-                          ) : (
-                            <span className="text-gray-500">-</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                      {leads.map((lead, index) => {
+                        const rowNumber = (currentPage - 1) * ITEMS_PER_PAGE + index + 1;
+                        const isSelected = selectedLeads.includes(lead.id);
+                        return (
+                          <tr 
+                            key={lead.id} 
+                            className={`border-b border-gray-700/50 transition-colors ${
+                              isSelected ? 'bg-blue-500/5' : 'hover:bg-gray-800/30'
+                            }`}
+                          >
+                            <td className="px-4 py-4">
+                              <div className="flex items-center">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => handleSelectLead(lead.id)}
+                                  className="h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-0 cursor-pointer transition-all hover:border-blue-500"
+                                />
+                              </div>
+                            </td>
+                            <td className="px-3 py-4 text-sm text-gray-500">{rowNumber}</td>
+                            <td className="px-6 py-4 text-white">{lead.name}</td>
+                            <td className="px-6 py-4 text-gray-400">
+                              {new Date(lead.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className={`rounded-full px-3 py-1 text-xs font-medium ${lead.connection_status === 'connected'
+                                ? 'bg-green-500/10 text-green-500'
+                                : lead.connection_status === 'pending'
+                                  ? 'bg-yellow-500/10 text-yellow-500'
+                                  : 'bg-gray-500/10 text-gray-500'
+                                }`}>
+                                {lead.connection_status}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className={`font-semibold ${
+                                lead.score != null && lead.score >= 80
+                                  ? 'text-green-500'
+                                  : lead.score != null && lead.score >= 50
+                                    ? 'text-yellow-500'
+                                    : lead.score != null
+                                      ? 'text-red-500'
+                                      : 'text-gray-500'
+                                }`}>
+                                {lead.score != null ? lead.score.toFixed(1) : '-'}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-gray-400">
+                              {lead.scored_at ? (
+                                new Date(lead.scored_at).toLocaleDateString('en-GB', { 
+                                  day: 'numeric', 
+                                  month: 'short', 
+                                  year: 'numeric'
+                                })
+                              ) : (
+                                <span className="text-gray-500">-</span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 text-gray-400">
+                              <span className="line-clamp-1" title={lead.note_sent || '-'}>
+                                {lead.note_sent || '-'}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4">
+                              {lead.profile_url ? (
+                                <a
+                                  href={lead.profile_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-blue-500 hover:text-blue-400"
+                                >
+                                  View <ExternalLink className="h-3 w-3" />
+                                </a>
+                              ) : (
+                                <span className="text-gray-500">-</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </>
                   )}
                 </tbody>

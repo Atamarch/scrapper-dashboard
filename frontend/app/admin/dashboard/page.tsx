@@ -7,6 +7,7 @@ import { Upload, Play, Trash2, Eye } from 'lucide-react';
 import { RequirementModal } from '@/components/requirement-modal';
 import { JsonPreviewModal } from '@/components/json-preview-modal';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import toast from 'react-hot-toast';
 
 type CrawlerJob = {
   id: string;
@@ -120,15 +121,16 @@ export default function AdminDashboard() {
 
       if (error) {
         console.error('Error inserting job:', error);
-        alert('Failed to upload JSON file');
+        toast.error('Failed to upload JSON file');
         return;
       }
 
       console.log('Job created:', data);
+      toast.success('JSON file uploaded successfully!');
       await loadJobs();
     } catch (err) {
       console.error('Upload failed:', err);
-      alert('Failed to upload JSON file. Make sure it\'s a valid JSON.');
+      toast.error('Failed to upload JSON file. Make sure it\'s a valid JSON.');
     } finally {
       setUploading(false);
     }
@@ -159,14 +161,14 @@ export default function AdminDashboard() {
       const profileUrls = selectedJob.value?.map((item: any) => item.profile_url || item.url).filter(Boolean) || [];
       
       if (profileUrls.length === 0) {
-        alert('No profile URLs found in JSON');
+        toast.error('No profile URLs found in JSON');
         return;
       }
 
       if (mode === 'existing') {
         // Validate existing schedule ID
         if (!scheduleData.existingScheduleId) {
-          alert('Please select a schedule');
+          toast.error('Please select a schedule');
           return;
         }
 
@@ -190,7 +192,7 @@ export default function AdminDashboard() {
 
         if (error) {
           console.error('Error linking to schedule:', error);
-          alert(`Failed to link to schedule: ${error.message}`);
+          toast.error(`Failed to link to schedule: ${error.message}`);
           return;
         }
 
@@ -200,7 +202,7 @@ export default function AdminDashboard() {
           .update({ status: 'processing' })
           .eq('id', selectedJob.id);
 
-        alert(`JSON file linked to existing schedule!`);
+        toast.success(`JSON file linked to existing schedule!`);
       } else {
         // Create new schedule
         const finalCronSchedule = scheduleData.scheduleType === 'now' 
@@ -228,7 +230,7 @@ export default function AdminDashboard() {
 
         if (scheduleError) {
           console.error('Error creating schedule:', scheduleError);
-          alert('Failed to create schedule');
+          toast.error('Failed to create schedule');
           return;
         }
 
@@ -242,14 +244,14 @@ export default function AdminDashboard() {
           ? `Schedule created! Crawler will process ${profileUrls.length} profiles immediately.`
           : `Schedule created! Crawler will process ${profileUrls.length} profiles at: ${finalCronSchedule}`;
         
-        alert(message);
+        toast.success(message);
       }
       
       await loadJobs();
       await loadLinkedSchedules(); // Reload linked schedules
     } catch (err) {
       console.error('Error starting job:', err);
-      alert('Failed to start job');
+      toast.error('Failed to start job');
     }
   }
 
@@ -278,13 +280,15 @@ export default function AdminDashboard() {
 
       if (checkError) {
         console.error('Error checking linked schedules:', checkError);
-        alert('Failed to check if file is linked to schedules');
+        toast.error('Failed to check if file is linked to schedules');
         return;
       }
 
       if (linkedSchedules && linkedSchedules.length > 0) {
         const scheduleNames = linkedSchedules.map(s => s.name).join(', ');
-        alert(`Cannot delete this file. It is linked to the following schedule(s): ${scheduleNames}\n\nPlease delete or unlink the schedule(s) first.`);
+        toast.error(`Cannot delete this file. It is linked to: ${scheduleNames}. Please delete or unlink the schedule(s) first.`, {
+          duration: 6000,
+        });
         setJobToDelete(null);
         setConfirmDialogOpen(false);
         return;
@@ -298,15 +302,16 @@ export default function AdminDashboard() {
 
       if (error) {
         console.error('Error deleting job:', error);
-        alert('Failed to delete job');
+        toast.error('Failed to delete job');
         return;
       }
 
       setJobs(jobs.filter(j => j.id !== jobToDelete.id));
+      toast.success('Job deleted successfully');
       setJobToDelete(null);
     } catch (err) {
       console.error('Error removing job:', err);
-      alert('Failed to delete job');
+      toast.error('Failed to delete job');
     }
   }
 

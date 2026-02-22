@@ -15,6 +15,7 @@ Dashboard untuk mengelola leads dan templates dengan integrasi Supabase.
 - Tailwind CSS
 - Supabase
 - Lucide Icons
+- React Hot Toast (Toast notifications)
 
 ## Setup
 
