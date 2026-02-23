@@ -66,17 +66,44 @@ Features:
 - Saves profiles directly to `leads_list` table
 - Updates `last_run` timestamp automatically
 - Configurable poll interval via `POLL_INTERVAL` env var
+- **Smart profile sourcing with fallback priority**
+- **Duplicate detection and skip logic**
+- **Update existing leads instead of creating duplicates**
 
-The daemon:
+The daemon uses a priority-based approach to find profiles to scrape:
+
+**Priority 1: JSON File (if linked)**
+- If schedule has a `file_id`, loads profile URLs from the linked JSON file in `crawler_jobs` table
+- Extracts URLs from the JSON data structure
+
+**Priority 2: Unscraped Profiles from Supabase**
+- If no JSON file is linked, automatically queries `leads_list` table for unscraped profiles
+- Finds profiles where `profile_data` is null or empty
+- Limits to 100 profiles per execution (configurable)
+- Enables continuous scraping of new leads added to the database
+
+**Duplicate Prevention:**
+- Before scraping, checks if profile already has `profile_data` in database
+- Skips profiles that are already scraped (non-empty `profile_data`)
+- Updates existing leads instead of creating duplicates
+- Tracks skipped count in execution statistics
+
+The daemon workflow:
 1. Checks for active schedules every 5 minutes (default)
 2. Executes schedules that haven't run in the last hour
-3. Scrapes all profile URLs in the schedule
-4. Saves results to Supabase `leads_list` table with:
+3. Sources profile URLs using priority system (JSON file → Unscraped profiles)
+4. For each profile URL:
+   - Checks if already scraped (has `profile_data`)
+   - Skips if already scraped
+   - Scrapes profile if not yet scraped
+   - Updates existing lead or inserts new lead
+5. Saves results to Supabase `leads_list` table with:
    - `profile_url`: LinkedIn profile URL
    - `name`: Extracted from profile data
    - `profile_data`: Full JSON profile data
    - `connection_status`: Set to 'scraped'
-   - `date`: Current date
+   - `date`: Current date (for new leads only)
+6. Reports statistics: Success count, Skipped count, Failed count
 
 ### Consumer Mode (Recommended)
 Process URLs from `profile/*.json` files with RabbitMQ:
@@ -303,6 +330,9 @@ python manage_cookies.py delete   # Delete cookies
 - Scheduled job execution
 - Direct `leads_list` table integration
 - Automatic last_run tracking
+- **Intelligent profile sourcing with priority fallback**
+- **Duplicate detection and prevention**
+- **Automatic unscraped profile discovery**
 
 ## Monitoring
 

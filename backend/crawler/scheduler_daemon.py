@@ -66,6 +66,34 @@ def get_pending_schedules():
         return []
 
 
+def get_unscraped_profiles_from_supabase(limit=100):
+    """Get profile URLs from leads_list that haven't been scraped yet
+    
+    Criteria: profile_data is null or empty
+    """
+    try:
+        # Get leads where profile_data is null or empty
+        response = supabase.table('leads_list')\
+            .select('profile_url, name')\
+            .is_('profile_data', 'null')\
+            .limit(limit)\
+            .execute()
+        
+        urls = []
+        if response.data:
+            for lead in response.data:
+                url = lead.get('profile_url')
+                if url:
+                    urls.append(url)
+        
+        logger.info(f"Found {len(urls)} unscraped profiles in Supabase")
+        return urls
+    
+    except Exception as e:
+        logger.error(f"Error getting unscraped profiles: {e}")
+        return []
+
+
 def execute_schedule(schedule):
     """Execute a scheduled crawl job"""
     schedule_id = schedule['id']
@@ -73,7 +101,7 @@ def execute_schedule(schedule):
     file_id = schedule.get('file_id')
     profile_urls = schedule.get('profile_urls', [])
     
-    # If JSON file is linked, get URLs from there
+    # Priority 1: If JSON file is linked, get URLs from there
     if file_id:
         try:
             json_response = supabase.table('crawler_jobs').select('*').eq('id', file_id).execute()
@@ -84,9 +112,16 @@ def execute_schedule(schedule):
         except Exception as e:
             logger.error(f"Error loading JSON file: {e}")
     
+    # Priority 2: If no file_id and no profile_urls, get from Supabase unscraped profiles
     if not profile_urls:
-        logger.warning(f"Schedule {schedule_name} has no profile URLs")
-        return
+        logger.info(f"No JSON file linked, checking for unscraped profiles in Supabase...")
+        profile_urls = get_unscraped_profiles_from_supabase(limit=100)
+        
+        if profile_urls:
+            logger.info(f"Found {len(profile_urls)} unscraped profiles to process")
+        else:
+            logger.warning(f"Schedule {schedule_name} has no profile URLs to process")
+            return
     
     logger.info(f"\n{'='*60}")
     logger.info(f"EXECUTING SCHEDULE: {schedule_name}")
@@ -106,6 +141,7 @@ def execute_schedule(schedule):
     crawler = None
     success_count = 0
     failed_count = 0
+    skipped_count = 0
     
     try:
         crawler = LinkedInCrawler()
@@ -115,23 +151,46 @@ def execute_schedule(schedule):
             logger.info(f"[{idx}/{len(profile_urls)}] Processing: {url}")
             
             try:
+                # Check if already scraped (has profile_data)
+                existing = supabase.table('leads_list')\
+                    .select('profile_data')\
+                    .eq('profile_url', url)\
+                    .execute()
+                
+                if existing.data and len(existing.data) > 0:
+                    existing_profile_data = existing.data[0].get('profile_data')
+                    if existing_profile_data and existing_profile_data != {}:
+                        logger.info(f"⊘ Skipped (already scraped): {url}")
+                        skipped_count += 1
+                        continue
+                
                 # Scrape profile
                 profile_data = crawler.get_profile(url)
                 
                 # Extract name from profile data
                 name = profile_data.get('name', 'Unknown')
                 
-                # Save to Supabase leads_list table
-                supabase.table('leads_list').insert({
-                    'profile_url': url,
-                    'name': name,
-                    'profile_data': profile_data,
-                    'connection_status': 'scraped',
-                    'date': datetime.now().date().isoformat()
-                }).execute()
+                # Check if lead exists
+                if existing.data and len(existing.data) > 0:
+                    # Update existing lead
+                    supabase.table('leads_list').update({
+                        'name': name,
+                        'profile_data': profile_data,
+                        'connection_status': 'scraped'
+                    }).eq('profile_url', url).execute()
+                    logger.info(f"✓ Updated: {name} - {url}")
+                else:
+                    # Insert new lead
+                    supabase.table('leads_list').insert({
+                        'profile_url': url,
+                        'name': name,
+                        'profile_data': profile_data,
+                        'connection_status': 'scraped',
+                        'date': datetime.now().date().isoformat()
+                    }).execute()
+                    logger.info(f"✓ Inserted: {name} - {url}")
                 
                 success_count += 1
-                logger.info(f"✓ Success: {name} - {url}")
                 
             except Exception as e:
                 failed_count += 1
@@ -144,6 +203,7 @@ def execute_schedule(schedule):
     logger.info(f"\n{'='*60}")
     logger.info(f"SCHEDULE COMPLETED: {schedule_name}")
     logger.info(f"✓ Success: {success_count}")
+    logger.info(f"⊘ Skipped: {skipped_count}")
     logger.info(f"✗ Failed: {failed_count}")
     logger.info(f"{'='*60}\n")
 

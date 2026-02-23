@@ -391,9 +391,20 @@ SCORING STATISTICS
 Processing: 2
 Completed: 15
 Failed: 1
+Skipped (duplicates): 3
+Supabase Updated: 12
+Supabase Failed: 0
 Success Rate: 93.8%
 ============================================================
 ```
+
+**Statistics Breakdown:**
+- **Processing**: Currently being scored
+- **Completed**: Successfully scored and saved
+- **Failed**: Scoring errors
+- **Skipped**: Already scored (duplicate prevention for file output)
+- **Supabase Updated**: Successfully updated in database (includes overwrites)
+- **Supabase Failed**: Database update failures
 
 ## Next Steps
 
