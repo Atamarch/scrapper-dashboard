@@ -398,3 +398,85 @@ Common issues:
 - Missing environment variables (SUPABASE_URL, SUPABASE_KEY)
 - Port 8000 already in use
 - Docker daemon not running
+
+## 📤 Outreach API Endpoint
+
+The API now includes an outreach endpoint for sending connection requests to LinkedIn leads.
+
+### Endpoint: POST `/api/outreach/send`
+
+Send connection requests to selected leads with personalized messages.
+
+#### Request Body
+```json
+{
+  "leads": [
+    {
+      "id": "lead-uuid",
+      "name": "John Doe",
+      "profile_url": "https://www.linkedin.com/in/johndoe"
+    }
+  ],
+  "message": "Hi {lead_name}, I'd like to connect with you!",
+  "dry_run": true
+}
+```
+
+#### Parameters
+- `leads` (array, required): List of lead objects with `id`, `name`, and `profile_url`
+- `message` (string, required): Connection request message template. Use `{lead_name}` placeholder for personalization
+- `dry_run` (boolean, optional): If `true`, validates payload without sending actual requests. Default: `true`
+
+#### Response
+```json
+{
+  "status": "success",
+  "message": "Outreach request received",
+  "total_leads": 5,
+  "valid_leads": 5,
+  "count": 5,
+  "dry_run": true,
+  "note": "Step 1: Payload validated. RabbitMQ integration coming in Step 2."
+}
+```
+
+#### Validation
+The endpoint validates each lead for:
+- Required fields: `name` and `profile_url`
+- Returns count of valid vs total leads
+- Logs detailed information for debugging
+
+#### Current Status
+**Step 1 (Completed)**: Payload validation and logging
+- Receives and validates outreach requests from frontend
+- Logs lead details for debugging
+- Returns validation results
+
+**Step 2 (In Progress)**: RabbitMQ integration
+- `pika` library integrated for RabbitMQ communication
+- Queue outreach jobs for processing
+- Worker-based connection request sending
+- Rate limiting and anti-detection measures
+
+#### Dependencies
+The outreach feature requires:
+- **RabbitMQ**: Message queue for job distribution
+- **pika**: Python RabbitMQ client library (already imported)
+- **Crawler worker**: Processes outreach jobs from queue
+
+#### Usage Example
+```bash
+curl -X POST http://localhost:8000/api/outreach/send \
+  -H "Content-Type: application/json" \
+  -d '{
+    "leads": [
+      {
+        "id": "123",
+        "name": "Jane Smith",
+        "profile_url": "https://www.linkedin.com/in/janesmith"
+      }
+    ],
+    "message": "Hi {lead_name}, interested in your profile!",
+    "dry_run": true
+  }'
+```

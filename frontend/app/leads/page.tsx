@@ -182,9 +182,94 @@ function LeadsPageContent() {
     }
   }, [leads, selectedLeads]);
 
-  const handleSendOutreach = () => {
-    // TODO: Implement outreach functionality
-    toast.success(`Outreach feature coming soon! Selected ${selectedLeads.length} leads`);
+  const handleSendOutreach = async () => {
+    try {
+      // Get selected leads data
+      const selectedLeadsData = leads.filter(lead => 
+        selectedLeads.includes(lead.id)
+      );
+
+      if (selectedLeadsData.length === 0) {
+        toast.error('No leads selected');
+        return;
+      }
+
+      // Check if template is selected
+      if (!selectedTemplate) {
+        toast.error('No template selected');
+        return;
+      }
+
+      // Fetch template note from database
+      console.log('📋 Fetching template note from database...');
+      const { data: templateData, error: templateError } = await supabase
+        .from('search_templates')
+        .select('note')
+        .eq('id', selectedTemplate)
+        .single();
+
+      if (templateError || !templateData) {
+        console.error('❌ Error fetching template:', templateError);
+        toast.error('Failed to fetch message template');
+        return;
+      }
+
+      const messageTemplate = templateData.note;
+      
+      if (!messageTemplate) {
+        toast.error('Template has no message configured');
+        return;
+      }
+
+      console.log('✅ Template note fetched:', messageTemplate.substring(0, 50) + '...');
+
+      // Prepare payload
+      const payload = {
+        leads: selectedLeadsData.map(lead => ({
+          id: lead.id,
+          name: lead.name,
+          profile_url: lead.profile_url
+        })),
+        message: messageTemplate, // Use template note from database
+        dry_run: true // Set to true for testing
+      };
+
+      // Log payload for debugging
+      console.log('📤 Sending outreach payload:', payload);
+      console.log(`Total leads: ${payload.leads.length}`);
+
+      // Get API URL from env
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      
+      console.log(`🔗 API URL: ${apiUrl}`);
+
+      // Send to API
+      const response = await fetch(`${apiUrl}/api/outreach/send`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.detail || 'Failed to send outreach');
+      }
+
+      console.log('✅ API Response:', result);
+      toast.success(`Outreach queued for ${result.count} lead(s)!`);
+      
+      // Clear selection after successful send
+      setSelectedLeads([]);
+      setSelectAll(false);
+
+    } catch (error) {
+      console.error('❌ Error sending outreach:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      toast.error(`Failed to send outreach: ${errorMessage}`);
+    }
   };
 
   const exportToCSV = async () => {

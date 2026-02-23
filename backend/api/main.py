@@ -13,6 +13,7 @@ import re
 from pathlib import Path
 import requests
 from bs4 import BeautifulSoup
+import pika
 
 # Add crawler to path
 sys.path.append(str(Path(__file__).parent.parent / "crawler"))
@@ -45,6 +46,13 @@ app.add_middleware(
 # Initialize services
 db = None
 scheduler = None
+
+# RabbitMQ configuration
+RABBITMQ_HOST = os.getenv('RABBITMQ_HOST', 'localhost')
+RABBITMQ_PORT = int(os.getenv('RABBITMQ_PORT', '5672'))
+RABBITMQ_USER = os.getenv('RABBITMQ_USER', 'guest')
+RABBITMQ_PASS = os.getenv('RABBITMQ_PASS', 'guest')
+OUTREACH_QUEUE = os.getenv('OUTREACH_QUEUE', 'outreach_queue')
 
 # Try to initialize database and scheduler, but continue without them if it fails
 def init_services():
@@ -93,6 +101,11 @@ class RequirementsGenerateRequest(BaseModel):
 class RequirementsSaveRequest(BaseModel):
     requirements: Dict
     filename: str
+
+class OutreachRequest(BaseModel):
+    leads: List[Dict[str, str]]  # [{"id": "...", "name": "...", "profile_url": "..."}]
+    message: str
+    dry_run: bool = True
 
 
 @app.on_event("startup")
@@ -534,6 +547,138 @@ async def get_requirement(filename: str):
         return data
     
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# OUTREACH ENDPOINTS (Step 2: Send to RabbitMQ)
+# ============================================================================
+
+@app.post("/api/outreach/send")
+async def send_outreach(request: OutreachRequest):
+    """
+    Receive outreach request from frontend and send to RabbitMQ
+    Step 2: Split into 1 message per lead and queue them
+    """
+    try:
+        print("\n" + "="*60)
+        print("📥 OUTREACH REQUEST RECEIVED")
+        print("="*60)
+        print(f"Total leads: {len(request.leads)}")
+        print(f"Message template: {request.message[:50]}...")
+        print(f"Dry run: {request.dry_run}")
+        
+        # Validate leads
+        valid_leads = []
+        for i, lead in enumerate(request.leads, 1):
+            lead_id = lead.get('id')
+            lead_name = lead.get('name')
+            profile_url = lead.get('profile_url')
+            
+            if not lead_name or not profile_url:
+                print(f"  ❌ [{i}] Invalid lead: missing name or profile_url")
+                continue
+            
+            valid_leads.append({
+                'id': lead_id,
+                'name': lead_name,
+                'profile_url': profile_url
+            })
+        
+        if len(valid_leads) == 0:
+            raise HTTPException(status_code=400, detail="No valid leads provided")
+        
+        print(f"\n✅ Valid leads: {len(valid_leads)}/{len(request.leads)}")
+        
+        # Connect to RabbitMQ
+        print(f"\n🐰 Connecting to RabbitMQ at {RABBITMQ_HOST}:{RABBITMQ_PORT}...")
+        
+        try:
+            credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
+            parameters = pika.ConnectionParameters(
+                host=RABBITMQ_HOST,
+                port=RABBITMQ_PORT,
+                credentials=credentials,
+                heartbeat=600,
+                blocked_connection_timeout=300
+            )
+            
+            connection = pika.BlockingConnection(parameters)
+            channel = connection.channel()
+            
+            # Declare queue (create if not exists)
+            channel.queue_declare(queue=OUTREACH_QUEUE, durable=True)
+            
+            print(f"✓ Connected to RabbitMQ")
+            
+        except Exception as e:
+            print(f"✗ Failed to connect to RabbitMQ: {e}")
+            raise HTTPException(
+                status_code=503, 
+                detail=f"RabbitMQ connection failed: {str(e)}"
+            )
+        
+        # Send each lead as separate message
+        print(f"\n📤 Sending messages to queue '{OUTREACH_QUEUE}'...")
+        
+        batch_id = datetime.now().strftime('%Y%m%d_%H%M%S')
+        queued_count = 0
+        
+        for i, lead in enumerate(valid_leads, 1):
+            try:
+                # Create message payload (1 message = 1 lead)
+                message = {
+                    'job_id': f"outreach_{batch_id}_{i}",
+                    'lead_id': lead['id'],
+                    'name': lead['name'],
+                    'profile_url': lead['profile_url'],
+                    'message': request.message,
+                    'dry_run': request.dry_run,
+                    'batch_id': batch_id,
+                    'created_at': datetime.now().isoformat()
+                }
+                
+                # Publish to queue
+                channel.basic_publish(
+                    exchange='',
+                    routing_key=OUTREACH_QUEUE,
+                    body=json.dumps(message),
+                    properties=pika.BasicProperties(
+                        delivery_mode=2,  # Make message persistent
+                        content_type='application/json'
+                    )
+                )
+                
+                queued_count += 1
+                print(f"  ✓ [{i}/{len(valid_leads)}] Queued: {lead['name']}")
+                
+            except Exception as e:
+                print(f"  ✗ [{i}/{len(valid_leads)}] Failed to queue {lead['name']}: {e}")
+        
+        # Close connection
+        connection.close()
+        
+        print(f"\n✅ Successfully queued {queued_count}/{len(valid_leads)} messages")
+        print("="*60 + "\n")
+        
+        return {
+            "status": "success",
+            "message": "Outreach messages queued successfully",
+            "total_leads": len(request.leads),
+            "valid_leads": len(valid_leads),
+            "queued": queued_count,
+            "count": queued_count,
+            "batch_id": batch_id,
+            "dry_run": request.dry_run,
+            "queue": OUTREACH_QUEUE
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error processing outreach request: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
