@@ -11,6 +11,9 @@ crawler/
 ├── scheduler_daemon.py     # Scheduled crawl job executor
 ├── .env                    # Configuration
 ├── requirements.txt        # Dependencies
+├── helper/
+│   ├── supabase_helper.py # Supabase integration for storing leads
+│   └── rabbitmq_helper.py # RabbitMQ queue management
 └── data/
     ├── cookie/            # LinkedIn session cookies
     └── output/            # Scraped profiles (JSON)
@@ -18,7 +21,8 @@ crawler/
 
 ## Features
 
-- **All-in-one design**: No helper folders, just 2 files
+- **All-in-one design**: Core crawler with modular helpers
+- **Supabase integration**: Direct storage to `leads_list` table with duplicate prevention
 - **Browser restart**: Prevents memory leak every N profiles
 - **Mobile/Desktop mode**: Choose scraping mode
 - **Anti-detection**: Random delays, human-like scrolling
@@ -87,17 +91,90 @@ Features:
 - Skip sales URLs
 - Multi-worker processing
 - Send to scoring queue
+- Supabase integration (automatic save to `leads_list` table)
 
 ### Direct Import
 Use crawler directly in your code:
 
 ```python
 from crawler import LinkedInCrawler
+from helper.supabase_helper import SupabaseManager
 
+# Initialize
 crawler = LinkedInCrawler()
+supabase = SupabaseManager()
+
+# Login and scrape
 crawler.login()
 profile_data = crawler.get_profile("https://linkedin.com/in/username")
+
+# Save to Supabase
+supabase.save_lead(
+    profile_url=profile_data['profile_url'],
+    name=profile_data['name'],
+    profile_data=profile_data,
+    connection_status='scraped'
+)
+
 crawler.close()
+```
+
+## Supabase Helper
+
+The `SupabaseManager` class provides methods for storing and managing leads:
+
+### Methods
+
+**`save_lead(profile_url, name, profile_data, connection_status='scraped', template_id=None)`**
+- Saves or updates a lead in the `leads_list` table
+- Automatically handles duplicates (updates existing, inserts new)
+- Stores complete profile data in JSONB column
+- Optional `template_id` parameter for filtering leads by requirement template
+- Returns: `bool` (success status)
+
+**`update_connection_status(profile_url, status)`**
+- Updates the connection status for a lead
+- Common statuses: `scraped`, `connection_sent`, `message_sent`, `connected`
+- Returns: `bool` (success status)
+
+**`lead_exists(profile_url)`**
+- Checks if a lead already exists in the database
+- Returns: `bool`
+
+**`get_lead(profile_url)`**
+- Retrieves complete lead data from database
+- Returns: `dict` or `None`
+
+### Usage Example
+
+```python
+from helper.supabase_helper import SupabaseManager
+
+supabase = SupabaseManager()
+
+# Check if lead exists
+if not supabase.lead_exists("https://linkedin.com/in/username"):
+    # Save new lead with optional template_id
+    supabase.save_lead(
+        profile_url="https://linkedin.com/in/username",
+        name="John Doe",
+        profile_data={...},
+        connection_status='scraped',
+        template_id='abc-123-def'  # Optional: link to requirement template
+    )
+
+# Update status after sending connection
+supabase.update_connection_status(
+    profile_url="https://linkedin.com/in/username",
+    status='connection_sent'
+)
+
+# Retrieve lead data
+lead = supabase.get_lead("https://linkedin.com/in/username")
+if lead:
+    print(f"Lead: {lead['name']}, Status: {lead['connection_status']}")
+    if lead.get('template_id'):
+        print(f"Template: {lead['template_id']}")
 ```
 
 ## Configuration
@@ -121,11 +198,19 @@ PROFILE_DELAY_MAX=20.0
 # Mode
 USE_MOBILE_MODE=false
 
-# RabbitMQ
+# Supabase Configuration
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=your-supabase-anon-key
+
+# RabbitMQ - Option 1: CloudAMQP URL (recommended for cloud deployments)
+CLOUDAMQP_URL=amqps://user:pass@host.lmq.cloudamqp.com/vhost
+
+# RabbitMQ - Option 2: Individual settings (for local/custom setups)
 RABBITMQ_HOST=localhost
 RABBITMQ_PORT=5672
 RABBITMQ_USER=guest
 RABBITMQ_PASS=guest
+RABBITMQ_VHOST=/
 RABBITMQ_QUEUE=linkedin_profiles
 
 # Scoring
@@ -135,6 +220,31 @@ DEFAULT_REQUIREMENTS_ID=desk_collection
 # Scheduler Daemon
 POLL_INTERVAL=300  # Check for schedules every 5 minutes
 ```
+
+### RabbitMQ Configuration Options
+
+The crawler supports two ways to configure RabbitMQ:
+
+**Option 1: CloudAMQP URL (Recommended for Cloud)**
+```bash
+CLOUDAMQP_URL=amqps://username:password@host.lmq.cloudamqp.com/vhost
+```
+- Automatically parses connection details from URL
+- Supports both `amqp://` (plain) and `amqps://` (SSL/TLS)
+- SSL is auto-enabled for `amqps://` URLs
+- Perfect for LavinMQ, CloudAMQP, or other managed services
+
+**Option 2: Individual Environment Variables**
+```bash
+RABBITMQ_HOST=localhost
+RABBITMQ_PORT=5672
+RABBITMQ_USER=guest
+RABBITMQ_PASS=guest
+RABBITMQ_VHOST=/
+```
+- Use for local RabbitMQ instances
+- SSL auto-enabled if port is 5671
+- Falls back to this if `CLOUDAMQP_URL` is not set
 
 ### OAuth Login Setup
 
@@ -186,6 +296,7 @@ python manage_cookies.py delete   # Delete cookies
 - Consumer worker threads
 - Profile save utilities
 - Scoring integration
+- Supabase integration (automatic save to database)
 
 **scheduler_daemon.py** contains:
 - Supabase schedule polling
@@ -197,6 +308,30 @@ python manage_cookies.py delete   # Delete cookies
 
 RabbitMQ Management UI: http://localhost:15672
 - Login: `guest` / `guest`
+
+## Consumer Mode Statistics
+
+The crawler consumer tracks the following metrics:
+- `processing`: Currently processing profiles
+- `completed`: Successfully scraped profiles
+- `failed`: Failed scraping attempts
+- `skipped`: Profiles skipped (already crawled or sales URLs)
+- `sent_to_scoring`: Profiles sent to scoring queue
+- `saved_to_supabase`: Profiles saved to Supabase database
+- `supabase_failed`: Failed Supabase save attempts
+
+Each worker automatically:
+1. Connects to Supabase on startup (gracefully continues without it if connection fails)
+2. Scrapes the LinkedIn profile
+3. Saves profile data to local JSON file (`data/output/`)
+4. Saves profile data to Supabase `leads_list` table with:
+   - `profile_url`: LinkedIn profile URL
+   - `name`: Extracted from profile data
+   - `profile_data`: Complete JSON profile data
+   - `connection_status`: Set to 'scraped'
+5. Sends profile data to scoring queue for processing
+
+If Supabase connection fails, the worker continues operating and saves data locally only.
 
 ## Output
 
@@ -331,11 +466,25 @@ The outreach worker is now production-ready. Control the behavior using the `dry
 - `dry_run: true` - Test mode: Types message but doesn't send (for verification)
 - `dry_run: false` - Production mode: Sends actual connection requests
 
+**Supabase Integration:**
+The outreach worker now connects to Supabase on startup:
+- Automatically initializes Supabase connection using credentials from `.env`
+- Gracefully handles connection failures - continues without Supabase if unavailable
+- Logs connection status on startup for debugging
+- Stores outreach results with detailed status tracking:
+  - `sent` - Connection request successfully sent (production mode)
+  - `dry_run_success` - Message typed but not sent (test mode) → saved as `test_run`
+  - `already_connected` - Profile already connected → saved as `already_connected`
+  - `failed` - Request failed (not saved to database)
+- Saves complete job metadata including message template, job ID, timestamp, and result details
+- Updates `leads_list` table with appropriate `connection_status` based on outcome
+
 **Safety Features:**
 - Rate limiting: Fixed 3-minute delay between all connection requests (both testing and production modes)
 - Screenshot capture for every attempt (success or failure)
 - Detailed logging for debugging and audit trails
 - Graceful error handling with no automatic retries to prevent spam
+- Smart status tracking prevents duplicate connection attempts
 
 ## Notes
 
@@ -343,3 +492,39 @@ The outreach worker is now production-ready. Control the behavior using the `dry
 - Browser restart prevents memory leak after that
 - Mobile mode = simpler HTML, no "See all" buttons
 - Desktop mode = full features, more data
+
+## Database Schema
+
+### Supabase Table: `leads_list`
+
+The crawler stores scraped profiles in the `leads_list` table with the following schema:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID | Primary key (auto-generated) |
+| `profile_url` | TEXT | LinkedIn profile URL (unique) |
+| `name` | TEXT | Lead's name extracted from profile |
+| `profile_data` | JSONB | Complete scraped profile data as JSON |
+| `connection_status` | TEXT | Status: `scraped`, `connection_sent`, `message_sent`, `connected` |
+| `date` | DATE | Date when profile was scraped |
+| `template_id` | UUID | Optional: Link to requirement template for filtering |
+| `score` | NUMERIC | Optional: Scoring result (populated by scoring service) |
+| `scored_at` | TIMESTAMP | Optional: When the profile was scored |
+
+### Database Migration
+
+If you're setting up a new Supabase instance or the `profile_data` column doesn't exist:
+
+1. Open Supabase SQL Editor
+2. Run the migration script:
+   ```bash
+   backend/crawler/add_profile_data_column.sql
+   ```
+
+The migration script:
+- Checks if `profile_data` column exists before adding it
+- Creates the column as JSONB type with default empty object
+- Verifies the column was added successfully
+- Safe to run multiple times (idempotent)
+
+**Note:** The `profile_data` column stores the complete JSON output from the crawler, including all sections like experiences, education, skills, projects, etc.

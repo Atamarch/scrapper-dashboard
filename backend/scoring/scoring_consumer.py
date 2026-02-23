@@ -558,36 +558,83 @@ def save_score_result(profile_data, score_result, requirements_id):
 
 
 def update_supabase_score(profile_url, total_score, profile_data=None):
-    """Update score and profile data in Supabase leads_list table"""
+    """Update score and profile data in Supabase leads_list table
+    
+    ALWAYS overwrites existing score with new score and updates scored_at to current date
+    """
     try:
         print(f"📤 Updating Supabase...")
         
-        # Prepare update data
-        update_data = {'score': total_score}
+        # Check if lead exists first
+        existing = supabase.table('leads_list').select('id, profile_data, score').eq('profile_url', profile_url).execute()
         
-        # Add profile data if provided
+        # Prepare update data - ALWAYS update score and scored_at
+        update_data = {
+            'score': total_score,
+            'scored_at': datetime.now().date().isoformat()
+        }
+        
+        # Add profile data if provided and not already in database
         if profile_data:
             # Update name if available
             if profile_data.get('name'):
                 update_data['name'] = profile_data.get('name')
             
-            # Update other fields if they exist in the table
-            if profile_data.get('connection_status'):
-                update_data['connection_status'] = profile_data.get('connection_status')
+            # If profile_data doesn't exist in DB yet, save it
+            if existing.data and len(existing.data) > 0:
+                existing_profile_data = existing.data[0].get('profile_data')
+                if not existing_profile_data or existing_profile_data == {}:
+                    # No profile data yet, save it
+                    update_data['profile_data'] = profile_data
+                    print(f"  → Adding profile_data to existing lead")
+            else:
+                # Lead doesn't exist, will be created with profile data
+                update_data['profile_data'] = profile_data
+                update_data['date'] = datetime.now().date().isoformat()
+                update_data['connection_status'] = 'scored'
         
-        # Update score in leads_list table where profile_url matches
-        response = supabase.table('leads_list').update(update_data).eq('profile_url', profile_url).execute()
-        
-        # Check if update was successful
-        if response.data:
-            print(f"✓ Supabase updated: {profile_url} → score: {total_score}, name: {update_data.get('name', 'N/A')}")
-            return True
+        # Update or insert
+        if existing.data and len(existing.data) > 0:
+            # Update existing lead - OVERWRITE score
+            old_score = existing.data[0].get('score')
+            response = supabase.table('leads_list').update(update_data).eq('profile_url', profile_url).execute()
+            
+            if response.data:
+                if old_score is not None:
+                    print(f"✓ Supabase updated: {profile_url} → score: {old_score} → {total_score} (overwritten)")
+                else:
+                    print(f"✓ Supabase updated: {profile_url} → score: {total_score} (new)")
+                return True
+            else:
+                print(f"⚠ Failed to update Supabase")
+                return False
         else:
-            print(f"⚠ No matching profile_url found in Supabase: {profile_url}")
-            return False
+            # Insert new lead (shouldn't happen if crawler ran first, but handle it)
+            insert_data = {
+                'profile_url': profile_url,
+                'score': total_score,
+                'scored_at': datetime.now().date().isoformat(),
+                'date': datetime.now().date().isoformat(),
+                'connection_status': 'scored'
+            }
+            
+            if profile_data:
+                insert_data['name'] = profile_data.get('name', 'Unknown')
+                insert_data['profile_data'] = profile_data
+            
+            response = supabase.table('leads_list').insert(insert_data).execute()
+            
+            if response.data:
+                print(f"✓ Supabase inserted: {profile_url} → score: {total_score}")
+                return True
+            else:
+                print(f"⚠ Failed to insert to Supabase")
+                return False
     
     except Exception as e:
         print(f"✗ Failed to update Supabase: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
@@ -679,15 +726,18 @@ def process_message(message_data):
         save_score_result(profile_data, score_result, requirements_id)
         
         # Update Supabase
-        profile_url = profile_data.get('profile_url', '')
-        total_score = score_result.get('total_score', 0)
-        if profile_url:
-            if update_supabase_score(profile_url, total_score):
-                with stats['lock']:
-                    stats['supabase_updated'] += 1
-            else:
-                with stats['lock']:
-                    stats['supabase_failed'] += 1
+        if supabase:
+            profile_url = profile_data.get('profile_url', '')
+            total_score = score_result.get('total_score', 0)
+            if profile_url:
+                if update_supabase_score(profile_url, total_score, profile_data):
+                    with stats['lock']:
+                        stats['supabase_updated'] += 1
+                else:
+                    with stats['lock']:
+                        stats['supabase_failed'] += 1
+        else:
+            print("⚠ Supabase not configured, skipping database update")
         
         print(f"✓ Completed: {name} - Score: {score_result['percentage']}%")
         

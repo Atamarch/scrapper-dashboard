@@ -10,6 +10,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from helper.rabbitmq_helper import RabbitMQManager, ack_message, nack_message
+from helper.supabase_helper import SupabaseManager
 from helper.browser_helper import create_driver, human_delay
 from helper.auth_helper import login
 
@@ -380,6 +381,16 @@ def worker():
         print("✗ Failed to connect to RabbitMQ")
         return
     
+    # Initialize Supabase
+    try:
+        supabase = SupabaseManager()
+        print("✓ Connected to Supabase\n")
+    except Exception as e:
+        print(f"✗ Failed to connect to Supabase: {e}")
+        print("  Make sure SUPABASE_URL and SUPABASE_KEY are set in .env")
+        print("  Continuing without Supabase (data won't be saved)...\n")
+        supabase = None
+    
     # Set QoS - process 1 at a time
     mq.channel.basic_qos(prefetch_count=1)
     
@@ -404,6 +415,42 @@ def worker():
             
             # Process job
             result = process_outreach_job(message_data, dry_run=dry_run)
+            
+            # Save to Supabase if available
+            if supabase and result['status'] in ['sent', 'dry_run_success', 'already_connected']:
+                print("\n→ Saving to Supabase...")
+                
+                # Prepare profile data
+                profile_data = {
+                    'profile_url': message_data.get('profile_url'),
+                    'name': message_data.get('name', 'Unknown'),
+                    'message_template': message_data.get('message'),
+                    'job_id': message_data.get('job_id'),
+                    'dry_run': dry_run,
+                    'timestamp': datetime.now().isoformat(),
+                    'result': result
+                }
+                
+                # Determine connection status based on result
+                if result['status'] == 'already_connected':
+                    connection_status = 'already_connected'
+                elif result['status'] == 'dry_run_success':
+                    connection_status = 'test_run'
+                elif result['status'] == 'sent':
+                    connection_status = 'connection_sent'
+                else:
+                    connection_status = 'failed'
+                
+                # Save to database
+                if supabase.save_lead(
+                    profile_url=message_data.get('profile_url'),
+                    name=message_data.get('name', 'Unknown'),
+                    profile_data=profile_data,
+                    connection_status=connection_status
+                ):
+                    print("✓ Saved to database")
+                else:
+                    print("⚠ Failed to save to database")
             
             # Log result
             print("\n" + "="*60)

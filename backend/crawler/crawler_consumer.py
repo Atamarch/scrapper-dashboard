@@ -10,6 +10,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 from crawler import LinkedInCrawler
 from helper.rabbitmq_helper import RabbitMQManager, ack_message, nack_message
+from helper.supabase_helper import SupabaseManager
 
 load_dotenv()
 
@@ -95,6 +96,8 @@ stats = {
     'failed': 0,
     'skipped': 0,
     'sent_to_scoring': 0,
+    'saved_to_supabase': 0,
+    'supabase_failed': 0,
     'lock': threading.Lock()
 }
 
@@ -109,6 +112,8 @@ def print_stats():
     print(f"Failed: {stats['failed']}")
     print(f"Skipped: {stats['skipped']}")
     print(f"Sent to Scoring: {stats['sent_to_scoring']}")
+    print(f"Saved to Supabase: {stats['saved_to_supabase']}")
+    print(f"Supabase Failed: {stats['supabase_failed']}")
     if stats['completed'] + stats['failed'] > 0:
         success_rate = stats['completed'] / (stats['completed'] + stats['failed']) * 100
         print(f"Success Rate: {success_rate:.1f}%")
@@ -253,6 +258,15 @@ def worker_thread(worker_id, mq_config, requirements_id):
         print(f"[Worker {worker_id}] Failed to connect to RabbitMQ")
         return
     
+    # Initialize Supabase
+    try:
+        supabase = SupabaseManager()
+        print(f"[Worker {worker_id}] ✓ Connected to Supabase")
+    except Exception as e:
+        print(f"[Worker {worker_id}] ⚠ Supabase connection failed: {e}")
+        print(f"[Worker {worker_id}]   Continuing without Supabase (data won't be saved to DB)")
+        supabase = None
+    
     # Set QoS - only process 1 message at a time
     mq.channel.basic_qos(prefetch_count=1)
     
@@ -287,6 +301,23 @@ def worker_thread(worker_id, mq_config, requirements_id):
                 
                 # Save to file
                 save_profile_data(profile_data)
+                
+                # Save to Supabase
+                if supabase:
+                    print(f"[Worker {worker_id}] 💾 Saving to Supabase...")
+                    if supabase.save_lead(
+                        profile_url=url,
+                        name=profile_data.get('name', 'Unknown'),
+                        profile_data=profile_data,
+                        connection_status='scraped'
+                    ):
+                        with stats['lock']:
+                            stats['saved_to_supabase'] += 1
+                        print(f"[Worker {worker_id}] ✓ Saved to Supabase")
+                    else:
+                        with stats['lock']:
+                            stats['supabase_failed'] += 1
+                        print(f"[Worker {worker_id}] ⚠ Failed to save to Supabase")
                 
                 # Send to scoring queue
                 print(f"[Worker {worker_id}] 📤 Sending to scoring...")
@@ -492,12 +523,15 @@ def main():
         print(f"✗ Failed: {stats['failed']}")
         print(f"⊘ Skipped (sales): {stats['skipped']}")
         print(f"📤 Sent to Scoring: {stats['sent_to_scoring']}")
+        print(f"💾 Saved to Supabase: {stats['saved_to_supabase']}")
+        print(f"⚠ Supabase Failed: {stats['supabase_failed']}")
         if stats['completed'] + stats['failed'] > 0:
             success_rate = stats['completed'] / (stats['completed'] + stats['failed']) * 100
             print(f"📊 Success Rate: {success_rate:.1f}%")
         print("="*60)
         print(f"\nCrawler output: data/output/")
         print(f"Scoring output: ../scoring/data/scores/")
+        print(f"Supabase: leads_list table")
 
 
 if __name__ == "__main__":

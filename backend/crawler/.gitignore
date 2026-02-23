@@ -35,7 +35,7 @@ data/output/*
 !data/output/.gitkeep
 
 # Keep other data folders
-!data/cookies/
+!data/cookie/
 
 # Virtual Environment
 venv/

@@ -197,7 +197,31 @@ Workers akan otomatis process message dari crawler!
 2. Crawler send message ke RabbitMQ queue: "scoring_queue"
 3. Scoring consumer receive message → Process scoring
 4. Save result ke: data/scores/
+5. Update Supabase leads_list table with score
 ```
+
+### Supabase Score Updates
+
+The scoring consumer automatically updates the `leads_list` table in Supabase with scoring results:
+
+**Behavior:**
+- **Always overwrites** existing scores with new scores
+- Updates `scored_at` timestamp to current date on every scoring run
+- Preserves existing `profile_data` if already present
+- Adds `profile_data` if not yet in database
+
+**Example Output:**
+```
+✓ Supabase updated: https://linkedin.com/in/johndoe → score: 75.5 → 85.5 (overwritten)
+✓ Supabase updated: https://linkedin.com/in/janedoe → score: 82.0 (new)
+```
+
+**Use Cases:**
+- Re-scoring profiles with updated requirements
+- Correcting scores after requirement adjustments
+- Batch re-scoring of existing leads
+
+**Note:** This allows you to refine your requirements and re-score profiles without worrying about stale scores in the database.
 
 ### Message Format:
 

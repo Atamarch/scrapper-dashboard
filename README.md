@@ -437,14 +437,27 @@ Send connection requests to selected leads with personalized messages.
 ```json
 {
   "status": "success",
-  "message": "Outreach request received",
+  "message": "Outreach messages queued successfully",
   "total_leads": 5,
   "valid_leads": 5,
+  "queued": 5,
   "count": 5,
+  "batch_id": "20260223_143022",
   "dry_run": true,
-  "note": "Step 1: Payload validated. RabbitMQ integration coming in Step 2."
+  "queue": "outreach_queue"
 }
 ```
+
+#### Response Fields
+- `status`: Operation status ("success" or "error")
+- `message`: Human-readable status message
+- `total_leads`: Total number of leads in request
+- `valid_leads`: Number of leads that passed validation
+- `queued`: Number of messages successfully queued to RabbitMQ
+- `count`: Same as `queued` (for backward compatibility)
+- `batch_id`: Unique batch identifier for tracking
+- `dry_run`: Whether this was a test run
+- `queue`: Name of the RabbitMQ queue used
 
 #### Validation
 The endpoint validates each lead for:
@@ -458,11 +471,34 @@ The endpoint validates each lead for:
 - Logs lead details for debugging
 - Returns validation results
 
-**Step 2 (In Progress)**: RabbitMQ integration
+**Step 2 (Completed)**: RabbitMQ integration
 - `pika` library integrated for RabbitMQ communication
-- Queue outreach jobs for processing
-- Worker-based connection request sending
-- Rate limiting and anti-detection measures
+- Queues outreach jobs to `outreach_queue` for processing
+- Each lead sent as individual message with batch tracking
+- Persistent message delivery (survives broker restarts)
+- Worker-based connection request sending ready
+- Rate limiting and anti-detection measures in worker
+
+#### Queue Configuration
+The outreach endpoint uses the following RabbitMQ configuration:
+- **Queue Name**: `outreach_queue` (configurable via `OUTREACH_QUEUE` env var)
+- **Message Format**: JSON with lead details, message template, and dry_run flag
+- **Delivery Mode**: Persistent (messages survive broker restarts)
+- **Batch Tracking**: Each batch gets unique ID with timestamp
+
+#### Message Structure
+Each queued message contains:
+```json
+{
+  "job_id": "outreach_20260223_143022_1",
+  "lead_id": "lead-uuid",
+  "name": "John Doe",
+  "profile_url": "https://www.linkedin.com/in/johndoe",
+  "message": "Hi John Doe, I'd like to connect!",
+  "dry_run": true,
+  "batch_id": "20260223_143022",
+  "created_at": "2026-02-23T14:30:22.123456"
+}
 
 #### Dependencies
 The outreach feature requires:
