@@ -57,6 +57,7 @@ RABBITMQ_HOST = os.getenv('RABBITMQ_HOST')
 RABBITMQ_PORT = int(os.getenv('RABBITMQ_PORT', '5672'))
 RABBITMQ_USER = os.getenv('RABBITMQ_USER')
 RABBITMQ_PASS = os.getenv('RABBITMQ_PASS')
+RABBITMQ_VHOST = os.getenv('RABBITMQ_VHOST', '/')
 RABBITMQ_QUEUE = os.getenv('RABBITMQ_QUEUE', 'linkedin_profiles')
 OUTREACH_QUEUE = os.getenv('OUTREACH_QUEUE', 'outreach_queue')
 
@@ -604,6 +605,7 @@ async def send_outreach(request: OutreachRequest):
             parameters = pika.ConnectionParameters(
                 host=RABBITMQ_HOST,
                 port=RABBITMQ_PORT,
+                virtual_host=RABBITMQ_VHOST,
                 credentials=credentials,
                 heartbeat=600,
                 blocked_connection_timeout=300

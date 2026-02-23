@@ -37,12 +37,14 @@ pip install -r requirements.txt
 2. Configure `.env`:
 ```bash
 cp .env.example .env
-# Edit .env with your credentials
+# Edit .env with your LavinMQ credentials
+# See LAVINMQ-SETUP.md for detailed setup guide
 ```
 
-3. Start RabbitMQ:
+3. Test LavinMQ connection:
 ```bash
-docker-compose up -d
+cd ../..
+python test-lavinmq.py
 ```
 
 ## Usage
@@ -287,8 +289,9 @@ This script allows you to:
 - Run in dry-run mode (no actual connection requests sent)
 
 **Before running:**
-1. Ensure RabbitMQ is running: `docker-compose up -d`
-2. Edit `test_outreach.py` to customize the test job:
+1. Ensure LavinMQ is configured in `.env` (see LAVINMQ-SETUP.md)
+2. Test connection: `python ../../test-lavinmq.py`
+3. Edit `test_outreach.py` to customize the test job:
    - `name`: Lead's name for personalization
    - `profile_url`: LinkedIn profile URL
    - `message`: Connection request message template

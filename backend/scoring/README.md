@@ -86,13 +86,20 @@ Buat file JSON di folder `requirements/` untuk setiap posisi:
 - `data_scientist.json`
 - `devops_engineer.json`
 
-### 3. Start RabbitMQ
+### 3. Configure LavinMQ
 
-Pastikan RabbitMQ sudah running (dari folder crawler):
+Setup LavinMQ credentials in `.env`:
 
 ```bash
-cd ../crawler
-docker-compose up -d
+cp .env.example .env
+# Edit .env with your LavinMQ credentials
+# See ../../LAVINMQ-SETUP.md for detailed setup guide
+```
+
+Test connection:
+```bash
+cd ../..
+python test-lavinmq.py
 ```
 
 ## Usage
@@ -308,14 +315,16 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### Error: "Failed to connect to RabbitMQ"
+### Error: "Failed to connect to RabbitMQ/LavinMQ"
 ```bash
-# Start RabbitMQ
-cd ../crawler
-docker-compose up -d
+# Test LavinMQ connection
+cd ../..
+python test-lavinmq.py
 
-# Check status
-docker ps
+# Check .env credentials
+cat .env | grep RABBITMQ
+
+# Pastikan RABBITMQ_VHOST sudah diset!
 ```
 
 ### Error: "Requirements file not found"

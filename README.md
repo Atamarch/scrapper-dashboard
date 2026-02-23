@@ -17,24 +17,30 @@ Pastikan sudah terinstal:
 
 ⚠️ **PENTING:** Baca [SAFETY.md](SAFETY.md) untuk menghindari deteksi bot oleh LinkedIn!
 
-### 1. Setup RabbitMQ (Message Queue)
+### 1. Setup LavinMQ (Message Queue)
 
-RabbitMQ digunakan untuk komunikasi antara crawler dan scoring system.
+LavinMQ digunakan untuk komunikasi antara crawler dan scoring system.
+
+**Opsi 1: Gunakan LavinMQ Cloud (Recommended)**
+
+Lihat panduan lengkap di: [LAVINMQ-SETUP.md](LAVINMQ-SETUP.md)
+
+1. Buat akun gratis di https://www.lavinmq.com
+2. Buat instance baru (Free tier: unlimited messages)
+3. Copy connection credentials
+4. Update `.env` files di `backend/crawler/`, `backend/scoring/`, dan `backend/api/`
+
+**Opsi 2: Gunakan Docker RabbitMQ Lokal (Development only)**
 
 ```bash
-# Masuk ke folder crawler
-cd backend/crawler
+docker run -d --name rabbitmq \
+  -p 5672:5672 -p 15672:15672 \
+  -e RABBITMQ_DEFAULT_USER=guest \
+  -e RABBITMQ_DEFAULT_PASS=guest \
+  rabbitmq:3-management
 
-# Jalankan RabbitMQ dengan Docker
-docker-compose up -d
-
-# Cek status RabbitMQ
-docker ps
-
-# Akses RabbitMQ Management UI
-# Buka browser: http://localhost:15672
-# Username: guest
-# Password: guest
+# Akses Management UI: http://localhost:15672
+# Username: guest, Password: guest
 ```
 
 ### 2. Setup Backend - Crawler
@@ -152,8 +158,7 @@ npm run dev
 │   ├── crawler/             # LinkedIn Crawler
 │   │   ├── crawler.py       # Main crawler logic
 │   │   ├── crawler_consumer.py  # RabbitMQ consumer
-│   │   ├── main.py          # CLI interface
-│   │   └── docker-compose.yml   # RabbitMQ setup
+│   │   └── main.py          # CLI interface
 │   │
 │   └── scoring/             # Scoring System
 │       ├── scoring_consumer.py  # RabbitMQ consumer
@@ -220,16 +225,17 @@ Contoh: `desk_collection.json`
 
 ## 🐛 Troubleshooting
 
-### RabbitMQ tidak bisa connect
+### LavinMQ/RabbitMQ tidak bisa connect
 ```bash
-# Cek status container
-docker ps
+# Test koneksi ke LavinMQ
+python test-lavinmq.py
 
-# Restart RabbitMQ
-docker-compose restart
+# Cek credentials di .env files
+cat backend/crawler/.env | grep RABBITMQ
+cat backend/scoring/.env | grep RABBITMQ
+cat backend/api/.env | grep RABBITMQ
 
-# Lihat logs
-docker-compose logs -f
+# Pastikan RABBITMQ_VHOST sudah diset!
 ```
 
 ### Crawler error "Chrome driver not found"
