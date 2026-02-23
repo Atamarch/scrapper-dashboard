@@ -240,6 +240,10 @@ RABBITMQ_PASS=guest
 RABBITMQ_VHOST=/
 RABBITMQ_QUEUE=linkedin_profiles
 
+# SSL/TLS Support
+# Port 5671 automatically enables SSL/TLS connection
+# Port 5672 uses standard non-encrypted connection
+
 # Scoring
 SCORING_QUEUE=scoring_queue
 DEFAULT_REQUIREMENTS_ID=desk_collection
@@ -412,6 +416,13 @@ This script will:
 
 ## Troubleshooting
 
+**RabbitMQ SSL Connection:**
+- Port 5671 automatically enables SSL/TLS encryption
+- Port 5672 uses standard non-encrypted connection
+- SSL is auto-detected based on port number
+- Connection logs show SSL status: `Connected to RabbitMQ at host:port (SSL: True/False)`
+- For LavinMQ cloud instances, use port 5671 with SSL
+
 **ChromeDriver not found:**
 ```bash
 pip install webdriver-manager
@@ -465,6 +476,10 @@ This script allows you to:
 **Configuration in `.env`:**
 ```bash
 OUTREACH_QUEUE=outreach_queue  # Queue name for outreach jobs
+
+# Supabase Configuration (for outreach tracking)
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=your-supabase-anon-key
 ```
 
 **After sending test job:**
@@ -490,6 +505,7 @@ The worker will:
 - Detailed progress logging with selector preview and error messages
 - Filters for visible and enabled buttons only to avoid false positives
 - Production-ready: Worker now supports both dry-run testing and live connection requests based on job payload
+- Supabase integration: Outreach worker now connects to Supabase for future tracking and analytics capabilities
 
 **Production Mode:**
 The outreach worker is now production-ready. Control the behavior using the `dry_run` flag in each job:

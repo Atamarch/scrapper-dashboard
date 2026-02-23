@@ -102,6 +102,46 @@ class SupabaseManager:
             print(f"  ✗ Failed to update status: {e}")
             return False
     
+    def update_outreach_status(self, profile_url, note_sent, status='success'):
+        """
+        Update lead after outreach (status + note)
+        
+        Args:
+            profile_url: LinkedIn profile URL
+            note_sent: The personalized message that was sent
+            status: Connection status (default: 'success')
+        
+        Returns:
+            bool: Success status
+        """
+        try:
+            # Check if lead exists first
+            lead = self.get_lead(profile_url)
+            
+            if not lead:
+                print(f"  ⚠️  Profile not found: {profile_url}")
+                return False
+            
+            print(f"  ✓ Found profile: {lead.get('name', 'Unknown')}")
+            
+            # Update both status and note
+            result = self.client.table('leads_list')\
+                .update({
+                    'note_sent': note_sent,
+                    'connection_status': status
+                })\
+                .eq('profile_url', profile_url)\
+                .execute()
+            
+            print(f"  ✓ Updated outreach status: {status}")
+            return True
+            
+        except Exception as e:
+            print(f"  ✗ Failed to update outreach: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
     def lead_exists(self, profile_url):
         """Check if lead already exists in database"""
         try:

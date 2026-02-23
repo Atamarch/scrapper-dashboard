@@ -19,6 +19,73 @@ load_dotenv()
 # Configuration
 OUTREACH_QUEUE = os.getenv('OUTREACH_QUEUE', 'outreach_queue')
 
+# Initialize Supabase Manager
+supabase_manager = None
+
+def init_supabase():
+    """Initialize Supabase manager with better error handling"""
+    global supabase_manager
+    
+    if supabase_manager is not None:
+        return True
+    
+    try:
+        print(f"🔌 Connecting to Supabase...")
+        supabase_manager = SupabaseManager()
+        
+        # Test connection
+        test_lead = supabase_manager.client.table('leads_list').select('id').limit(1).execute()
+        print("✓ Supabase manager initialized and tested successfully")
+        return True
+    except ValueError as e:
+        print(f"⚠️  Supabase credentials missing: {e}")
+        return False
+    except Exception as e:
+        print(f"⚠️  Failed to initialize Supabase: {e}")
+        import traceback
+        traceback.print_exc()
+        supabase_manager = None
+        return False
+
+# Try to initialize on module load
+init_supabase()
+
+
+def update_lead_status(profile_url, note_sent, status='success'):
+    """
+    Update lead status in Supabase after outreach
+    
+    Args:
+        profile_url: LinkedIn profile URL (unique identifier)
+        note_sent: The message that was sent
+        status: Connection status ('success', 'pending', 'failed')
+    """
+    # Try to initialize if not already done
+    if not supabase_manager:
+        print("  ⚠️  Supabase not initialized, attempting to initialize...")
+        if not init_supabase():
+            print("  ✗ Failed to initialize Supabase, skipping database update")
+            return False
+    
+    try:
+        print(f"\n📝 Updating database...")
+        print(f"  Profile: {profile_url}")
+        print(f"  Status: {status}")
+        print(f"  Note: {note_sent[:50]}...")
+        
+        # Use the helper method
+        return supabase_manager.update_outreach_status(
+            profile_url=profile_url,
+            note_sent=note_sent,
+            status=status
+        )
+    
+    except Exception as e:
+        print(f"  ✗ Failed to update database: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
 
 def type_like_human(element, text):
     """Type text character by character with human-like behavior"""
@@ -226,24 +293,25 @@ def send_connection_request(driver, profile_url, lead_name, message_template, dr
         print("  ✓ Found note textarea")
         human_delay(1, 2)
         
-        # Personalize message
-        personalized_message = message_template.replace('{lead_name}', lead_name)
+        # Message template is already personalized from process_outreach_job()
+        # Just use it directly
+        final_message = message_template
         
         # Check character limit (LinkedIn allows 300 chars)
-        if len(personalized_message) > 300:
-            print(f"  ⚠️  Message too long ({len(personalized_message)} chars), truncating to 300...")
-            personalized_message = personalized_message[:297] + '...'
+        if len(final_message) > 300:
+            print(f"  ⚠️  Message too long ({len(final_message)} chars), truncating to 300...")
+            final_message = final_message[:297] + '...'
         
         print(f"6️⃣  Typing message...")
-        print(f"  Message preview: {personalized_message[:50]}...")
-        print(f"  Length: {len(personalized_message)} chars")
+        print(f"  Message preview: {final_message[:50]}...")
+        print(f"  Length: {len(final_message)} chars")
         
         # Click on textarea to focus
         note_field.click()
         human_delay(0.5, 1)
         
         # Type message like human
-        type_like_human(note_field, personalized_message)
+        type_like_human(note_field, final_message)
         
         human_delay(2, 3)
         
@@ -340,6 +408,10 @@ def process_outreach_job(message_data, dry_run=True):
             print("✗ Invalid job data: missing profile_url or message")
             return {'status': 'invalid', 'error': 'Missing required fields'}
         
+        # Personalize message (support both {lead_name} and [lead_name] formats)
+        personalized_message = message_template.replace('{lead_name}', lead_name)
+        personalized_message = personalized_message.replace('[lead_name]', lead_name)
+        
         # Create browser
         print("🌐 Starting browser...")
         driver = create_driver(mobile_mode=False)
@@ -353,9 +425,42 @@ def process_outreach_job(message_data, dry_run=True):
             driver, 
             profile_url, 
             lead_name, 
-            message_template,
+            personalized_message,  # Use personalized message, not template
             dry_run=dry_run
         )
+        
+        # Update database if message was sent (both dry_run and live)
+        if result['status'] in ['sent', 'dry_run_success']:
+            print(f"\n{'='*60}")
+            print("💾 UPDATING DATABASE")
+            print(f"{'='*60}")
+            
+            # Status is 'success' because note was sent successfully
+            db_status = 'success'
+            
+            print(f"Result status: {result['status']}")
+            print(f"DB status: {db_status}")
+            print(f"Profile URL: {profile_url}")
+            print(f"Personalized message: {personalized_message[:50]}...")
+            
+            # Update Supabase
+            update_success = update_lead_status(
+                profile_url=profile_url,
+                note_sent=personalized_message,
+                status=db_status
+            )
+            
+            result['database_updated'] = update_success
+            
+            if update_success:
+                print(f"✅ Database update: SUCCESS")
+            else:
+                print(f"⚠️  Database update: FAILED")
+            
+            print(f"{'='*60}\n")
+        else:
+            print(f"\n⚠️  Skipping database update (status: {result['status']})")
+            result['database_updated'] = False
         
         return result
     
@@ -416,41 +521,8 @@ def worker():
             # Process job
             result = process_outreach_job(message_data, dry_run=dry_run)
             
-            # Save to Supabase if available
-            if supabase and result['status'] in ['sent', 'dry_run_success', 'already_connected']:
-                print("\n→ Saving to Supabase...")
-                
-                # Prepare profile data
-                profile_data = {
-                    'profile_url': message_data.get('profile_url'),
-                    'name': message_data.get('name', 'Unknown'),
-                    'message_template': message_data.get('message'),
-                    'job_id': message_data.get('job_id'),
-                    'dry_run': dry_run,
-                    'timestamp': datetime.now().isoformat(),
-                    'result': result
-                }
-                
-                # Determine connection status based on result
-                if result['status'] == 'already_connected':
-                    connection_status = 'already_connected'
-                elif result['status'] == 'dry_run_success':
-                    connection_status = 'test_run'
-                elif result['status'] == 'sent':
-                    connection_status = 'connection_sent'
-                else:
-                    connection_status = 'failed'
-                
-                # Save to database
-                if supabase.save_lead(
-                    profile_url=message_data.get('profile_url'),
-                    name=message_data.get('name', 'Unknown'),
-                    profile_data=profile_data,
-                    connection_status=connection_status
-                ):
-                    print("✓ Saved to database")
-                else:
-                    print("⚠ Failed to save to database")
+            # Database update already handled in process_outreach_job()
+            # No need to save again here
             
             # Log result
             print("\n" + "="*60)
@@ -461,6 +533,8 @@ def worker():
                 print(f"Error: {result['error']}")
             if result.get('screenshot'):
                 print(f"Screenshot: {result['screenshot']}")
+            if result.get('database_updated'):
+                print(f"Database: {'✓ Updated' if result['database_updated'] else '✗ Failed'}")
             print("="*60 + "\n")
             
             # Acknowledge message

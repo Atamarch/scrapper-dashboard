@@ -24,24 +24,43 @@ class RabbitMQManager:
         """Connect to RabbitMQ"""
         try:
             credentials = pika.PlainCredentials(self.username, self.password)
-            parameters = pika.ConnectionParameters(
-                host=self.host,
-                port=self.port,
-                virtual_host=self.vhost,
-                credentials=credentials,
-                heartbeat=600,
-                blocked_connection_timeout=300
-            )
+            
+            # Check if SSL is needed (port 5671 = SSL)
+            use_ssl = self.port == 5671
+            
+            if use_ssl:
+                import ssl
+                ssl_options = pika.SSLOptions(ssl.create_default_context())
+                parameters = pika.ConnectionParameters(
+                    host=self.host,
+                    port=self.port,
+                    virtual_host=self.vhost,
+                    credentials=credentials,
+                    ssl_options=ssl_options,
+                    heartbeat=600,
+                    blocked_connection_timeout=300
+                )
+            else:
+                parameters = pika.ConnectionParameters(
+                    host=self.host,
+                    port=self.port,
+                    virtual_host=self.vhost,
+                    credentials=credentials,
+                    heartbeat=600,
+                    blocked_connection_timeout=300
+                )
             
             self.connection = pika.BlockingConnection(parameters)
             self.channel = self.connection.channel()
             
             self.channel.queue_declare(queue=self.queue_name, durable=True)
             
-            print(f"✓ Connected to RabbitMQ at {self.host}:{self.port}")
+            print(f"✓ Connected to RabbitMQ at {self.host}:{self.port} (SSL: {use_ssl})")
             return True
         except Exception as e:
             print(f"✗ Failed to connect to RabbitMQ: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def publish_url(self, url):
