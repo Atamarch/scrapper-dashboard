@@ -14,6 +14,7 @@ class RabbitMQManager:
         self.port = int(os.getenv('RABBITMQ_PORT', '5672'))
         self.username = os.getenv('RABBITMQ_USER', 'guest')
         self.password = os.getenv('RABBITMQ_PASS', 'guest')
+        self.vhost = os.getenv('RABBITMQ_VHOST', '/')
         self.queue_name = os.getenv('RABBITMQ_QUEUE', 'linkedin_profiles')
         
         self.connection = None
@@ -26,6 +27,7 @@ class RabbitMQManager:
             parameters = pika.ConnectionParameters(
                 host=self.host,
                 port=self.port,
+                virtual_host=self.vhost,
                 credentials=credentials,
                 heartbeat=600,
                 blocked_connection_timeout=300

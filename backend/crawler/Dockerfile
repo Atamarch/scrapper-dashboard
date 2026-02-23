@@ -1,6 +1,5 @@
-# Crawler Dockerfile - HEADLESS MODE for Cloud Deployment
-# WARNING: This will run in headless mode (no visible browser)
-# For local development with visible browser, use: ./start-all.sh start-visible
+# Crawler Dockerfile for Railway
+# Includes Chrome & Selenium for headless browser automation
 
 FROM python:3.11-slim
 

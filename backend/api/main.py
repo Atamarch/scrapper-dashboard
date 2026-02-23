@@ -25,14 +25,19 @@ app = FastAPI(title="LinkedIn Crawler API", version="1.0.0")
 
 # CORS - Allow Vercel and localhost
 ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://localhost:3001",
+    os.getenv("FRONTEND_URL", "http://localhost:3000"),  # From env or default
+    "http://localhost:3000",  # Local dev primary
+    "http://localhost:3001",  # Local dev alternate
     "https://*.vercel.app",  # All Vercel preview deployments
-    os.getenv("FRONTEND_URL", ""),  # Production frontend URL from env
 ]
 
-# Filter out empty strings
-ALLOWED_ORIGINS = [origin for origin in ALLOWED_ORIGINS if origin]
+# Parse CORS_ORIGINS from env (comma-separated)
+cors_origins_env = os.getenv("CORS_ORIGINS", "")
+if cors_origins_env:
+    ALLOWED_ORIGINS.extend([origin.strip() for origin in cors_origins_env.split(",") if origin.strip()])
+
+# Filter out empty strings and duplicates
+ALLOWED_ORIGINS = list(set([origin for origin in ALLOWED_ORIGINS if origin]))
 
 app.add_middleware(
     CORSMiddleware,
@@ -47,11 +52,12 @@ app.add_middleware(
 db = None
 scheduler = None
 
-# RabbitMQ configuration
-RABBITMQ_HOST = os.getenv('RABBITMQ_HOST', 'localhost')
+# RabbitMQ configuration (from environment variables)
+RABBITMQ_HOST = os.getenv('RABBITMQ_HOST')
 RABBITMQ_PORT = int(os.getenv('RABBITMQ_PORT', '5672'))
-RABBITMQ_USER = os.getenv('RABBITMQ_USER', 'guest')
-RABBITMQ_PASS = os.getenv('RABBITMQ_PASS', 'guest')
+RABBITMQ_USER = os.getenv('RABBITMQ_USER')
+RABBITMQ_PASS = os.getenv('RABBITMQ_PASS')
+RABBITMQ_QUEUE = os.getenv('RABBITMQ_QUEUE', 'linkedin_profiles')
 OUTREACH_QUEUE = os.getenv('OUTREACH_QUEUE', 'outreach_queue')
 
 # Try to initialize database and scheduler, but continue without them if it fails

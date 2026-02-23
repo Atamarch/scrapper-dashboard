@@ -1,4 +1,4 @@
-# Backend API Dockerfile for Render
+# Backend API Dockerfile for Railway
 FROM python:3.11-slim
 
 WORKDIR /app

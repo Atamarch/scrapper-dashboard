@@ -18,7 +18,6 @@ ENV/
 *.db
 *.sqlite
 *.sqlite3
-data/
 
 # Logs
 *.log
@@ -51,7 +50,9 @@ dist/
 .vercel
 
 # Crawler output
-backend/crawler/data/
+# Ignore contents of data/output/ but keep folder structure
+backend/crawler/data/output/*
+!backend/crawler/data/output/.gitkeep
 backend/crawler/profile/temporary/
 
 # Browser profiles

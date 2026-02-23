@@ -1,4 +1,4 @@
-# Scoring Consumer Dockerfile for Render
+# Scoring Service Dockerfile for Railway
 FROM python:3.11-slim
 
 WORKDIR /app

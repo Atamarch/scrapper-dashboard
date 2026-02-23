@@ -23,6 +23,7 @@ RABBITMQ_HOST = os.getenv('RABBITMQ_HOST', 'localhost')
 RABBITMQ_PORT = int(os.getenv('RABBITMQ_PORT', 5672))
 RABBITMQ_USER = os.getenv('RABBITMQ_USER', 'guest')
 RABBITMQ_PASSWORD = os.getenv('RABBITMQ_PASSWORD', 'guest')
+RABBITMQ_VHOST = os.getenv('RABBITMQ_VHOST', '/')
 SCORING_QUEUE = os.getenv('SCORING_QUEUE', 'scoring_queue')
 
 # Supabase Configuration
@@ -709,6 +710,7 @@ def worker_thread(worker_id):
         parameters = pika.ConnectionParameters(
             host=RABBITMQ_HOST,
             port=RABBITMQ_PORT,
+            virtual_host=RABBITMQ_VHOST,
             credentials=credentials,
             heartbeat=600,
             blocked_connection_timeout=300
@@ -831,6 +833,7 @@ def main():
         parameters = pika.ConnectionParameters(
             host=RABBITMQ_HOST,
             port=RABBITMQ_PORT,
+            virtual_host=RABBITMQ_VHOST,
             credentials=credentials
         )
         connection = pika.BlockingConnection(parameters)

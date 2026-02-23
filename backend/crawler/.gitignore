@@ -29,10 +29,13 @@ wheels/
 # Environment
 .env
 
-# Data
-data/
-*.json
-!requirements/*.json
+# Data & Output
+# Ignore contents of data/output/ but keep the folder structure
+data/output/*
+!data/output/.gitkeep
+
+# Keep other data folders
+!data/cookies/
 
 # Virtual Environment
 venv/
