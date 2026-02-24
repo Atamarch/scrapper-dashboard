@@ -131,7 +131,7 @@ def extract_education(text):
 def interactive_requirements_generator():
     """Interactive mode to generate requirements"""
     print("="*70)
-    print("REQUIREMENTS GENERATOR - Interactive Mode")
+    print("REQUIREMENTS GENERATOR - Checklist Format")
     print("="*70)
     print("\nPaste your job description below (can be HTML/Markdown).")
     print("Press Ctrl+D (Linux/Mac) or Ctrl+Z then Enter (Windows) when done.\n")
@@ -198,89 +198,107 @@ def interactive_requirements_generator():
     print("\n" + "-"*70)
     print("EXPERIENCE KEYWORDS")
     print("-"*70)
-    print("Enter required experience keywords (one per line, empty line to finish):")
-    required_exp_keywords = []
+    print("Enter experience keywords (one per line, empty line to finish):")
+    experience_keywords = []
     while True:
         keyword = input("  - ").strip()
         if not keyword:
             break
-        required_exp_keywords.append(keyword)
-    
-    print("\nEnter preferred experience keywords (one per line, empty line to finish):")
-    preferred_exp_keywords = []
-    while True:
-        keyword = input("  - ").strip()
-        if not keyword:
-            break
-        preferred_exp_keywords.append(keyword)
+        experience_keywords.append(keyword)
     
     # Skills
     print("\n" + "-"*70)
-    print("REQUIRED SKILLS (format: skill_name weight)")
-    print("Example: Python 10")
+    print("SKILLS")
     print("-"*70)
-    print("Enter required skills (empty line to finish):")
-    required_skills = {}
+    print("Enter required skills (one per line, empty line to finish):")
+    skills = []
     while True:
-        skill_input = input("  - ").strip()
-        if not skill_input:
+        skill = input("  - ").strip()
+        if not skill:
             break
-        parts = skill_input.rsplit(' ', 1)
-        if len(parts) == 2:
-            skill_name, weight = parts
-            try:
-                required_skills[skill_name.strip()] = int(weight.strip())
-            except ValueError:
-                required_skills[skill_name.strip()] = 5  # Default weight
-        else:
-            required_skills[skill_input.strip()] = 5  # Default weight
+        skills.append(skill)
     
-    print("\nEnter preferred skills (format: skill_name weight, empty line to finish):")
-    preferred_skills = {}
-    while True:
-        skill_input = input("  - ").strip()
-        if not skill_input:
-            break
-        parts = skill_input.rsplit(' ', 1)
-        if len(parts) == 2:
-            skill_name, weight = parts
-            try:
-                preferred_skills[skill_name.strip()] = int(weight.strip())
-            except ValueError:
-                preferred_skills[skill_name.strip()] = 5
-        else:
-            preferred_skills[skill_input.strip()] = 5
+    # Build requirements array
+    requirements_array = []
+    req_counter = 1
     
-    # Build requirements JSON
+    # Add gender requirement
+    if gender:
+        requirements_array.append({
+            "id": f"req_{req_counter}",
+            "label": f"Gender: {gender}",
+            "type": "gender",
+            "value": gender.lower()
+        })
+        req_counter += 1
+    
+    # Add location requirement
+    if location:
+        requirements_array.append({
+            "id": f"req_{req_counter}",
+            "label": f"Location: {location}",
+            "type": "location",
+            "value": location.lower()
+        })
+        req_counter += 1
+    
+    # Add age range requirement
+    if age_range:
+        requirements_array.append({
+            "id": f"req_{req_counter}",
+            "label": f"Age: {age_range['min']}-{age_range['max']} years",
+            "type": "age",
+            "value": age_range
+        })
+        req_counter += 1
+    
+    # Add minimum experience requirement
+    if min_exp > 0:
+        requirements_array.append({
+            "id": f"req_{req_counter}",
+            "label": f"Minimum {min_exp} years experience",
+            "type": "experience",
+            "value": min_exp
+        })
+        req_counter += 1
+    
+    # Add experience keyword requirements
+    for keyword in experience_keywords:
+        requirements_array.append({
+            "id": f"req_{req_counter}",
+            "label": f"Experience in {keyword}",
+            "type": "experience",
+            "value": keyword.lower()
+        })
+        req_counter += 1
+    
+    # Add skill requirements
+    for skill in skills:
+        requirements_array.append({
+            "id": f"req_{req_counter}",
+            "label": f"Skill: {skill}",
+            "type": "skill",
+            "value": skill.lower()
+        })
+        req_counter += 1
+    
+    # Add education requirement (use first/highest from extracted)
+    if education:
+        edu_level = education[-1]  # Get highest level
+        requirements_array.append({
+            "id": f"req_{req_counter}",
+            "label": f"Education: {edu_level}",
+            "type": "education",
+            "value": edu_level.lower()
+        })
+        req_counter += 1
+    
+    # Build final requirements object
     requirements = {
         "position": position,
         "job_description": job_description_clean[:500] + "..." if len(job_description_clean) > 500 else job_description_clean,
-        "min_experience_years": min_exp
+        "requirements": requirements_array
     }
-    
-    if required_exp_keywords:
-        requirements["required_experience_keywords"] = required_exp_keywords
-    
-    if preferred_exp_keywords:
-        requirements["preferred_experience_keywords"] = preferred_exp_keywords
-    
-    if required_skills:
-        requirements["required_skills"] = required_skills
-    
-    if preferred_skills:
-        requirements["preferred_skills"] = preferred_skills
-    
-    if education:
-        requirements["education_level"] = education
-    
-    if gender:
-        requirements["required_gender"] = gender
-    
-    if location:
-        requirements["required_location"] = location
-    
-    if age_range:
-        requirements["required_age_range"] = age_range
     
     # Save to file
     print("\n" + "="*70)
@@ -302,6 +320,7 @@ def interactive_requirements_generator():
         json.dump(requirements, f, indent=2, ensure_ascii=False)
     
     print(f"\n✓ Requirements saved to: {filepath}")
+    print(f"\nTotal requirements: {len(requirements_array)}")
     print("\nPreview:")
     print(json.dumps(requirements, indent=2, ensure_ascii=False))
 
