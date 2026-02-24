@@ -92,10 +92,6 @@ class ScheduleUpdate(BaseModel):
     profile_urls: Optional[List[str]] = None
     max_workers: Optional[int] = None
 
-class CrawlRequest(BaseModel):
-    profile_urls: List[str]
-    max_workers: int = 3
-
 class RequirementsGenerateRequest(BaseModel):
     url: Optional[str] = None
     job_description: Optional[str] = None
@@ -108,7 +104,6 @@ class RequirementsGenerateRequest(BaseModel):
 class RequirementsSaveRequest(BaseModel):
     requirements: Dict
     filename: str
-
 class OutreachRequest(BaseModel):
     leads: List[Dict[str, str]]  # [{"id": "...", "name": "...", "profile_url": "..."}]
     message: str
@@ -247,39 +242,6 @@ async def toggle_schedule(schedule_id: str):
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
-
-
-# Manual crawl endpoint
-@app.post("/api/crawl")
-async def manual_crawl(request: CrawlRequest, background_tasks: BackgroundTasks):
-    """Trigger manual crawl immediately"""
-    if not scheduler:
-        raise HTTPException(status_code=503, detail="Scheduler not available")
-    try:
-        # Run crawl in background
-        background_tasks.add_task(
-            scheduler.run_crawl_task,
-            profile_urls=request.profile_urls,
-            max_workers=request.max_workers
-        )
-        
-        return {
-            "message": "Crawl started",
-            "profile_count": len(request.profile_urls),
-            "max_workers": request.max_workers
-        }
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-# Stats endpoint
-@app.get("/api/stats")
-async def get_stats():
-    """Get crawler statistics"""
-    if not db:
-        raise HTTPException(status_code=503, detail="Database not available")
-    stats = db.get_stats()
-    return stats
 
 
 # ============================================================================
@@ -510,53 +472,6 @@ async def save_requirements(request: RequirementsSaveRequest):
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/requirements")
-async def list_requirements():
-    """List all available requirements files"""
-    try:
-        requirements_dir = Path(__file__).parent.parent / "scoring" / "requirements"
-        
-        if not requirements_dir.exists():
-            return {'requirements': []}
-        
-        requirements = []
-        for file in requirements_dir.glob('*.json'):
-            try:
-                with open(file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    requirements.append({
-                        'filename': file.name,
-                        'position': data.get('position', 'Unknown'),
-                        'min_experience_years': data.get('min_experience_years', 0)
-                    })
-            except:
-                continue
-        
-        return {'requirements': requirements}
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/requirements/{filename}")
-async def get_requirement(filename: str):
-    """Get specific requirement file"""
-    try:
-        requirements_dir = Path(__file__).parent.parent / "scoring" / "requirements"
-        filepath = requirements_dir / filename
-        
-        if not filepath.exists():
-            raise HTTPException(status_code=404, detail="Requirements file not found")
-        
-        with open(filepath, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        
-        return data
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 # ============================================================================
 # OUTREACH ENDPOINTS (Step 2: Send to RabbitMQ)
 # ============================================================================

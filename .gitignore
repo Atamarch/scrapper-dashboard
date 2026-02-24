@@ -60,3 +60,5 @@ backend/crawler/profile/
 
 # Cookies
 *.cookies.json
+
+docs/

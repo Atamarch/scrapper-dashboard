@@ -39,21 +39,6 @@ export type ScheduleUpdate = {
   max_workers?: number;
 };
 
-export type CrawlRequest = {
-  profile_urls: string[];
-  max_workers?: number;
-};
-
-export type Stats = {
-  total_schedules: number;
-  active_schedules: number;
-  paused_schedules: number;
-  total_crawls: number;
-  successful_crawls: number;
-  failed_crawls: number;
-  success_rate: number;
-};
-
 class CrawlerAPI {
   private baseURL: string;
 
@@ -121,19 +106,6 @@ class CrawlerAPI {
     return this.request<{ message: string; status: string }>(`/api/schedules/${id}/toggle`, {
       method: 'POST',
     });
-  }
-
-  // Manual crawl
-  async manualCrawl(data: CrawlRequest) {
-    return this.request<{ message: string; profile_count: number; max_workers: number }>('/api/crawl', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  }
-
-  // Statistics
-  async getStats() {
-    return this.request<Stats>('/api/stats');
   }
 }
 
