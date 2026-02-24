@@ -278,16 +278,31 @@ def worker_thread(worker_id, mq_config, requirements_id):
             # Parse message
             message = json.loads(body)
             url = message.get('url')
+            template_id = message.get('template_id')
+            req_id = message.get('requirements_id', requirements_id)
             
             if not url:
-                print(f"[Worker {worker_id}] ✗ Invalid message")
+                print(f"[Worker {worker_id}] ✗ Invalid message: no URL")
                 ack_message(ch, method.delivery_tag)
                 return
             
             print(f"\n[Worker {worker_id}] 📥 Processing: {url}")
+            print(f"[Worker {worker_id}] 📁 Template ID: {template_id}")
+            print(f"[Worker {worker_id}] 📋 Requirements: {req_id}")
             
             with stats['lock']:
                 stats['processing'] += 1
+            
+            # Check if already scraped in Supabase
+            if supabase:
+                existing_lead = supabase.get_lead_by_url(url)
+                if existing_lead and existing_lead.get('score') is not None:
+                    print(f"[Worker {worker_id}] ⊘ Already scraped (has score: {existing_lead.get('score')})")
+                    with stats['lock']:
+                        stats['skipped'] += 1
+                        stats['processing'] -= 1
+                    ack_message(ch, method.delivery_tag)
+                    return
             
             # Create crawler and process
             crawler = LinkedInCrawler()
@@ -299,29 +314,30 @@ def worker_thread(worker_id, mq_config, requirements_id):
                 # Scrape profile
                 profile_data = crawler.get_profile(url)
                 
-                # Save to file
+                # Add template_id to profile data
+                profile_data['template_id'] = template_id
+                
+                # Save to file (backup)
                 save_profile_data(profile_data)
                 
-                # Save to Supabase
+                # Update Supabase with scraped data
                 if supabase:
-                    print(f"[Worker {worker_id}] 💾 Saving to Supabase...")
-                    if supabase.save_lead(
+                    print(f"[Worker {worker_id}] 💾 Updating Supabase...")
+                    if supabase.update_lead_after_scrape(
                         profile_url=url,
-                        name=profile_data.get('name', 'Unknown'),
-                        profile_data=profile_data,
-                        connection_status='scraped'
+                        profile_data=profile_data
                     ):
                         with stats['lock']:
                             stats['saved_to_supabase'] += 1
-                        print(f"[Worker {worker_id}] ✓ Saved to Supabase")
+                        print(f"[Worker {worker_id}] ✓ Updated Supabase")
                     else:
                         with stats['lock']:
                             stats['supabase_failed'] += 1
-                        print(f"[Worker {worker_id}] ⚠ Failed to save to Supabase")
+                        print(f"[Worker {worker_id}] ⚠ Failed to update Supabase")
                 
                 # Send to scoring queue
                 print(f"[Worker {worker_id}] 📤 Sending to scoring...")
-                if send_to_scoring_queue(profile_data, requirements_id, mq_config):
+                if send_to_scoring_queue(profile_data, req_id, mq_config):
                     with stats['lock']:
                         stats['sent_to_scoring'] += 1
                 
@@ -381,87 +397,39 @@ def worker_thread(worker_id, mq_config, requirements_id):
 
 def main():
     print("="*60)
-    print("LINKEDIN SCRAPER + SCORING INTEGRATION")
+    print("LINKEDIN CRAWLER CONSUMER")
+    print("="*60)
+    print("Listening to LavinMQ queue for profile URLs")
     print("="*60)
     
-    # Get requirements ID - list from scoring/requirements folder
-    print(f"\nAvailable requirements:")
-    requirements_dir = '../scoring/requirements'
-    if os.path.exists(requirements_dir):
-        req_files = [f.replace('.json', '') for f in os.listdir(requirements_dir) if f.endswith('.json')]
-        for req in sorted(req_files):
-            print(f"  - {req}")
-    else:
-        print("  - desk_collection (default)")
-        print("  - backend_dev_senior")
-        print("  - frontend_dev")
-        print("  - fullstack_dev")
-        print("  - data_scientist")
-        print("  - devops_engineer")
+    # Get requirements ID
+    requirements_id = os.getenv('DEFAULT_REQUIREMENTS_ID', 'desk_collection')
+    print(f"\n→ Default requirements: {requirements_id}")
     
-    # Check if running in non-interactive mode (background)
-    import sys
-    if not sys.stdin.isatty():
-        # Running in background, use default
-        requirements_id = DEFAULT_REQUIREMENTS_ID
-        print(f"\n→ Running in background mode, using default: {requirements_id}")
-    else:
-        # Interactive mode, ask user
-        requirements_id = input(f"\nRequirements ID (default: {DEFAULT_REQUIREMENTS_ID}): ").strip()
-        if not requirements_id:
-            requirements_id = DEFAULT_REQUIREMENTS_ID
-    
-    print(f"→ Using requirements: {requirements_id}")
-    
-    # Default 3 workers
-    num_workers = 3
-    print(f"→ Using {num_workers} workers (default)")
-    
-    # Load already crawled URLs
-    print("\n→ Loading already crawled URLs from data/output/...")
-    crawled_urls = load_crawled_urls()
-    print(f"  ✓ Found {len(crawled_urls)} already crawled profiles")
-    
-    # Load URLs from profile folder
-    print("\n→ Loading URLs from profile/*.json files...")
-    urls, skipped_count = load_urls_from_profile_folder(crawled_urls)
-    
-    if not urls:
-        print("\n✗ No valid URLs found!")
-        print("  Make sure you have JSON files in profile/ folder")
-        print("  URLs with '/sales/' are automatically skipped")
-        print("  Already crawled URLs are also skipped")
-        return
-    
-    print(f"\n→ Summary:")
-    print(f"  - Valid URLs: {len(urls)}")
-    print(f"  - Skipped: {skipped_count}")
-    print(f"  - Requirements: {requirements_id}")
-    
-    stats['skipped'] = skipped_count
+    # Number of workers
+    num_workers = int(os.getenv('MAX_WORKERS', '3'))
+    print(f"→ Number of workers: {num_workers}")
     
     # Connect to RabbitMQ
-    print("\n→ Connecting to RabbitMQ...")
+    print("\n→ Connecting to LavinMQ...")
     mq = RabbitMQManager()
     if not mq.connect():
-        print("✗ Failed to connect to RabbitMQ. Is it running?")
-        print("\nTo start RabbitMQ:")
-        print("  docker-compose up -d")
+        print("✗ Failed to connect to LavinMQ")
+        print("\nCheck your .env file:")
+        print("  RABBITMQ_HOST=leopard.lmq.cloudamqp.com")
+        print("  RABBITMQ_PORT=5672")
+        print("  RABBITMQ_USER=fexihtwb")
+        print("  RABBITMQ_PASS=...")
+        print("  RABBITMQ_VHOST=fexihtwb")
         return
     
-    # Publish URLs to queue
-    print(f"\n→ Publishing {len(urls)} URLs to crawl queue...")
-    success_count = mq.publish_urls(urls)
+    print(f"✓ Connected to LavinMQ: {mq.host}")
     
-    if success_count == 0:
-        print("✗ Failed to publish URLs")
-        mq.close()
-        return
-    
-    # Show queue status
+    # Check queue
     queue_size = mq.get_queue_size()
     print(f"\n→ Queue status:")
-    print(f"  - Crawl queue: {queue_size} messages")
+    print(f"  - Queue: {mq.queue_name}")
+    print(f"  - Messages waiting: {queue_size}")
     print(f"  - Scoring queue: {SCORING_QUEUE}")
     
     # Save config for workers
@@ -477,11 +445,12 @@ def main():
     
     print(f"\n→ Starting {num_workers} crawler workers...")
     print("  Workers will:")
-    print("  1. Scrape LinkedIn profiles")
-    print("  2. Save to data/output/")
-    print("  3. Send to scoring queue")
+    print("  1. Listen to LavinMQ queue")
+    print("  2. Scrape LinkedIn profiles")
+    print("  3. Update Supabase")
+    print("  4. Send to scoring queue")
     print("\n  Press Ctrl+C to stop")
-    print(f"  Management UI: http://localhost:15672 (guest/guest)")
+    print(f"  LavinMQ Dashboard: https://leopard.lmq.cloudamqp.com")
     
     # Start worker threads
     threads = []
@@ -496,10 +465,12 @@ def main():
         time.sleep(0.5)
     
     print(f"\n✓ All {num_workers} workers are running!")
-    print("\n💡 TIP: Start scoring consumer in another terminal:")
-    print("  cd ../scoring")
-    print("  source venv/bin/activate")
-    print("  python scoring_consumer.py")
+    print("\n💡 How it works:")
+    print("  1. Insert lead to Supabase → Webhook triggers")
+    print("  2. Backend API → Sends to LavinMQ queue")
+    print("  3. Crawler (this) → Scrapes profile")
+    print("  4. Scoring (Railway) → Calculates score")
+    print("  5. Supabase → Updated with score")
     
     try:
         # Keep main thread alive
@@ -518,19 +489,17 @@ def main():
         print("\n" + "="*60)
         print("FINAL RESULTS")
         print("="*60)
-        print(f"Total URLs: {len(urls)}")
         print(f"✓ Completed: {stats['completed']}")
         print(f"✗ Failed: {stats['failed']}")
-        print(f"⊘ Skipped (sales): {stats['skipped']}")
+        print(f"⊘ Skipped: {stats['skipped']}")
         print(f"📤 Sent to Scoring: {stats['sent_to_scoring']}")
-        print(f"💾 Saved to Supabase: {stats['saved_to_supabase']}")
+        print(f"💾 Updated Supabase: {stats['saved_to_supabase']}")
         print(f"⚠ Supabase Failed: {stats['supabase_failed']}")
         if stats['completed'] + stats['failed'] > 0:
             success_rate = stats['completed'] / (stats['completed'] + stats['failed']) * 100
             print(f"📊 Success Rate: {success_rate:.1f}%")
         print("="*60)
         print(f"\nCrawler output: data/output/")
-        print(f"Scoring output: ../scoring/data/scores/")
         print(f"Supabase: leads_list table")
 
 

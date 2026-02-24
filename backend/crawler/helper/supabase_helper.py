@@ -171,3 +171,46 @@ class SupabaseManager:
         except Exception as e:
             print(f"  ✗ Failed to get lead: {e}")
             return None
+    
+    def get_lead_by_url(self, profile_url):
+        """Get lead by profile URL (alias for get_lead)"""
+        return self.get_lead(profile_url)
+    
+    def update_lead_after_scrape(self, profile_url, profile_data):
+        """
+        Update lead after scraping with profile data
+        
+        Args:
+            profile_url: LinkedIn profile URL
+            profile_data: Complete scraped profile data
+        
+        Returns:
+            bool: Success status
+        """
+        try:
+            # Extract relevant fields from profile_data
+            update_data = {
+                'name': profile_data.get('name', 'Unknown'),
+                'profile_data': profile_data,
+                'connection_status': 'scraped',  # ← Status jadi 'scraped' setelah crawl
+                'scraped_at': datetime.now().isoformat()
+            }
+            
+            # Update the lead
+            result = self.client.table('leads_list')\
+                .update(update_data)\
+                .eq('profile_url', profile_url)\
+                .execute()
+            
+            if result.data:
+                print(f"  ✓ Updated lead after scrape: {update_data['name']}")
+                return True
+            else:
+                print(f"  ⚠️  No lead found to update: {profile_url}")
+                return False
+            
+        except Exception as e:
+            print(f"  ✗ Failed to update lead after scrape: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
