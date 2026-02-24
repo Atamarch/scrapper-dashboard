@@ -104,10 +104,24 @@ class RequirementsGenerateRequest(BaseModel):
 class RequirementsSaveRequest(BaseModel):
     requirements: Dict
     filename: str
+
 class OutreachRequest(BaseModel):
     leads: List[Dict[str, str]]  # [{"id": "...", "name": "...", "profile_url": "..."}]
     message: str
     dry_run: bool = True
+
+class WebhookLeadInsert(BaseModel):
+    """Webhook payload from Supabase trigger"""
+    type: str  # 'INSERT', 'UPDATE', 'DELETE'
+    table: str
+    record: Dict  # New lead data
+    old_record: Optional[Dict] = None
+
+class InstantCrawlRequest(BaseModel):
+    """Request to crawl single profile immediately"""
+    profile_url: str
+    template_id: Optional[str] = None
+    requirements_id: Optional[str] = 'default'
 
 
 @app.on_event("startup")
@@ -472,6 +486,161 @@ async def save_requirements(request: RequirementsSaveRequest):
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# AUTO-CRAWL ENDPOINTS (Webhook & Instant Crawl)
+# ============================================================================
+
+def publish_to_crawler_queue(profile_url: str, template_id: str = None, requirements_id: str = 'default'):
+    """Publish profile URL to crawler queue"""
+    try:
+        # Create RabbitMQ connection
+        credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
+        parameters = pika.ConnectionParameters(
+            host=RABBITMQ_HOST,
+            port=RABBITMQ_PORT,
+            virtual_host=RABBITMQ_VHOST,
+            credentials=credentials,
+            heartbeat=600,
+            blocked_connection_timeout=300
+        )
+        
+        connection = pika.BlockingConnection(parameters)
+        channel = connection.channel()
+        
+        # Declare queue
+        channel.queue_declare(queue=RABBITMQ_QUEUE, durable=True)
+        
+        # Create message
+        message = {
+            'url': profile_url,
+            'template_id': template_id,
+            'requirements_id': requirements_id,
+            'timestamp': datetime.now().isoformat(),
+            'trigger': 'auto'  # Mark as auto-triggered
+        }
+        
+        # Publish message
+        channel.basic_publish(
+            exchange='',
+            routing_key=RABBITMQ_QUEUE,
+            body=json.dumps(message),
+            properties=pika.BasicProperties(
+                delivery_mode=2,  # Persistent
+                content_type='application/json'
+            )
+        )
+        
+        connection.close()
+        return True
+        
+    except Exception as e:
+        print(f"❌ Failed to publish to queue: {e}")
+        return False
+
+
+@app.post("/api/webhook/lead-inserted")
+async def webhook_lead_inserted(payload: WebhookLeadInsert):
+    """
+    Webhook endpoint called by Supabase when new lead is inserted
+    Automatically triggers crawler for the new profile
+    """
+    try:
+        print("\n" + "="*60)
+        print("🔔 WEBHOOK: New Lead Inserted")
+        print("="*60)
+        
+        # Validate webhook type
+        if payload.type != 'INSERT':
+            return {"message": "Ignored: Not an INSERT event"}
+        
+        if payload.table != 'leads_list':
+            return {"message": "Ignored: Not leads_list table"}
+        
+        # Extract lead data
+        lead = payload.record
+        profile_url = lead.get('profile_url')
+        template_id = lead.get('template_id')
+        lead_id = lead.get('id')
+        
+        if not profile_url:
+            print("⚠️ No profile_url in lead data")
+            return {"message": "Ignored: No profile_url"}
+        
+        print(f"📋 Lead ID: {lead_id}")
+        print(f"🔗 Profile URL: {profile_url}")
+        print(f"📁 Template ID: {template_id}")
+        
+        # Check if already scraped (has score)
+        if lead.get('score') is not None:
+            print("⊘ Already scraped (has score)")
+            return {"message": "Ignored: Already scraped"}
+        
+        # Determine requirements_id from template
+        # TODO: Map template_id to requirements_id
+        requirements_id = 'default'  # For now, use default
+        
+        # Publish to crawler queue
+        success = publish_to_crawler_queue(
+            profile_url=profile_url,
+            template_id=template_id,
+            requirements_id=requirements_id
+        )
+        
+        if success:
+            print("✅ Profile queued for crawling")
+            return {
+                "success": True,
+                "message": "Profile queued for crawling",
+                "lead_id": lead_id,
+                "profile_url": profile_url
+            }
+        else:
+            print("❌ Failed to queue profile")
+            raise HTTPException(status_code=500, detail="Failed to queue profile")
+        
+    except Exception as e:
+        print(f"❌ Webhook error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/leads/crawl-instant")
+async def crawl_instant(request: InstantCrawlRequest):
+    """
+    Manually trigger instant crawl for a single profile
+    Useful for testing or manual re-crawl
+    """
+    try:
+        print("\n" + "="*60)
+        print("⚡ INSTANT CRAWL REQUEST")
+        print("="*60)
+        print(f"🔗 Profile URL: {request.profile_url}")
+        print(f"📁 Template ID: {request.template_id}")
+        print(f"📋 Requirements ID: {request.requirements_id}")
+        
+        # Publish to crawler queue
+        success = publish_to_crawler_queue(
+            profile_url=request.profile_url,
+            template_id=request.template_id,
+            requirements_id=request.requirements_id
+        )
+        
+        if success:
+            print("✅ Profile queued for crawling")
+            return {
+                "success": True,
+                "message": "Profile queued for instant crawling",
+                "profile_url": request.profile_url
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to queue profile")
+        
+    except Exception as e:
+        print(f"❌ Instant crawl error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============================================================================
 # OUTREACH ENDPOINTS (Step 2: Send to RabbitMQ)
 # ============================================================================
