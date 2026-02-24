@@ -87,6 +87,137 @@ def update_lead_status(profile_url, note_sent, status='success'):
         return False
 
 
+def find_connect_button(driver, wait):
+    """Find Connect button - direct or inside More dropdown (scoped to profile header only)"""
+    
+    # 1️⃣ Try direct Connect button in profile header
+    print("  🔍 Trying direct Connect button in header...")
+    
+    # Try to find profile header container
+    profile_header = None
+    header_selectors = [
+        "//div[contains(@class, 'pv-top-card')]",
+        "//div[contains(@class, 'pvs-sticky-header-profile-actions')]",
+        "//section[contains(@class, 'artdeco-card')][1]",
+        "//main//section[1]"
+    ]
+    
+    for selector in header_selectors:
+        try:
+            profile_header = driver.find_element(By.XPATH, selector)
+            if profile_header:
+                print(f"  ✓ Found profile header container")
+                break
+        except:
+            continue
+    
+    # Try direct Connect in header if found
+    if profile_header:
+        direct_selectors = [
+            ".//button[text()='Connect']",
+            ".//button[contains(., 'Connect') and not(ancestor::*[contains(@class, 'pvs-list')])]",
+            ".//button[.//span[text()='Connect']]",
+        ]
+        
+        for selector in direct_selectors:
+            try:
+                buttons = profile_header.find_elements(By.XPATH, selector)
+                for btn in buttons:
+                    if btn.is_displayed() and btn.is_enabled():
+                        print("  ✓ Found direct Connect button")
+                        return btn
+            except:
+                continue
+    
+    # 2️⃣ If not found → try More button
+    print("  ⚠️  Direct Connect not found, trying More button...")
+    
+    # Search More button with multiple strategies
+    more_button = None
+    more_selectors = [
+        # Most specific - in profile actions area
+        "//div[contains(@class, 'pvs-sticky-header-profile-actions')]//button[contains(@aria-label, 'More actions')]",
+        "//div[contains(@class, 'pvs-sticky-header-profile-actions')]//button[contains(., 'More')]",
+        # In any profile header area
+        "//div[contains(@class, 'pv-top-card')]//button[contains(@aria-label, 'More actions')]",
+        # Generic but check if it's in top part of page
+        "//button[contains(@aria-label, 'More actions') and contains(@id, 'profile-overflow')]",
+        "//button[contains(@aria-label, 'More actions')]",
+    ]
+    
+    for i, selector in enumerate(more_selectors):
+        try:
+            print(f"  Trying More selector {i+1}/{len(more_selectors)}...")
+            buttons = driver.find_elements(By.XPATH, selector)
+            for btn in buttons:
+                if btn.is_displayed() and btn.is_enabled():
+                    # Check if button is in top part of page (not in recommendations)
+                    location = btn.location
+                    if location['y'] < 1000:  # Top 1000px of page
+                        more_button = btn
+                        print(f"  ✓ Found More button at y={location['y']}")
+                        break
+            if more_button:
+                break
+        except Exception as e:
+            print(f"  Selector {i+1} failed: {e}")
+            continue
+    
+    if not more_button:
+        print("  ✗ More button not found")
+        return None
+    
+    print("  ✓ Clicking More button...")
+    more_button.click()
+    
+    # Wait for dropdown to appear and be visible
+    print("  ⏳ Waiting for dropdown to appear...")
+    time.sleep(3)  # Increased wait time
+    
+    # Wait for dropdown menu to be visible
+    try:
+        wait.until(EC.presence_of_element_located((By.XPATH, "//div[@role='menu' or contains(@class, 'artdeco-dropdown__content')]")))
+        print("  ✓ Dropdown appeared")
+    except:
+        print("  ⚠️  Dropdown wait timeout, continuing anyway...")
+    
+    time.sleep(1)  # Extra wait for animation
+    
+    # 3️⃣ After dropdown opens → search Connect inside dropdown
+    print("  🔍 Searching Connect inside dropdown...")
+    dropdown_connect_selectors = [
+        # By aria-label (most specific)
+        "//div[@role='button' and contains(@aria-label, 'Invite') and contains(@aria-label, 'connect')]",
+        # By class and text
+        "//div[contains(@class, 'artdeco-dropdown__item') and @role='button']//span[text()='Connect']/parent::div",
+        "//div[contains(@class, 'artdeco-dropdown__item') and contains(., 'Connect')]",
+        # Generic role=button with Connect text
+        "//div[@role='menu']//div[@role='button' and contains(., 'Connect')]",
+        "//div[contains(@class, 'artdeco-dropdown__content')]//div[@role='button' and contains(., 'Connect')]",
+    ]
+    
+    for i, selector in enumerate(dropdown_connect_selectors):
+        try:
+            print(f"  Trying dropdown selector {i+1}/{len(dropdown_connect_selectors)}...")
+            elements = driver.find_elements(By.XPATH, selector)
+            print(f"    Found {len(elements)} elements")
+            for elem in elements:
+                if elem.is_displayed() and elem.is_enabled():
+                    # Verify it actually contains "Connect" text
+                    elem_text = elem.text.lower()
+                    elem_label = elem.get_attribute('aria-label') or ''
+                    print(f"    Checking element: text='{elem.text}', label='{elem_label[:50]}'")
+                    if 'connect' in elem_text or 'connect' in elem_label.lower():
+                        print(f"  ✓ Found Connect inside dropdown!")
+                        return elem
+        except Exception as e:
+            print(f"  Selector {i+1} failed: {e}")
+            continue
+    
+    print("  ✗ Connect not found inside dropdown")
+    return None
+
+
 def type_like_human(element, text):
     """Type text character by character with human-like behavior"""
     print(f"  ⌨️  Typing message ({len(text)} chars)...")
@@ -173,53 +304,54 @@ def send_connection_request(driver, profile_url, lead_name, message_template, dr
         
         human_delay(2, 3)
         
-        # Check if already connected
-        page_source = driver.page_source.lower()
-        if 'message' in page_source and 'pending' not in page_source:
-            # Double check - look for Message button
-            try:
-                driver.find_element(By.XPATH, "//button[contains(., 'Message')]")
-                print("  ⚠️  Already connected!")
-                result['status'] = 'already_connected'
-                result['error'] = 'Already connected'
+        # Check if already connected (look for Message button in profile header)
+        print("  🔍 Checking connection status...")
+        try:
+            # Find profile header first
+            profile_header = None
+            header_selectors = [
+                "//div[contains(@class, 'pv-top-card')]",
+                "//section[contains(@class, 'artdeco-card')][1]",
+                "//main//section[1]"
+            ]
+            
+            for selector in header_selectors:
+                try:
+                    profile_header = driver.find_element(By.XPATH, selector)
+                    if profile_header:
+                        break
+                except:
+                    continue
+            
+            if not profile_header:
+                profile_header = driver.find_element(By.TAG_NAME, "main")
+            
+            # Check for Message button in header (indicates already connected)
+            message_buttons = profile_header.find_elements(By.XPATH, ".//button[contains(@aria-label, 'Message') or contains(., 'Message')]")
+            for btn in message_buttons:
+                if btn.is_displayed():
+                    print("  ⚠️  Already connected (Message button found)!")
+                    result['status'] = 'already_connected'
+                    result['error'] = 'Already connected'
+                    return result
+            
+            # Check for Pending status
+            pending_elements = profile_header.find_elements(By.XPATH, ".//*[contains(text(), 'Pending')]")
+            if pending_elements:
+                print("  ⚠️  Connection request already pending!")
+                result['status'] = 'already_pending'
+                result['error'] = 'Connection already pending'
                 return result
-            except:
-                pass
+                
+        except Exception as e:
+            print(f"  ⚠️  Could not check connection status: {e}")
+            # Continue anyway
         
         # Find and click Connect button
         print("2️⃣  Looking for Connect button...")
         
-        # Try multiple selectors for Connect button
-        connect_button = None
-        selectors = [
-            # Simple text match
-            "//button[text()='Connect']",
-            "//button[contains(text(), 'Connect')]",
-            # With span
-            "//button[.//span[text()='Connect']]",
-            "//button[.//*[text()='Connect']]",
-            # Aria label
-            "//button[contains(@aria-label, 'Invite')]",
-            # Class based
-            "//button[contains(@class, 'artdeco-button--secondary') and contains(., 'Connect')]",
-        ]
-        
-        for i, selector in enumerate(selectors):
-            try:
-                print(f"  Trying selector {i+1}/{len(selectors)}: {selector[:50]}...")
-                buttons = driver.find_elements(By.XPATH, selector)
-                if buttons:
-                    # Filter visible buttons only
-                    for btn in buttons:
-                        if btn.is_displayed() and btn.is_enabled():
-                            connect_button = btn
-                            print(f"  ✓ Found Connect button with selector {i+1}")
-                            break
-                if connect_button:
-                    break
-            except Exception as e:
-                print(f"  Selector {i+1} failed: {e}")
-                continue
+        # Use the new find_connect_button function
+        connect_button = find_connect_button(driver, wait)
         
         if not connect_button:
             print("  ✗ Connect button not found!")
@@ -242,8 +374,6 @@ def send_connection_request(driver, profile_url, lead_name, message_template, dr
                 pass
             result['error'] = 'Connect button not found'
             return result
-        
-        print("  ✓ Found Connect button")
         human_delay(1, 2)
         
         # Click Connect

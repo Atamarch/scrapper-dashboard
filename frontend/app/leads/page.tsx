@@ -26,6 +26,7 @@ function LeadsPageContent() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [selectedLeads, setSelectedLeads] = useState<string[]>([]);
   const [selectAll, setSelectAll] = useState(false);
+  const [sendingOutreach, setSendingOutreach] = useState(false);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -183,22 +184,29 @@ function LeadsPageContent() {
   }, [leads, selectedLeads]);
 
   const handleSendOutreach = async () => {
+    // Prevent multiple clicks - check state first
+    if (sendingOutreach) return;
+    
+    // Get selected leads data
+    const selectedLeadsData = leads.filter(lead => 
+      selectedLeads.includes(lead.id)
+    );
+
+    if (selectedLeadsData.length === 0) {
+      toast.error('No leads selected');
+      return;
+    }
+
+    // Check if template is selected
+    if (!selectedTemplate) {
+      toast.error('No template selected');
+      return;
+    }
+
+    // Set loading state after all validations
+    setSendingOutreach(true);
+    
     try {
-      // Get selected leads data
-      const selectedLeadsData = leads.filter(lead => 
-        selectedLeads.includes(lead.id)
-      );
-
-      if (selectedLeadsData.length === 0) {
-        toast.error('No leads selected');
-        return;
-      }
-
-      // Check if template is selected
-      if (!selectedTemplate) {
-        toast.error('No template selected');
-        return;
-      }
 
       // Fetch template note from database
       console.log('📋 Fetching template note from database...');
@@ -211,6 +219,7 @@ function LeadsPageContent() {
       if (templateError || !templateData) {
         console.error('❌ Error fetching template:', templateError);
         toast.error('Failed to fetch message template');
+        setSendingOutreach(false);
         return;
       }
 
@@ -218,6 +227,7 @@ function LeadsPageContent() {
       
       if (!messageTemplate) {
         toast.error('Template has no message configured');
+        setSendingOutreach(false);
         return;
       }
 
@@ -269,6 +279,8 @@ function LeadsPageContent() {
       console.error('❌ Error sending outreach:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       toast.error(`Failed to send outreach: ${errorMessage}`);
+    } finally {
+      setSendingOutreach(false);
     }
   };
 
@@ -546,14 +558,26 @@ function LeadsPageContent() {
               {/* Send Outreach Button */}
               <button
                 onClick={handleSendOutreach}
-                disabled={selectedLeads.length === 0}
+                disabled={selectedLeads.length === 0 || sendingOutreach}
                 className="flex items-center gap-2 rounded-lg border border-gray-700 bg-[#1A2E3C] px-4 py-2 text-white transition-colors hover:bg-[#2A4E5C] disabled:cursor-not-allowed disabled:opacity-50"
                 title={selectedLeads.length === 0 ? 'Select leads to send outreach' : `Send outreach to ${selectedLeads.length} selected lead(s)`}
               >
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                </svg>
-                Send Outreach {selectedLeads.length > 0 && `(${selectedLeads.length})`}
+                {sendingOutreach ? (
+                  <>
+                    <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Sending...
+                  </>
+                ) : (
+                  <>
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    </svg>
+                    Send Outreach {selectedLeads.length > 0 && `(${selectedLeads.length})`}
+                  </>
+                )}
               </button>
 
               {/* Export Button */}

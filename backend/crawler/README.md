@@ -443,12 +443,14 @@ pip install webdriver-manager
 - Try `docker system prune` to free up space
 
 **Outreach: Connect button not found:**
+- The system now automatically tries the More dropdown menu if direct Connect button is not found
 - Check debug screenshots in `data/output/outreach_screenshots/debug_no_connect_*.png`
 - Review HTML page source saved alongside screenshots for detailed inspection
-- LinkedIn UI may have changed - verify button exists on profile page
+- LinkedIn UI may have changed - verify button exists on profile page or in More menu
 - Ensure profile is not already connected (system now double-checks for "Message" button)
 - Page automatically scrolls to top and waits 20 seconds for content to load
 - Check console logs for which selectors were attempted and their results
+- The `find_connect_button()` function handles both direct buttons and dropdown menus automatically
 
 ## Outreach Testing
 
@@ -496,14 +498,50 @@ The worker will:
 - In dry-run mode: Close modal without sending
 - In production mode: Send actual connection requests (controlled by `dry_run` flag in job payload)
 
-**Recent Improvements (Latest):**
-- Enhanced Connect button detection with 6 optimized selectors for better reliability
+**Recent Improvements (Latest - Feb 24, 2026):**
+- **Refined Connect button detection logic**: Improved reliability and debugging for both direct and dropdown scenarios
+  - **Profile header detection**: Added `pvs-sticky-header-profile-actions` selector for better header container identification
+  - **Direct Connect button search**: Now only attempts if profile header is found, preventing unnecessary searches
+  - **More button location validation**: Checks button Y-coordinate to ensure it's in top 1000px of page (prevents clicking wrong buttons in recommendations)
+  - **Enhanced More button selectors**: Added profile-specific selectors targeting `pvs-sticky-header-profile-actions` area first
+  - **Increased dropdown wait time**: Extended from 2 to 3 seconds for dropdown animation to complete
+  - **Detailed progress logging**: Added numbered selector attempts (e.g., "Trying More selector 1/5...") for easier debugging
+  - **Element count reporting**: Logs how many elements were found for each selector before filtering
+  - **Aria-label preview**: Shows first 50 characters of aria-label when checking dropdown elements
+  - **Improved error messages**: Each selector failure now logs with specific error details
+- **Enhanced dropdown menu handling (Feb 2026)**: Significantly improved reliability when Connect button is in More dropdown
+  - Explicit wait for dropdown menu to appear after clicking More button (with timeout handling)
+  - Waits for `div[@role='menu']` or `artdeco-dropdown__content` elements to be present
+  - Additional 1-second delay for dropdown animation to complete
+  - Enhanced selectors targeting `div[@role='button']` elements within dropdown (LinkedIn's actual structure)
+  - Multi-layered selector strategy with aria-label priority:
+    - **Priority 1**: Aria-label matching (most specific) - `@aria-label` containing "Invite" and "connect"
+    - **Priority 2**: Class-based with text verification - `artdeco-dropdown__item` with "Connect" text
+    - **Priority 3**: Generic role-based fallback - `@role='button'` with "Connect" text
+  - Dual verification: Checks both element text and aria-label attribute for "Connect" keyword
+  - Handles both button and div-based dropdown items
+- **Enhanced connection status detection (Feb 2026)**: Improved reliability for detecting already-connected profiles
+  - Scoped search within profile header container only (prevents false positives from other page sections)
+  - Uses multiple fallback selectors to locate profile header (`pv-top-card`, `artdeco-card`, `main//section[1]`)
+  - Checks for Message button in header using relative XPath (`.//` prefix for scoped search)
+  - Detects "Pending" status for connection requests already sent
+  - Returns early with appropriate status (`already_connected` or `already_pending`) to prevent duplicate requests
+  - Graceful error handling - continues if status check fails (with warning logged)
+- **Scoped Connect button detection**: `find_connect_button()` now searches only within the profile header container to prevent false positives
+  - Locates profile header using multiple fallback selectors (`pv-top-card`, `artdeco-card`, `main//section[1]`)
+  - All button searches are scoped to header container using relative XPath (`.//` prefix)
+  - Prevents clicking Connect buttons from other page sections (e.g., "People Also Viewed", activity feed)
+  - Improved reliability by filtering out non-header Connect buttons
+- **Smart Connect button detection with More dropdown fallback**: Intelligently searches for Connect button in multiple locations
+  - First attempts direct Connect button with 3 optimized selectors (scoped to header)
+  - If not found, automatically clicks More button and searches inside dropdown menu
+  - Handles profiles where Connect is hidden in More actions menu
+  - Filters for visible and enabled buttons only to avoid false positives
+- Enhanced Connect button detection with improved error handling and try-except blocks
 - Improved page load handling with explicit wait for main content (20 seconds timeout)
 - Auto-scroll to top before button detection to ensure visibility
-- Better "already connected" detection with double-check for Message button
 - Debug artifacts: Screenshots + HTML page source saved when Connect button not found
 - Detailed progress logging with selector preview and error messages
-- Filters for visible and enabled buttons only to avoid false positives
 - Production-ready: Worker now supports both dry-run testing and live connection requests based on job payload
 - Supabase integration: Outreach worker now connects to Supabase for future tracking and analytics capabilities
 
