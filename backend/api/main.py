@@ -572,10 +572,10 @@ async def webhook_lead_inserted(payload: WebhookLeadInsert):
         print(f"🔗 Profile URL: {profile_url}")
         print(f"📁 Template ID: {template_id}")
         
-        # Check if already scraped (has score)
-        if lead.get('score') is not None:
-            print("⊘ Already scraped (has score)")
-            return {"message": "Ignored: Already scraped"}
+        # Check if already scraped (optional - comment out to allow re-scrape)
+        # if lead.get('score') is not None:
+        #     print("⊘ Already scraped (has score)")
+        #     return {"message": "Ignored: Already scraped"}
         
         # Determine requirements_id from template
         # TODO: Map template_id to requirements_id
