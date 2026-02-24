@@ -192,9 +192,12 @@ class SupabaseManager:
             update_data = {
                 'name': profile_data.get('name', 'Unknown'),
                 'profile_data': profile_data,
-                'connection_status': 'scraped',  # ← Status jadi 'scraped' setelah crawl
+                'connection_status': 'scraped',
                 'scraped_at': datetime.now().isoformat()
             }
+            
+            print(f"  → Updating profile_url: {profile_url}")
+            print(f"  → Update data: name={update_data['name']}, status={update_data['connection_status']}")
             
             # Update the lead
             result = self.client.table('leads_list')\
@@ -202,15 +205,19 @@ class SupabaseManager:
                 .eq('profile_url', profile_url)\
                 .execute()
             
+            print(f"  → Supabase response: {result}")
+            
             if result.data:
                 print(f"  ✓ Updated lead after scrape: {update_data['name']}")
                 return True
             else:
                 print(f"  ⚠️  No lead found to update: {profile_url}")
+                print(f"  → Response data: {result.data}")
                 return False
             
         except Exception as e:
             print(f"  ✗ Failed to update lead after scrape: {e}")
+            print(f"  → Error type: {type(e).__name__}")
             import traceback
             traceback.print_exc()
             return False

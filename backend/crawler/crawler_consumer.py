@@ -87,7 +87,6 @@ def save_profile_data(profile_data, output_dir='data/output'):
 
 # Configuration
 SCORING_QUEUE = os.getenv('SCORING_QUEUE', 'scoring_queue')
-DEFAULT_REQUIREMENTS_ID = os.getenv('DEFAULT_REQUIREMENTS_ID', 'desk_collection')
 
 # Statistics
 stats = {
@@ -120,7 +119,7 @@ def print_stats():
     print("="*60)
 
 
-def send_to_scoring_queue(profile_data, requirements_id, mq_config):
+def send_to_scoring_queue(profile_data, template_id, mq_config):
     """Send profile data to scoring queue"""
     try:
         # Connect to RabbitMQ
@@ -138,7 +137,7 @@ def send_to_scoring_queue(profile_data, requirements_id, mq_config):
         # Prepare message
         message = {
             'profile_data': profile_data,
-            'requirements_id': requirements_id,
+            'template_id': template_id,  # Use template_id instead of requirements_id
             'profile_url': profile_data.get('profile_url', '')
         }
         
@@ -242,7 +241,7 @@ def load_urls_from_profile_folder(crawled_urls=None):
     return urls, skipped
 
 
-def worker_thread(worker_id, mq_config, requirements_id):
+def worker_thread(worker_id, mq_config):
     """Worker thread that continuously processes messages"""
     print(f"[Worker {worker_id}] Started")
     
@@ -279,16 +278,19 @@ def worker_thread(worker_id, mq_config, requirements_id):
             message = json.loads(body)
             url = message.get('url')
             template_id = message.get('template_id')
-            req_id = message.get('requirements_id', requirements_id)
             
             if not url:
                 print(f"[Worker {worker_id}] ✗ Invalid message: no URL")
                 ack_message(ch, method.delivery_tag)
                 return
             
+            if not template_id:
+                print(f"[Worker {worker_id}] ✗ Invalid message: no template_id")
+                ack_message(ch, method.delivery_tag)
+                return
+            
             print(f"\n[Worker {worker_id}] 📥 Processing: {url}")
             print(f"[Worker {worker_id}] 📁 Template ID: {template_id}")
-            print(f"[Worker {worker_id}] 📋 Requirements: {req_id}")
             
             with stats['lock']:
                 stats['processing'] += 1
@@ -337,7 +339,7 @@ def worker_thread(worker_id, mq_config, requirements_id):
                 
                 # Send to scoring queue
                 print(f"[Worker {worker_id}] 📤 Sending to scoring...")
-                if send_to_scoring_queue(profile_data, req_id, mq_config):
+                if send_to_scoring_queue(profile_data, template_id, mq_config):
                     with stats['lock']:
                         stats['sent_to_scoring'] += 1
                 
@@ -402,13 +404,9 @@ def main():
     print("Listening to LavinMQ queue for profile URLs")
     print("="*60)
     
-    # Get requirements ID
-    requirements_id = os.getenv('DEFAULT_REQUIREMENTS_ID', 'desk_collection')
-    print(f"\n→ Default requirements: {requirements_id}")
-    
     # Number of workers
     num_workers = int(os.getenv('MAX_WORKERS', '3'))
-    print(f"→ Number of workers: {num_workers}")
+    print(f"\n→ Number of workers: {num_workers}")
     
     # Connect to RabbitMQ
     print("\n→ Connecting to LavinMQ...")
@@ -457,7 +455,7 @@ def main():
     for i in range(num_workers):
         t = threading.Thread(
             target=worker_thread, 
-            args=(i+1, mq_config, requirements_id), 
+            args=(i+1, mq_config), 
             daemon=True
         )
         t.start()

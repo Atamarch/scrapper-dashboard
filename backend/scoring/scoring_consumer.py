@@ -460,19 +460,34 @@ class OptimizedScorer:
         return score
 
 
-def load_requirements(requirements_id):
-    """Load requirements JSON file"""
-    filepath = os.path.join(REQUIREMENTS_DIR, f"{requirements_id}.json")
-    
-    if not os.path.exists(filepath):
-        print(f"⚠ Requirements file not found: {filepath}")
+def load_requirements(template_id):
+    """Load requirements from Supabase templates table"""
+    if not supabase:
+        print("⚠ Supabase not configured")
         return None
     
     try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        print(f"📥 Loading requirements from Supabase (template_id: {template_id})...")
+        
+        response = supabase.table('templates').select('requirements').eq('id', template_id).execute()
+        
+        if not response.data or len(response.data) == 0:
+            print(f"⚠ Template not found: {template_id}")
+            return None
+        
+        requirements = response.data[0].get('requirements')
+        
+        if not requirements:
+            print(f"⚠ No requirements found in template: {template_id}")
+            return None
+        
+        print(f"✓ Requirements loaded from Supabase")
+        return requirements
+    
     except Exception as e:
-        print(f"✗ Error loading requirements: {e}")
+        print(f"✗ Error loading requirements from Supabase: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 
@@ -659,31 +674,39 @@ def process_message(message_data):
     """Process a single scoring message"""
     try:
         profile_data = message_data.get('profile_data')
-        requirements_id = message_data.get('requirements_id', 'default')
+        template_id = message_data.get('template_id')
+        requirements_id = message_data.get('requirements_id')  # Keep for backward compatibility
         profile_url = profile_data.get('profile_url', '') if profile_data else ''
         
         if not profile_data:
             print("✗ No profile data in message")
             return False
         
+        # Use template_id if available, fallback to requirements_id
+        req_id = template_id or requirements_id
+        
+        if not req_id:
+            print("✗ No template_id or requirements_id in message")
+            return False
+        
         name = profile_data.get('name', 'Unknown')
         print(f"\n📥 Processing: {name}")
-        print(f"   Requirements: {requirements_id}")
+        print(f"   Template ID: {req_id}")
         
         # Check if already scored
         if profile_url:
-            already_exists, existing_file = check_if_already_scored(profile_url, requirements_id)
+            already_exists, existing_file = check_if_already_scored(profile_url, req_id)
             if already_exists:
                 print(f"⊘ Already scored: {existing_file}")
                 with stats['lock']:
                     stats['skipped'] += 1
                 return True  # Return True to ack message
         
-        # Load requirements
-        requirements = load_requirements(requirements_id)
+        # Load requirements from Supabase templates table
+        requirements = load_requirements(req_id)
         
         if not requirements:
-            print(f"✗ Failed to load requirements: {requirements_id}")
+            print(f"✗ Failed to load requirements from Supabase: {req_id}")
             return False
         
         # Calculate score
@@ -709,13 +732,13 @@ def process_message(message_data):
         print(f"    • Gender: {demo_details.get('gender', {}).get('score', 0)}/15 ({demo_details.get('gender', {}).get('value', 'N/A')})")
         print(f"    • Location: {demo_details.get('location', {}).get('score', 0)}/15 ({demo_details.get('location', {}).get('value', 'N/A')})")
         print(f"    • Age: {demo_details.get('age', {}).get('score', 0)}/10 ({demo_details.get('age', {}).get('value', 'N/A')})")
-        print(f"  - Experience: {exp_breakdown.get('score', 0)}/25 (Desk Collection: {exp_breakdown.get('relevant_years', 0)}/{exp_breakdown.get('required_years', 0)} years)")
+        print(f"  - Experience: {exp_breakdown.get('score', 0)}/25 (Relevant: {exp_breakdown.get('relevant_years', 0)}/{exp_breakdown.get('required_years', 0)} years)")
         if exp_breakdown.get('meets_requirement'):
             print(f"    ✓ Meets requirement")
         else:
             print(f"    ✗ Does NOT meet requirement (needs {exp_breakdown.get('required_years', 0)} years)")
         if exp_breakdown.get('relevant_experiences'):
-            print(f"    Desk Collection positions:")
+            print(f"    Relevant positions:")
             for rel_exp in exp_breakdown.get('relevant_experiences', [])[:3]:  # Show top 3
                 print(f"      • {rel_exp.get('title')} at {rel_exp.get('company', 'N/A')} - {rel_exp.get('duration')}")
         print(f"  - Skills: {skills_breakdown.get('score', 0)}/25 (Matched: {skills_breakdown.get('required_matched', 0)}/{skills_breakdown.get('required_total', 0)})")
@@ -723,7 +746,7 @@ def process_message(message_data):
         print(f"{'='*60}")
         
         # Save result
-        save_score_result(profile_data, score_result, requirements_id)
+        save_score_result(profile_data, score_result, req_id)
         
         # Update Supabase
         if supabase:
@@ -845,22 +868,14 @@ def main():
     print("PROFILE SCORING CONSUMER")
     print("="*60)
     
-    # Check requirements directory
-    if not os.path.exists(REQUIREMENTS_DIR):
-        print(f"\n⚠ Requirements directory not found: {REQUIREMENTS_DIR}")
-        print("Creating directory...")
-        os.makedirs(REQUIREMENTS_DIR, exist_ok=True)
-        print("✓ Please add requirements JSON files to this directory")
+    # Check Supabase connection
+    if not supabase:
+        print("\n✗ Supabase not configured!")
+        print("  Please set SUPABASE_URL and SUPABASE_KEY in .env")
+        return
     
-    # List available requirements
-    req_files = [f for f in os.listdir(REQUIREMENTS_DIR) if f.endswith('.json')]
-    if req_files:
-        print(f"\n✓ Found {len(req_files)} requirements file(s):")
-        for f in req_files:
-            print(f"  - {f}")
-    else:
-        print(f"\n⚠ No requirements files found in {REQUIREMENTS_DIR}/")
-        print("  Please add at least one requirements JSON file")
+    print(f"\n✓ Supabase connected")
+    print(f"  Requirements will be loaded from 'templates' table")
     
     # Get number of workers
     try:
