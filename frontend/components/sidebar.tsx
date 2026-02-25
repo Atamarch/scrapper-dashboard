@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Users, Building2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, Users, Building2, FileText, Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useState, useEffect } from 'react';
 
@@ -11,6 +11,8 @@ const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
   { name: 'Leads', href: '/leads', icon: Users },
   { name: 'Company', href: '/company', icon: Building2 },
+  { name: 'Requirements', href: '/requirements', icon: FileText },
+  { name: 'Scheduler', href: '/scheduler', icon: Calendar },
 ];
 
 export function Sidebar() {
