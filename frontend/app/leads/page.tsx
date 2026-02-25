@@ -748,7 +748,7 @@ function LeadsPageContent() {
                                       ? 'text-red-500'
                                       : 'text-gray-500'
                                 }`}>
-                                {lead.score != null ? lead.score.toFixed(1) : '-'}
+                                {lead.score != null ? `${lead.score.toFixed(1)}%` : '-'}
                               </span>
                             </td>
                             <td className="px-6 py-4 text-gray-400">
