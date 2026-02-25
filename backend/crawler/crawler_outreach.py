@@ -105,113 +105,75 @@ def find_connect_button(driver, wait):
     4. If none found → error
     """
     
-    # 1️⃣ HEADER: Try Connect button FIRST (GLOBAL SEARCH)
-    print("  🔍 Step 1: Looking for Connect button in header...")
+    # 1️⃣ HEADER: Try Connect button FIRST (PROFILE AREA ONLY)
+    print("  🔍 Step 1: Looking for Connect button in profile header...")
     
     # Add explicit wait for page to fully render
     time.sleep(2)
     
-    # Strategy 1: Search by aria-label "Invite...to connect" (most reliable)
+    # Search in ph5 container (main profile area)
     try:
         connect_buttons = driver.find_elements(By.XPATH, 
-            "//button[contains(@aria-label, 'Invite') and contains(@aria-label, 'to connect')]")
+            "//div[contains(@class, 'ph5')]//button[contains(@aria-label, 'Invite') and contains(@aria-label, 'to connect')]")
         
         for btn in connect_buttons:
             try:
                 if btn.is_displayed() and btn.is_enabled():
-                    # Check if it's in the top part of page (not in recommendations)
-                    location = btn.location
-                    if location['y'] < 1000:
+                    # Extra validation: check if button has primary styling (not muted/secondary from recommendations)
+                    btn_class = btn.get_attribute('class') or ''
+                    if 'artdeco-button--primary' in btn_class:
                         btn_label = btn.get_attribute('aria-label') or ''
-                        print(f"  ✓ Found Connect button: {btn_label[:60]}")
+                        print(f"  ✓ Found Connect button in ph5 area: {btn_label[:60]}")
                         return btn
             except:
                 continue
     except Exception as e:
-        print(f"  ⚠️  Error searching Connect by aria-label: {e}")
+        print(f"  ⚠️  Error searching Connect in ph5 area: {e}")
     
-    # Strategy 2: Search by exact text "Connect"
-    try:
-        connect_buttons = driver.find_elements(By.XPATH, 
-            "//button[.//span[normalize-space()='Connect']]")
-        
-        for btn in connect_buttons:
-            try:
-                if btn.is_displayed() and btn.is_enabled():
-                    location = btn.location
-                    if location['y'] < 1000:
-                        btn_text = btn.text.strip().lower()
-                        btn_label = (btn.get_attribute('aria-label') or '').lower()
-                        
-                        # Validate: must not contain dangerous keywords
-                        dangerous = ['remove', 'withdraw', 'pending', 'unfollow', 'disconnect']
-                        if not any(kw in btn_text or kw in btn_label for kw in dangerous):
-                            if btn_text == 'connect':
-                                print(f"  ✓ Found Connect button by text")
-                                return btn
-            except:
-                continue
-    except Exception as e:
-        print(f"  ⚠️  Error searching Connect by text: {e}")
+    print("  ℹ️  Connect button not found in profile header")
     
-    print("  ℹ️  Connect button not found in header")
-    
-    # 2️⃣ HEADER: Check for Pending button
-    print("  🔍 Step 2: Checking for Pending button in header...")
+    # 2️⃣ HEADER: Check for Pending button (PROFILE AREA ONLY)
+    print("  🔍 Step 2: Checking for Pending button in profile header...")
     
     try:
-        # Search by span text "Pending"
+        # Search in ph5 area
         pending_buttons = driver.find_elements(By.XPATH, 
-            "//button[.//span[normalize-space()='Pending']]")
+            "//div[contains(@class, 'ph5')]//button[.//span[normalize-space()='Pending']]")
         
         for btn in pending_buttons:
             try:
                 if btn.is_displayed():
-                    location = btn.location
-                    if location['y'] < 1000:
-                        print("  ✅ Found Pending button - request already sent!")
-                        return "PENDING"
-            except:
-                continue
-        
-        # Search by aria-label (case-insensitive)
-        pending_aria = driver.find_elements(By.XPATH, 
-            "//button[contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'pending')]")
-        
-        for btn in pending_aria:
-            try:
-                if btn.is_displayed():
-                    location = btn.location
-                    if location['y'] < 1000:
-                        print("  ✅ Found Pending button - request already sent!")
+                    # Check if it's primary/secondary button (not from recommendations which are muted)
+                    btn_class = btn.get_attribute('class') or ''
+                    if 'artdeco-button--primary' in btn_class or 'artdeco-button--secondary' in btn_class:
+                        print("  ✅ Found Pending button in ph5 area - request already sent!")
                         return "PENDING"
             except:
                 continue
     except Exception as e:
         print(f"  ⚠️  Error checking Pending: {e}")
     
-    print("  ℹ️  Pending button not found")
+    print("  ℹ️  Pending button not found in profile header")
     
-    # 3️⃣ HEADER: Check for Remove connection button
-    print("  🔍 Step 3: Checking for Remove connection button in header...")
+    # 3️⃣ HEADER: Check for Remove connection button (PROFILE AREA ONLY)
+    print("  🔍 Step 3: Checking for Remove connection button in profile header...")
     
     try:
+        # Search in ph5 area
         remove_buttons = driver.find_elements(By.XPATH, 
-            "//button[contains(., 'Remove connection') or contains(@aria-label, 'Remove connection')]")
+            "//div[contains(@class, 'ph5')]//button[contains(., 'Remove connection') or contains(@aria-label, 'Remove connection')]")
         
         for btn in remove_buttons:
             try:
                 if btn.is_displayed():
-                    location = btn.location
-                    if location['y'] < 1000:
-                        print("  ✅ Found Remove connection - already connected!")
-                        return "ALREADY_CONNECTED"
+                    print("  ✅ Found Remove connection in ph5 area - already connected!")
+                    return "ALREADY_CONNECTED"
             except:
                 continue
     except Exception as e:
         print(f"  ⚠️  Error checking Remove connection: {e}")
     
-    print("  ℹ️  Remove connection button not found")
+    print("  ℹ️  Remove connection button not found in profile header")
     
     # 4️⃣ HEADER: None found → open More dropdown
     print("  🔍 Step 4: Opening More dropdown...")
