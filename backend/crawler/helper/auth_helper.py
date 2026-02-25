@@ -43,15 +43,24 @@ def load_cookies(driver):
             except:
                 pass
         
-        driver.refresh()
-        human_delay(2, 3)
+        # Navigate to feed to verify login
+        print("  Navigating to feed to verify session...")
+        driver.get('https://www.linkedin.com/feed/')
+        human_delay(3, 4)
         
         current_url = driver.current_url
-        if 'feed' in current_url or 'mynetwork' in current_url:
+        # Check if we're on feed or if we got redirected to login
+        if 'feed' in current_url or 'mynetwork' in current_url or '/in/' in current_url:
             print("✓ Logged in using saved session!")
             return True
+        elif 'login' in current_url or 'uas/login' in current_url:
+            print("  ⚠ Session expired, cookies invalid")
+            return False
+        else:
+            # Unknown state, but not on login page - assume success
+            print(f"  ✓ Session appears valid (URL: {current_url[:50]}...)")
+            return True
         
-        return False
     except Exception as e:
         print(f"⚠ Could not load cookies: {e}")
         return False

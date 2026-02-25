@@ -1794,3 +1794,45 @@ This change is part of the ongoing simplification effort that previously removed
 
 All removals maintain the same reliability while reducing code complexity and improving maintainability.
 
+
+
+## Authentication & Session Management
+
+### Enhanced Cookie Session Validation (Feb 2026)
+
+The authentication system now includes improved session validation to detect expired cookies more reliably:
+
+**Session Verification Process:**
+- After loading cookies, the system navigates to LinkedIn feed (`/feed/`) to verify the session
+- Checks multiple URL patterns to confirm successful authentication:
+  - `feed` - LinkedIn feed page
+  - `mynetwork` - Network page
+  - `/in/` - Profile pages
+  - `login` or `uas/login` - Login page (indicates expired session)
+- Provides clear feedback on session status with detailed logging
+
+**Benefits:**
+- **Faster failure detection**: Immediately identifies expired cookies instead of failing during scraping
+- **Better error messages**: Clear indication when session has expired vs. other authentication issues
+- **Graceful fallback**: Automatically triggers fresh login when cookies are invalid
+- **Reduced wasted time**: Prevents starting scraping jobs with invalid sessions
+
+**Session Validation States:**
+1. **Valid Session**: Successfully navigated to feed/network/profile page
+2. **Expired Session**: Redirected to login page - triggers fresh authentication
+3. **Unknown State**: Not on login page but URL unclear - assumes valid (conservative approach)
+
+**Usage:**
+No configuration changes needed. The enhanced validation runs automatically when:
+- Starting crawler consumer workers
+- Running scheduler daemon jobs
+- Executing outreach workers
+- Any operation that calls `login()` function
+
+**Troubleshooting:**
+If you see "⚠ Session expired, cookies invalid":
+1. Delete existing cookies: `rm data/cookie/.linkedin_cookies.json`
+2. Run crawler again - it will prompt for fresh login
+3. For OAuth accounts, ensure `USE_OAUTH_LOGIN=true` in `.env`
+4. Complete login in browser and press ENTER when prompted
+
