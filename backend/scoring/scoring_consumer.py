@@ -379,7 +379,7 @@ class ChecklistScorer:
 
 
 def load_requirements(template_id):
-    """Load requirements from Supabase templates table"""
+    """Load requirements from Supabase search_templates table"""
     if not supabase:
         print("⚠ Supabase not configured")
         return None
@@ -387,7 +387,7 @@ def load_requirements(template_id):
     try:
         print(f"📥 Loading requirements from Supabase (template_id: {template_id})...")
         
-        response = supabase.table('templates').select('requirements').eq('id', template_id).execute()
+        response = supabase.table('search_templates').select('requirements').eq('id', template_id).execute()
         
         if not response.data or len(response.data) == 0:
             print(f"⚠ Template not found: {template_id}")
@@ -786,14 +786,11 @@ def main():
         return
     
     print(f"\n✓ Supabase connected")
-    print(f"  Requirements will be loaded from 'templates' table")
+    print(f"  Requirements will be loaded from 'search_templates' table")
     
-    # Get number of workers
-    try:
-        num_workers = int(input("\nNumber of workers (default 2): ").strip() or "2")
-        if num_workers < 1:
-            num_workers = 2
-    except:
+    # Get number of workers (support non-interactive mode for Railway)
+    num_workers = int(os.getenv('NUM_WORKERS', '2'))
+    if num_workers < 1:
         num_workers = 2
     
     print(f"\n→ Configuration:")

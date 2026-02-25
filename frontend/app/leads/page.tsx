@@ -25,6 +25,8 @@ function LeadsPageContent() {
   const [sortBy, setSortBy] = useState<'date' | 'score'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [selectedLeads, setSelectedLeads] = useState<string[]>([]);
+  const [selectedLead, setSelectedLead] = useState<any>(null);
+  const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectAll, setSelectAll] = useState(false);
   const [sendingOutreach, setSendingOutreach] = useState(false);
 
@@ -769,14 +771,16 @@ function LeadsPageContent() {
                             </td>
                             <td className="px-6 py-4">
                               {lead.profile_url ? (
-                                <a
-                                  href={lead.profile_url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedLead(lead);
+                                    setShowDetailModal(true);
+                                  }}
                                   className="inline-flex items-center gap-1 text-blue-500 hover:text-blue-400"
                                 >
                                   View <ExternalLink className="h-3 w-3" />
-                                </a>
+                                </button>
                               ) : (
                                 <span className="text-gray-500">-</span>
                               )}
@@ -850,6 +854,113 @@ function LeadsPageContent() {
           </div>
         </div>
       </main>
+
+      {/* Detail Modal */}
+      {showDetailModal && selectedLead && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setShowDetailModal(false)}
+        >
+          <div 
+            className="w-full max-w-3xl max-h-[90vh] overflow-auto rounded-lg border border-gray-700 bg-[#1a1f2e] shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-700 bg-[#141C33] p-6">
+              <div>
+                <h3 className="text-xl font-semibold text-white">{selectedLead.name}</h3>
+                <p className="text-sm text-gray-400 mt-1">
+                  Score: <span className={`font-semibold ${
+                    selectedLead.score >= 80 ? 'text-green-500' : 
+                    selectedLead.score >= 50 ? 'text-yellow-500' : 'text-red-500'
+                  }`}>{selectedLead.score?.toFixed(1)}%</span>
+                </p>
+              </div>
+              <button
+                onClick={() => setShowDetailModal(false)}
+                className="rounded-md p-1 text-gray-400 transition-colors hover:bg-gray-700 hover:text-white"
+              >
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {/* Requirements Checklist */}
+              {selectedLead.score_result?.results && (
+                <div>
+                  <h4 className="text-lg font-semibold text-white mb-4">Requirements Checklist</h4>
+                  <div className="space-y-2">
+                    {selectedLead.score_result.results.map((result: any) => (
+                      <div 
+                        key={result.id}
+                        className={`flex items-start gap-3 rounded-lg border p-4 ${
+                          result.matched 
+                            ? 'border-green-500/20 bg-green-500/5' 
+                            : 'border-red-500/20 bg-red-500/5'
+                        }`}
+                      >
+                        <div className="flex-shrink-0 mt-0.5">
+                          {result.matched ? (
+                            <svg className="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                          ) : (
+                            <svg className="h-5 w-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          )}
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-white font-medium">{result.label}</p>
+                          {!result.matched && result.candidate_value && result.candidate_value !== 'N/A' && (
+                            <p className="text-sm text-gray-400 mt-1">
+                              Candidate: <span className="text-gray-300">{result.candidate_value}</span>
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Profile Data */}
+              {selectedLead.score_result && (
+                <div>
+                  <h4 className="text-lg font-semibold text-white mb-4">Scoring Result</h4>
+                  <div className="rounded-lg border border-gray-700 bg-[#141C33]">
+                    <pre className="p-4 text-xs text-gray-300 overflow-auto max-h-96">
+                      {JSON.stringify(selectedLead.score_result, null, 2)}
+                    </pre>
+                  </div>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex gap-3">
+                {selectedLead.profile_url && (
+                  <a
+                    href={selectedLead.profile_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 rounded-md bg-blue-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-600"
+                  >
+                    View LinkedIn Profile
+                    <ExternalLink className="h-4 w-4" />
+                  </a>
+                )}
+                <button
+                  onClick={() => setShowDetailModal(false)}
+                  className="rounded-md border border-gray-700 px-4 py-2 text-sm font-medium text-gray-400 transition-colors hover:bg-gray-700 hover:text-white"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
