@@ -3,6 +3,7 @@ import json
 import os
 import time
 import random
+import threading
 import pika
 from datetime import datetime
 from dotenv import load_dotenv
@@ -88,49 +89,132 @@ def update_lead_status(profile_url, note_sent, status='success'):
 
 
 def find_connect_button(driver, wait):
-    """Find Connect button - direct or inside More dropdown (scoped to profile header only)"""
+    """
+    Find Connect button with correct priority order:
     
-    # 1️⃣ Try direct Connect button in profile header
-    print("  🔍 Trying direct Connect button in header...")
+    IN HEADER:
+    1. Look for Connect FIRST (aria-label "Invite...to connect")
+    2. If not found → check Pending
+    3. If not found → check Remove connection
+    4. If none found → open More dropdown
     
-    # Try to find profile header container
-    profile_header = None
-    header_selectors = [
-        "//div[contains(@class, 'pv-top-card')]",
-        "//div[contains(@class, 'pvs-sticky-header-profile-actions')]",
-        "//section[contains(@class, 'artdeco-card')][1]",
-        "//main//section[1]"
-    ]
+    IN DROPDOWN:
+    1. Check Remove connection FIRST
+    2. If not found → check Pending
+    3. If not found → look for Connect
+    4. If none found → error
+    """
     
-    for selector in header_selectors:
-        try:
-            profile_header = driver.find_element(By.XPATH, selector)
-            if profile_header:
-                print(f"  ✓ Found profile header container")
-                break
-        except:
-            continue
+    # 1️⃣ HEADER: Try Connect button FIRST (GLOBAL SEARCH)
+    print("  🔍 Step 1: Looking for Connect button in header...")
     
-    # Try direct Connect in header if found
-    if profile_header:
-        direct_selectors = [
-            ".//button[text()='Connect']",
-            ".//button[contains(., 'Connect') and not(ancestor::*[contains(@class, 'pvs-list')])]",
-            ".//button[.//span[text()='Connect']]",
-        ]
+    # Add explicit wait for page to fully render
+    time.sleep(2)
+    
+    # Strategy 1: Search by aria-label "Invite...to connect" (most reliable)
+    try:
+        connect_buttons = driver.find_elements(By.XPATH, 
+            "//button[contains(@aria-label, 'Invite') and contains(@aria-label, 'to connect')]")
         
-        for selector in direct_selectors:
+        for btn in connect_buttons:
             try:
-                buttons = profile_header.find_elements(By.XPATH, selector)
-                for btn in buttons:
-                    if btn.is_displayed() and btn.is_enabled():
-                        print("  ✓ Found direct Connect button")
+                if btn.is_displayed() and btn.is_enabled():
+                    # Check if it's in the top part of page (not in recommendations)
+                    location = btn.location
+                    if location['y'] < 1000:
+                        btn_label = btn.get_attribute('aria-label') or ''
+                        print(f"  ✓ Found Connect button: {btn_label[:60]}")
                         return btn
             except:
                 continue
+    except Exception as e:
+        print(f"  ⚠️  Error searching Connect by aria-label: {e}")
     
-    # 2️⃣ If not found → try More button
-    print("  ⚠️  Direct Connect not found, trying More button...")
+    # Strategy 2: Search by exact text "Connect"
+    try:
+        connect_buttons = driver.find_elements(By.XPATH, 
+            "//button[.//span[normalize-space()='Connect']]")
+        
+        for btn in connect_buttons:
+            try:
+                if btn.is_displayed() and btn.is_enabled():
+                    location = btn.location
+                    if location['y'] < 1000:
+                        btn_text = btn.text.strip().lower()
+                        btn_label = (btn.get_attribute('aria-label') or '').lower()
+                        
+                        # Validate: must not contain dangerous keywords
+                        dangerous = ['remove', 'withdraw', 'pending', 'unfollow', 'disconnect']
+                        if not any(kw in btn_text or kw in btn_label for kw in dangerous):
+                            if btn_text == 'connect':
+                                print(f"  ✓ Found Connect button by text")
+                                return btn
+            except:
+                continue
+    except Exception as e:
+        print(f"  ⚠️  Error searching Connect by text: {e}")
+    
+    print("  ℹ️  Connect button not found in header")
+    
+    # 2️⃣ HEADER: Check for Pending button
+    print("  🔍 Step 2: Checking for Pending button in header...")
+    
+    try:
+        # Search by span text "Pending"
+        pending_buttons = driver.find_elements(By.XPATH, 
+            "//button[.//span[normalize-space()='Pending']]")
+        
+        for btn in pending_buttons:
+            try:
+                if btn.is_displayed():
+                    location = btn.location
+                    if location['y'] < 1000:
+                        print("  ✅ Found Pending button - request already sent!")
+                        return "PENDING"
+            except:
+                continue
+        
+        # Search by aria-label (case-insensitive)
+        pending_aria = driver.find_elements(By.XPATH, 
+            "//button[contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'pending')]")
+        
+        for btn in pending_aria:
+            try:
+                if btn.is_displayed():
+                    location = btn.location
+                    if location['y'] < 1000:
+                        print("  ✅ Found Pending button - request already sent!")
+                        return "PENDING"
+            except:
+                continue
+    except Exception as e:
+        print(f"  ⚠️  Error checking Pending: {e}")
+    
+    print("  ℹ️  Pending button not found")
+    
+    # 3️⃣ HEADER: Check for Remove connection button
+    print("  🔍 Step 3: Checking for Remove connection button in header...")
+    
+    try:
+        remove_buttons = driver.find_elements(By.XPATH, 
+            "//button[contains(., 'Remove connection') or contains(@aria-label, 'Remove connection')]")
+        
+        for btn in remove_buttons:
+            try:
+                if btn.is_displayed():
+                    location = btn.location
+                    if location['y'] < 1000:
+                        print("  ✅ Found Remove connection - already connected!")
+                        return "ALREADY_CONNECTED"
+            except:
+                continue
+    except Exception as e:
+        print(f"  ⚠️  Error checking Remove connection: {e}")
+    
+    print("  ℹ️  Remove connection button not found")
+    
+    # 4️⃣ HEADER: None found → open More dropdown
+    print("  🔍 Step 4: Opening More dropdown...")
     
     # Search More button with multiple strategies
     more_button = None
@@ -183,17 +267,65 @@ def find_connect_button(driver, wait):
     
     time.sleep(1)  # Extra wait for animation
     
-    # 3️⃣ After dropdown opens → search Connect inside dropdown
-    print("  🔍 Searching Connect inside dropdown...")
+    # 5️⃣ DROPDOWN: Check Remove connection FIRST
+    print("  🔍 Step 5: Checking for Remove connection in dropdown...")
+    
+    try:
+        dropdown_elements = driver.find_elements(By.XPATH, 
+            "//div[@role='menu']//div[@role='button'] | //div[contains(@class, 'artdeco-dropdown__content')]//div[@role='button']")
+        
+        for elem in dropdown_elements:
+            try:
+                if elem.is_displayed():
+                    elem_text = elem.text.strip().lower()
+                    elem_label = (elem.get_attribute('aria-label') or '').lower()
+                    
+                    # Check if this is "Remove connection"
+                    if ('remove' in elem_text and 'connection' in elem_text) or \
+                       ('remove' in elem_label and 'connection' in elem_label):
+                        print(f"  ✅ Found Remove connection in dropdown - already connected!")
+                        return "ALREADY_CONNECTED"
+            except:
+                continue
+    except Exception as e:
+        print(f"  ⚠️  Error checking Remove connection in dropdown: {e}")
+    
+    print("  ℹ️  Remove connection not found in dropdown")
+    
+    # 6️⃣ DROPDOWN: Check for Pending
+    print("  🔍 Step 6: Checking for Pending in dropdown...")
+    
+    try:
+        dropdown_elements = driver.find_elements(By.XPATH, 
+            "//div[@role='menu']//div[@role='button'] | //div[contains(@class, 'artdeco-dropdown__content')]//div[@role='button']")
+        
+        for elem in dropdown_elements:
+            try:
+                if elem.is_displayed():
+                    elem_text = elem.text.strip().lower()
+                    elem_label = (elem.get_attribute('aria-label') or '').lower()
+                    
+                    # Check if this is Pending
+                    if 'pending' in elem_text or 'pending' in elem_label:
+                        print(f"  ✅ Found Pending in dropdown - request already sent!")
+                        return "PENDING"
+            except:
+                continue
+    except Exception as e:
+        print(f"  ⚠️  Error checking Pending in dropdown: {e}")
+    
+    print("  ℹ️  Pending not found in dropdown")
+    
+    # 7️⃣ DROPDOWN: Search for Connect button
+    print("  🔍 Step 7: Searching for Connect in dropdown...")
     dropdown_connect_selectors = [
-        # By aria-label (most specific)
+        # By aria-label (most specific) - must contain "Invite" and "connect"
         "//div[@role='button' and contains(@aria-label, 'Invite') and contains(@aria-label, 'connect')]",
-        # By class and text
-        "//div[contains(@class, 'artdeco-dropdown__item') and @role='button']//span[text()='Connect']/parent::div",
-        "//div[contains(@class, 'artdeco-dropdown__item') and contains(., 'Connect')]",
-        # Generic role=button with Connect text
-        "//div[@role='menu']//div[@role='button' and contains(., 'Connect')]",
-        "//div[contains(@class, 'artdeco-dropdown__content')]//div[@role='button' and contains(., 'Connect')]",
+        # By exact text match
+        "//div[contains(@class, 'artdeco-dropdown__item') and @role='button']//span[normalize-space(text())='Connect']/parent::div",
+        # Generic - will validate manually
+        "//div[@role='menu']//div[@role='button']",
+        "//div[contains(@class, 'artdeco-dropdown__content')]//div[@role='button']",
     ]
     
     for i, selector in enumerate(dropdown_connect_selectors):
@@ -203,13 +335,30 @@ def find_connect_button(driver, wait):
             print(f"    Found {len(elements)} elements")
             for elem in elements:
                 if elem.is_displayed() and elem.is_enabled():
-                    # Verify it actually contains "Connect" text
-                    elem_text = elem.text.lower()
-                    elem_label = elem.get_attribute('aria-label') or ''
-                    print(f"    Checking element: text='{elem.text}', label='{elem_label[:50]}'")
-                    if 'connect' in elem_text or 'connect' in elem_label.lower():
-                        print(f"  ✓ Found Connect inside dropdown!")
+                    # Get text and label
+                    elem_text = elem.text.strip().lower()
+                    elem_label = (elem.get_attribute('aria-label') or '').lower()
+                    print(f"    Checking: text='{elem.text.strip()}', label='{elem_label[:60]}'")
+                    
+                    # CRITICAL: Reject dangerous keywords
+                    dangerous_keywords = ['remove', 'withdraw', 'pending', 'message', 'unfollow', 'disconnect']
+                    has_dangerous = any(keyword in elem_text or keyword in elem_label for keyword in dangerous_keywords)
+                    
+                    if has_dangerous:
+                        print(f"    ✗ REJECTED: contains dangerous keyword")
+                        continue
+                    
+                    # CRITICAL: Accept only if:
+                    # 1. Text is EXACTLY "connect" (not "connection", "disconnect")
+                    # 2. OR label contains "invite" + "connect" (LinkedIn's aria-label pattern)
+                    is_valid_text = elem_text == 'connect'
+                    is_valid_label = 'invite' in elem_label and 'connect' in elem_label and 'to connect' in elem_label
+                    
+                    if is_valid_text or is_valid_label:
+                        print(f"  ✓ Found valid Connect inside dropdown!")
                         return elem
+                    else:
+                        print(f"    ✗ REJECTED: text '{elem_text}' not exactly 'connect' and label not valid")
         except Exception as e:
             print(f"  Selector {i+1} failed: {e}")
             continue
@@ -304,54 +453,28 @@ def send_connection_request(driver, profile_url, lead_name, message_template, dr
         
         human_delay(2, 3)
         
-        # Check if already connected (look for Message button in profile header)
-        print("  🔍 Checking connection status...")
-        try:
-            # Find profile header first
-            profile_header = None
-            header_selectors = [
-                "//div[contains(@class, 'pv-top-card')]",
-                "//section[contains(@class, 'artdeco-card')][1]",
-                "//main//section[1]"
-            ]
-            
-            for selector in header_selectors:
-                try:
-                    profile_header = driver.find_element(By.XPATH, selector)
-                    if profile_header:
-                        break
-                except:
-                    continue
-            
-            if not profile_header:
-                profile_header = driver.find_element(By.TAG_NAME, "main")
-            
-            # Check for Message button in header (indicates already connected)
-            message_buttons = profile_header.find_elements(By.XPATH, ".//button[contains(@aria-label, 'Message') or contains(., 'Message')]")
-            for btn in message_buttons:
-                if btn.is_displayed():
-                    print("  ⚠️  Already connected (Message button found)!")
-                    result['status'] = 'already_connected'
-                    result['error'] = 'Already connected'
-                    return result
-            
-            # Check for Pending status
-            pending_elements = profile_header.find_elements(By.XPATH, ".//*[contains(text(), 'Pending')]")
-            if pending_elements:
-                print("  ⚠️  Connection request already pending!")
-                result['status'] = 'already_pending'
-                result['error'] = 'Connection already pending'
-                return result
-                
-        except Exception as e:
-            print(f"  ⚠️  Could not check connection status: {e}")
-            # Continue anyway
-        
         # Find and click Connect button
         print("2️⃣  Looking for Connect button...")
         
         # Use the new find_connect_button function
         connect_button = find_connect_button(driver, wait)
+        
+        # Check for special status returns
+        if connect_button == "PENDING":
+            print("  ✅ Connection request already PENDING!")
+            print("  ℹ️  Treating as success (request was sent previously)")
+            result['status'] = 'pending_success'
+            result['error'] = None
+            result['note'] = 'Connection request already pending (sent previously)'
+            return result
+        
+        if connect_button == "ALREADY_CONNECTED":
+            print("  ✅ Already connected!")
+            print("  ℹ️  Treating as success (already connected)")
+            result['status'] = 'already_connected_success'
+            result['error'] = None
+            result['note'] = 'Already connected (Remove connection button found)'
+            return result
         
         if not connect_button:
             print("  ✗ Connect button not found!")
@@ -559,13 +682,16 @@ def process_outreach_job(message_data, dry_run=True):
             dry_run=dry_run
         )
         
-        # Update database if message was sent (both dry_run and live)
-        if result['status'] in ['sent', 'dry_run_success']:
+        # Update database if message was sent (both dry_run and live) or if already pending/connected
+        if result['status'] in ['sent', 'dry_run_success', 'pending_success', 'already_connected_success']:
             print(f"\n{'='*60}")
             print("💾 UPDATING DATABASE")
             print(f"{'='*60}")
             
-            # Status is 'success' because note was sent successfully
+            # Status is 'success' because:
+            # - Note was sent successfully, OR
+            # - Already pending (sent previously), OR  
+            # - Already connected
             db_status = 'success'
             
             print(f"Result status: {result['status']}")
@@ -600,41 +726,38 @@ def process_outreach_job(message_data, dry_run=True):
             driver.quit()
 
 
-def worker():
-    """Worker that consumes from outreach_queue"""
-    print("="*60)
-    print("LINKEDIN AUTOMATED OUTREACH WORKER")
-    print("="*60)
-    print(f"Queue: {OUTREACH_QUEUE}")
-    print("="*60 + "\n")
+def worker_thread(worker_id, outreach_queue):
+    """Worker thread that consumes from outreach_queue"""
+    print(f"[Worker {worker_id}] Started")
     
     # Connect to RabbitMQ
     mq = RabbitMQManager()
-    mq.queue_name = OUTREACH_QUEUE
+    mq.queue_name = outreach_queue
     
     if not mq.connect():
-        print("✗ Failed to connect to RabbitMQ")
+        print(f"[Worker {worker_id}] ✗ Failed to connect to RabbitMQ")
         return
+    
+    print(f"[Worker {worker_id}] ✓ Connected to RabbitMQ")
     
     # Initialize Supabase
     try:
         supabase = SupabaseManager()
-        print("✓ Connected to Supabase\n")
+        print(f"[Worker {worker_id}] ✓ Connected to Supabase")
     except Exception as e:
-        print(f"✗ Failed to connect to Supabase: {e}")
-        print("  Make sure SUPABASE_URL and SUPABASE_KEY are set in .env")
-        print("  Continuing without Supabase (data won't be saved)...\n")
+        print(f"[Worker {worker_id}] ✗ Failed to connect to Supabase: {e}")
+        print(f"[Worker {worker_id}]   Continuing without Supabase...")
         supabase = None
     
-    # Set QoS - process 1 at a time
+    # Set QoS - process 1 at a time per worker
     mq.channel.basic_qos(prefetch_count=1)
     
     def callback(ch, method, properties, body):
         """Process each outreach job"""
         try:
-            print("\n" + "="*60)
-            print("📥 NEW JOB RECEIVED")
-            print("="*60)
+            print(f"\n[Worker {worker_id}] " + "="*60)
+            print(f"[Worker {worker_id}] 📥 NEW JOB RECEIVED")
+            print(f"[Worker {worker_id}] " + "="*60)
             
             # Parse message
             message_data = json.loads(body)
@@ -642,41 +765,46 @@ def worker():
             # Get dry_run flag from message (default True for safety)
             dry_run = message_data.get('dry_run', True)
             
-            print(f"Job ID: {message_data.get('job_id', 'N/A')}")
-            print(f"Lead: {message_data.get('name', 'Unknown')}")
-            print(f"URL: {message_data.get('profile_url', 'N/A')}")
-            print(f"Mode: {'🧪 DRY RUN (testing)' if dry_run else '🔴 LIVE (real send)'}")
-            print("="*60)
+            print(f"[Worker {worker_id}] Job ID: {message_data.get('job_id', 'N/A')}")
+            print(f"[Worker {worker_id}] Lead: {message_data.get('name', 'Unknown')}")
+            print(f"[Worker {worker_id}] URL: {message_data.get('profile_url', 'N/A')}")
+            print(f"[Worker {worker_id}] Mode: {'🧪 DRY RUN (testing)' if dry_run else '🔴 LIVE (real send)'}")
+            print(f"[Worker {worker_id}] " + "="*60)
             
             # Process job
             result = process_outreach_job(message_data, dry_run=dry_run)
             
-            # Database update already handled in process_outreach_job()
-            # No need to save again here
-            
             # Log result
-            print("\n" + "="*60)
-            print("📊 JOB RESULT")
-            print("="*60)
-            print(f"Status: {result['status']}")
+            print(f"\n[Worker {worker_id}] " + "="*60)
+            print(f"[Worker {worker_id}] 📊 JOB RESULT")
+            print(f"[Worker {worker_id}] " + "="*60)
+            print(f"[Worker {worker_id}] Status: {result['status']}")
             if result.get('error'):
-                print(f"Error: {result['error']}")
+                print(f"[Worker {worker_id}] Error: {result['error']}")
             if result.get('screenshot'):
-                print(f"Screenshot: {result['screenshot']}")
+                print(f"[Worker {worker_id}] Screenshot: {result['screenshot']}")
             if result.get('database_updated'):
-                print(f"Database: {'✓ Updated' if result['database_updated'] else '✗ Failed'}")
-            print("="*60 + "\n")
+                print(f"[Worker {worker_id}] Database: {'✓ Updated' if result['database_updated'] else '✗ Failed'}")
+            print(f"[Worker {worker_id}] " + "="*60 + "\n")
             
             # Acknowledge message
             ack_message(ch, method.delivery_tag)
             
-            # Rate limiting: wait before next job (3 minutes)
-            delay = 180  # 3 minutes
-            print(f"⏳ Waiting 3 minutes before next job (rate limiting)...")
+            # Rate limiting: wait before next job
+            # With 3 workers running in parallel:
+            # - Each worker waits 90 seconds between jobs
+            # - Total throughput: ~3 requests per 90 seconds = 2 requests/minute
+            # - Per hour: ~120 requests
+            # - Per day: ~2,880 requests (still high, monitor for LinkedIn limits)
+            # 
+            # Safer option (recommended for new accounts):
+            # - Use delay = 300 (5 minutes) for ~36 requests/hour, ~864/day
+            delay = 60  # 60 seconds between jobs per worker
+            print(f"[Worker {worker_id}] ⏳ Waiting {delay} seconds before next job (rate limiting)...")
             time.sleep(delay)
         
         except Exception as e:
-            print(f"\n✗ Fatal error processing job: {e}")
+            print(f"\n[Worker {worker_id}] ✗ Fatal error processing job: {e}")
             import traceback
             traceback.print_exc()
             
@@ -684,11 +812,10 @@ def worker():
             nack_message(ch, method.delivery_tag, requeue=False)
     
     try:
-        print("✓ Worker started, waiting for jobs...")
-        print("  Press Ctrl+C to stop\n")
+        print(f"[Worker {worker_id}] ✓ Listening for jobs...")
         
         mq.channel.basic_consume(
-            queue=OUTREACH_QUEUE,
+            queue=outreach_queue,
             on_message_callback=callback,
             auto_ack=False
         )
@@ -696,12 +823,63 @@ def worker():
         mq.channel.start_consuming()
     
     except KeyboardInterrupt:
-        print("\n\n⚠ Interrupted by user")
+        print(f"\n[Worker {worker_id}] ⚠ Interrupted by user")
+    
+    except Exception as e:
+        print(f"\n[Worker {worker_id}] ✗ Error: {e}")
+        import traceback
+        traceback.print_exc()
     
     finally:
         mq.close()
-        print("✓ Worker stopped")
+        print(f"[Worker {worker_id}] ✓ Stopped")
+
+
+def main():
+    """Main function to start multiple worker threads"""
+    print("="*60)
+    print("LINKEDIN AUTOMATED OUTREACH WORKER")
+    print("="*60)
+    print(f"Queue: {OUTREACH_QUEUE}")
+    print("="*60 + "\n")
+    
+    # Number of workers from environment variable
+    num_workers = int(os.getenv('MAX_WORKERS', '3'))
+    print(f"→ Number of workers: {num_workers}")
+    print(f"→ Queue: {OUTREACH_QUEUE}")
+    print(f"→ Rate limit: 90 seconds between jobs per worker")
+    print(f"→ Throughput: ~{num_workers * 40} requests/hour with {num_workers} workers\n")
+    
+    # Start worker threads
+    print(f"→ Starting {num_workers} outreach workers...")
+    threads = []
+    for i in range(num_workers):
+        t = threading.Thread(
+            target=worker_thread,
+            args=(i+1, OUTREACH_QUEUE),
+            daemon=True
+        )
+        t.start()
+        threads.append(t)
+        time.sleep(0.5)
+    
+    print(f"\n✓ All {num_workers} workers are running!")
+    print("\n💡 How it works:")
+    print("  1. Each worker processes 1 job at a time")
+    print("  2. Multiple workers run in parallel")
+    print("  3. RabbitMQ distributes jobs across workers")
+    print("  4. Each worker waits 90 seconds between jobs")
+    print("\n  Press Ctrl+C to stop all workers\n")
+    
+    try:
+        # Keep main thread alive
+        while True:
+            time.sleep(1)
+    
+    except KeyboardInterrupt:
+        print("\n\n⚠ Interrupted by user. Stopping all workers...")
+        print("  (Workers will finish current tasks)")
 
 
 if __name__ == "__main__":
-    worker()
+    main()

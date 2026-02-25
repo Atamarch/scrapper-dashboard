@@ -187,12 +187,7 @@ function LeadsPageContent() {
     // Prevent multiple clicks - check state first
     if (sendingOutreach) return;
     
-    // Get selected leads data
-    const selectedLeadsData = leads.filter(lead => 
-      selectedLeads.includes(lead.id)
-    );
-
-    if (selectedLeadsData.length === 0) {
+    if (selectedLeads.length === 0) {
       toast.error('No leads selected');
       return;
     }
@@ -207,6 +202,21 @@ function LeadsPageContent() {
     setSendingOutreach(true);
     
     try {
+      // Fetch all selected leads data from database (not just current page)
+      console.log('📋 Fetching selected leads data from database...');
+      const { data: selectedLeadsData, error: leadsError } = await supabase
+        .from('leads_list')
+        .select('id, name, profile_url')
+        .in('id', selectedLeads);
+
+      if (leadsError || !selectedLeadsData) {
+        console.error('❌ Error fetching leads:', leadsError);
+        toast.error('Failed to fetch selected leads');
+        setSendingOutreach(false);
+        return;
+      }
+
+      console.log(`✅ Fetched ${selectedLeadsData.length} leads from database`);
 
       // Fetch template note from database
       console.log('📋 Fetching template note from database...');
@@ -241,7 +251,7 @@ function LeadsPageContent() {
           profile_url: lead.profile_url
         })),
         message: messageTemplate, // Use template note from database
-        dry_run: true // Set to true for testing
+        dry_run: false // Set to true for testing
       };
 
       // Log payload for debugging
@@ -718,11 +728,12 @@ function LeadsPageContent() {
                               {new Date(lead.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
                             </td>
                             <td className="px-6 py-4">
-                              <span className={`rounded-full px-3 py-1 text-xs font-medium ${lead.connection_status === 'connected'
-                                ? 'bg-green-500/10 text-green-500'
-                                : lead.connection_status === 'pending'
-                                  ? 'bg-yellow-500/10 text-yellow-500'
-                                  : 'bg-gray-500/10 text-gray-500'
+                              <span className={`rounded-full px-3 py-1 text-xs font-medium ${
+                                lead.connection_status === 'connected' || lead.connection_status === 'success'
+                                  ? 'bg-green-500/10 text-green-500'
+                                  : lead.connection_status === 'pending'
+                                    ? 'bg-yellow-500/10 text-yellow-500'
+                                    : 'bg-gray-500/10 text-gray-500'
                                 }`}>
                                 {lead.connection_status}
                               </span>

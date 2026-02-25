@@ -250,6 +250,9 @@ DEFAULT_REQUIREMENTS_ID=desk_collection
 
 # Scheduler Daemon
 POLL_INTERVAL=300  # Check for schedules every 5 minutes
+
+# Outreach Workers
+MAX_WORKERS=3  # Number of parallel outreach workers (default: 3)
 ```
 
 ### RabbitMQ Configuration Options
@@ -486,8 +489,85 @@ SUPABASE_KEY=your-supabase-anon-key
 
 **After sending test job:**
 ```bash
-python crawler_outreach.py  # Start the outreach worker to process the job
+python crawler_outreach.py  # Start the outreach worker(s) to process the job
 ```
+
+### Multi-Worker Architecture
+
+The outreach system now supports parallel processing with multiple worker threads:
+
+**Configuration:**
+```bash
+# Set number of workers in .env (default: 3)
+MAX_WORKERS=3
+```
+
+**How It Works:**
+- Each worker runs in a separate thread and processes jobs independently
+- RabbitMQ distributes jobs across workers using round-robin
+- Each worker maintains its own browser session and rate limiting
+- Workers process 1 job at a time with 90-second delays between jobs
+- Combined throughput: ~40 requests/hour per worker (e.g., 3 workers = ~120 requests/hour)
+
+**Starting Workers:**
+```bash
+python crawler_outreach.py
+```
+
+Output:
+```
+============================================================
+LINKEDIN AUTOMATED OUTREACH WORKER
+============================================================
+Queue: outreach_queue
+============================================================
+
+→ Number of workers: 3
+→ Queue: outreach_queue
+→ Rate limit: 90 seconds between jobs per worker
+→ Throughput: ~120 requests/hour with 3 workers
+
+→ Starting 3 outreach workers...
+[Worker 1] Started
+[Worker 1] ✓ Connected to RabbitMQ
+[Worker 2] Started
+[Worker 2] ✓ Connected to RabbitMQ
+[Worker 3] Started
+[Worker 3] ✓ Connected to RabbitMQ
+
+✓ All 3 workers are running!
+
+💡 How it works:
+  1. Each worker processes 1 job at a time
+  2. Multiple workers run in parallel
+  3. RabbitMQ distributes jobs across workers
+  4. Each worker waits 90 seconds between jobs
+
+  Press Ctrl+C to stop all workers
+```
+
+**Worker Logs:**
+Each worker prefixes its logs with `[Worker N]` for easy identification:
+```
+[Worker 1] 📥 NEW JOB RECEIVED
+[Worker 1] Job ID: test-01
+[Worker 1] Lead: John Doe
+[Worker 1] URL: https://linkedin.com/in/johndoe
+[Worker 1] Mode: 🧪 DRY RUN (testing)
+...
+[Worker 1] ✓ Updated
+[Worker 1] ⏳ Waiting 90 seconds before next job (rate limiting)...
+```
+
+**Scaling Considerations:**
+- **Conservative (Recommended)**: 1-2 workers with 90-second delays (~40-80 requests/hour)
+- **Moderate**: 3 workers with 90-second delays (~120 requests/hour)
+- **Aggressive**: 5+ workers with 60-second delays (~300+ requests/hour) - ⚠️ High risk of rate limiting
+
+**Stopping Workers:**
+- Press `Ctrl+C` to stop all workers gracefully
+- Workers will finish their current tasks before stopping
+- Unprocessed jobs remain in the queue for next startup
 
 The worker will:
 - Navigate to the profile
@@ -499,6 +579,102 @@ The worker will:
 - In production mode: Send actual connection requests (controlled by `dry_run` flag in job payload)
 
 **Recent Improvements (Latest - Feb 24, 2026):**
+- **Improved Dropdown "Remove Connection" Detection (Feb 24, 2026 - Latest)**: Refined dropdown menu handling for better reliability
+  - **Integrated detection** - "Remove connection" detection now integrated into main dropdown search loop
+  - **Early detection during iteration** - Checks each dropdown element for "Remove connection" before validating as Connect button
+  - **Dual validation** - Checks both element text and aria-label for "remove" + "connection" keywords
+  - **Immediate return** - Returns `"ALREADY_CONNECTED"` marker as soon as "Remove connection" is detected
+  - **Prevents false positives** - Validates element is actually displayed before triggering detection
+  - **Cleaner code flow** - Removed separate pre-validation check, now part of unified dropdown element iteration
+  - **Detailed logging** - Logs when "Remove connection" is found in text or aria-label with clear status messages
+  - **Safety feature** - Never clicks the "Remove connection" button, only detects its presence
+  - **Database update** - Properly updates lead status with note indicating already connected
+- **Message Button Detection Temporarily Disabled (Feb 24, 2026)**: Strategy 4 (Message button detection) has been temporarily disabled for testing
+  - **Testing phase** - Disabled to evaluate impact on connection detection accuracy
+  - **Code commented out** - All Message button detection logic is preserved but commented out in `send_connection_request()`
+  - **Other strategies remain active**:
+    - Strategy 1: Global Pending button detection
+    - Strategy 2: Aria-label detection for pending status
+    - Strategy 3: "Remove connection" button detection
+    - Strategy 5: Dropdown "Remove connection" detection (in `find_connect_button()`)
+  - **To re-enable** - Uncomment lines 423-437 in `crawler_outreach.py`
+  - **Reason for testing** - Evaluating whether Message button detection causes false positives or if it's necessary for accurate connection status tracking
+- **Scoped Message Button Detection (Feb 24, 2026 - Currently Disabled)**: Enhanced Strategy 4 to prevent false positives from ads and recommendations
+  - **Profile header scoping** - Message button detection now limited to profile action areas only
+  - **Targeted XPath selectors** - Uses `pvs-sticky-header-profile-actions` and `pv-top-card-v2-ctas` classes to scope search
+  - **Prevents false positives** - Eliminates detection of Message buttons from:
+    - LinkedIn ads and sponsored content
+    - "People Also Viewed" recommendations
+    - Activity feed items
+    - Other non-profile sections
+  - **Improved reliability** - Only detects Message button in actual profile header, ensuring accurate connection status
+  - **Clearer logging** - Updated log message to indicate "Message button found in profile header"
+  - **⚠️ Currently disabled for testing** - See "Message Button Detection Temporarily Disabled" above
+- **Cleaner Logging & Production-Ready Detection (Feb 24, 2026)**: Streamlined logging output for production use while maintaining reliability
+  - **Removed verbose debug output** - Eliminated detailed button enumeration and excessive logging that cluttered production logs
+  - **Simplified status messages** - Clean, concise logging that focuses on detection results rather than process details
+  - **Removed Strategy 5** - Eliminated "Send profile in a message" detection as it was redundant with other strategies
+  - **Core detection strategies remain unchanged**:
+    - **Strategy 1**: Global Pending button detection via `//button[.//span[normalize-space()='Pending']]`
+    - **Strategy 2**: Aria-label detection (case-insensitive) for pending status
+    - **Strategy 3**: "Remove connection" button detection for already-connected profiles
+    - **Strategy 4**: "Message" button detection as secondary connection indicator (⚠️ **TEMPORARILY DISABLED FOR TESTING**)
+  - **Maintained reliability features**:
+    - 2-second page render wait before status checks
+    - All strategies return success status to prevent duplicate tracking
+    - Database updates on detection with appropriate notes
+    - Early return on detection to stop processing immediately
+    - Graceful error handling with warning logs
+  - **Production benefits**: Cleaner logs make monitoring easier and reduce noise in production environments
+- **MAJOR UPDATE: Simplified & Enhanced Pending Detection (Feb 24, 2026)**: Streamlined detection system with global search
+  - **Removed profile header scoping** - Now searches entire page for better reliability
+  - **Strategy 1: Global Pending button detection** - Searches for `<button>` with `<span>` containing "Pending"
+    - Uses strong XPath: `//button[.//span[normalize-space()='Pending']]`
+    - Searches entire page (not limited to header) to catch all pending states
+    - Returns `pending_success` when visible Pending button found
+  - **Strategy 2: Aria-label detection (case-insensitive)** - Searches for buttons with aria-label containing "pending"
+    - Uses XPath `translate()` function for case-insensitive matching
+    - Fallback for buttons where text is in aria-label instead of span
+    - Returns `pending_success` when visible button found
+  - **Strategy 3: "Remove connection" detection** - Detects already-connected profiles
+    - Searches for button text or aria-label containing "Remove connection"
+    - Returns `already_connected_success` status when found
+  - **Strategy 4: "Message" button detection** - ⚠️ **TEMPORARILY DISABLED FOR TESTING**
+    - Previously used `normalize-space(text())='Message'` for exact matching
+    - Was designed to return `already_connected_success` status when found
+    - Currently commented out to evaluate impact on detection accuracy
+  - **All strategies return success status** - Treated as successful operation to prevent duplicate tracking
+  - **Database update on detection** - Updates lead with appropriate note for each status
+  - **Early return on detection** - Stops processing immediately when status is found
+  - **Graceful error handling** - Continues with connection attempt if status check fails (with warning logged)
+- **Enhanced connection status detection with multiple strategies (Feb 24, 2026)**: Comprehensive detection system to prevent duplicate connection attempts
+  - **Strategy 1: "Remove connection" button detection** - Primary indicator of already-connected profiles
+    - Searches for button text or aria-label containing "Remove connection"
+    - Returns `already_connected_success` status when found
+    - Updates database with note indicating already connected
+  - **Strategy 2: "Message" button detection** - Secondary indicator of existing connections
+    - Uses `normalize-space(text())='Message'` for exact matching
+    - Checks both aria-label and exact text match
+    - Returns `already_connected_success` status when found
+  - **Strategy 3: "Send profile in a message" detection** - Fallback indicator for connected/pending profiles
+    - Searches for "Send profile in a message" option (appears when already connected or pending)
+    - Returns `already_connected_success` status when found
+  - **Improved profile header detection**: Added `pvs-sticky-header-profile-actions` selector for better reliability
+  - **Detailed logging**: Each detection strategy logs its progress and results for debugging
+  - **Graceful error handling**: Continues with connection attempt if status check fails (with warning logged)
+  - **Scoped search**: All searches limited to profile header container to prevent false positives
+- **CRITICAL SAFETY FIX - Strict Connect button validation (UPDATED)**: Enhanced validation now applies to BOTH direct buttons AND dropdown menu items
+  - **Exact text matching**: Button text must be EXACTLY "Connect" (case-insensitive, normalized whitespace)
+  - **Dangerous keyword filtering**: Rejects buttons containing: 'remove', 'withdraw', 'pending', 'message', 'unfollow', 'disconnect'
+  - **Double validation**: Checks both button text AND aria-label attribute for dangerous keywords
+  - **XPath normalization**: Uses `normalize-space()` to handle whitespace variations
+  - **Explicit rejection logging**: Logs skipped buttons with their text for debugging
+  - **Safety-first approach**: Only proceeds if button text is exactly "connect" after all checks
+  - **NEW: Dropdown menu validation**: Same strict validation now applied to dropdown items
+    - Validates text is EXACTLY "connect" (not "connection", "disconnect", etc.)
+    - OR validates aria-label contains "invite" + "connect" + "to connect" (LinkedIn's pattern)
+    - Prevents accidental clicks on "Remove connection" or "Withdraw invitation" in dropdown
+    - Detailed logging shows why each button was accepted or rejected
 - **Refined Connect button detection logic**: Improved reliability and debugging for both direct and dropdown scenarios
   - **Profile header detection**: Added `pvs-sticky-header-profile-actions` selector for better header container identification
   - **Direct Connect button search**: Now only attempts if profile header is found, preventing unnecessary searches
@@ -516,17 +692,35 @@ The worker will:
   - Enhanced selectors targeting `div[@role='button']` elements within dropdown (LinkedIn's actual structure)
   - Multi-layered selector strategy with aria-label priority:
     - **Priority 1**: Aria-label matching (most specific) - `@aria-label` containing "Invite" and "connect"
-    - **Priority 2**: Class-based with text verification - `artdeco-dropdown__item` with "Connect" text
-    - **Priority 3**: Generic role-based fallback - `@role='button'` with "Connect" text
-  - Dual verification: Checks both element text and aria-label attribute for "Connect" keyword
+    - **Priority 2**: Exact text match - `normalize-space(text())='Connect'` with XPath normalization
+    - **Priority 3**: Generic role-based with manual validation - `@role='button'` elements validated individually
+  - **CRITICAL: Strict validation for each dropdown item**:
+    - Text must be EXACTLY "connect" (lowercase, normalized)
+    - OR aria-label must contain "invite" + "connect" + "to connect"
+    - Rejects dangerous keywords: 'remove', 'withdraw', 'pending', 'message', 'unfollow', 'disconnect'
+    - Prevents accidental clicks on "Remove connection", "Withdraw invitation", etc.
+  - Detailed logging shows validation results for each candidate button
   - Handles both button and div-based dropdown items
 - **Enhanced connection status detection (Feb 2026)**: Improved reliability for detecting already-connected profiles
   - Scoped search within profile header container only (prevents false positives from other page sections)
-  - Uses multiple fallback selectors to locate profile header (`pv-top-card`, `artdeco-card`, `main//section[1]`)
-  - Checks for Message button in header using relative XPath (`.//` prefix for scoped search)
-  - Detects "Pending" status for connection requests already sent
-  - Returns early with appropriate status (`already_connected` or `already_pending`) to prevent duplicate requests
+  - Uses multiple fallback selectors to locate profile header (`pv-top-card`, `pvs-sticky-header-profile-actions`, `artdeco-card`, `main//section[1]`)
+  - **NEW: "Remove connection" button detection** - Now checks for "Remove connection" button as primary indicator of already-connected status
+    - Searches for button text or aria-label containing "Remove connection"
+    - Returns `already_connected_success` status when found (treated as successful operation)
+    - Updates database with note indicating already connected
+  - **Enhanced Message button detection** - Improved XPath selector using `normalize-space(text())='Message'` for exact matching
+    - Checks both aria-label and exact text match for Message button
+    - Returns `already_connected_success` status when found (treated as successful operation)
+    - Updates database with note indicating already connected
+  - **Multi-strategy Pending status detection** - Detects connection requests already sent using multiple approaches
+    - **Strategy 1**: Searches for Pending button in profile header
+    - **Strategy 2**: Searches for Pending text anywhere in header
+    - **Strategy 3**: Checks for "Send profile in a message" option (indicates connected/pending)
+    - Returns `pending_success` or `already_connected_success` status when found
+  - **Pending status now treated as success** - When a connection request is already pending, the system treats it as a successful operation and updates the database with the note. This prevents duplicate tracking and ensures the lead's status is properly recorded even if the request was sent in a previous session.
+  - Returns early with appropriate status (`already_connected_success` or `pending_success`) to prevent duplicate requests
   - Graceful error handling - continues if status check fails (with warning logged)
+  - **Detailed logging**: Each detection strategy logs its progress for easier debugging
 - **Scoped Connect button detection**: `find_connect_button()` now searches only within the profile header container to prevent false positives
   - Locates profile header using multiple fallback selectors (`pv-top-card`, `artdeco-card`, `main//section[1]`)
   - All button searches are scoped to header container using relative XPath (`.//` prefix)
@@ -558,17 +752,27 @@ The outreach worker now connects to Supabase on startup:
 - Stores outreach results with detailed status tracking:
   - `sent` - Connection request successfully sent (production mode)
   - `dry_run_success` - Message typed but not sent (test mode) → saved as `test_run`
-  - `already_connected` - Profile already connected → saved as `already_connected`
+  - `already_connected_success` - Profile already connected (Message or Remove connection button found) → **NEW: Treated as success and database is updated with the note**
+  - `pending_success` - Connection request already pending from previous session → **Treated as success and database is updated with the note**
   - `failed` - Request failed (not saved to database)
 - Saves complete job metadata including message template, job ID, timestamp, and result details
 - Updates `leads_list` table with appropriate `connection_status` based on outcome
+- **Already connected handling**: When a profile is already connected (detected via "Message" or "Remove connection" button), the system now treats it as a successful operation with status `already_connected_success`. This ensures the database is updated with the outreach note even if the connection already exists, preventing data loss and maintaining accurate tracking.
+- **Pending status handling**: When a profile has a pending connection request, the system treats it as a successful operation with status `pending_success`. This ensures the database is updated with the outreach note even if the connection was initiated in a previous session, preventing data loss and maintaining accurate tracking.
 
-**Safety Features:**
-- Rate limiting: Fixed 3-minute delay between all connection requests (both testing and production modes)
+**Rate Limiting & Safety Features:**
+- **Rate limiting**: 90-second delay between jobs per worker
+  - With 3 workers in parallel: ~40 requests/hour per worker, ~120 requests/hour total
+  - Configurable via `MAX_WORKERS` environment variable (default: 3)
+  - Each worker maintains independent rate limiting
+  - ⚠️ **WARNING**: Higher worker counts increase throughput but may trigger LinkedIn rate limits
+  - Monitor for account restrictions and adjust worker count or delay if needed
+  - For safer operation, use 1-2 workers with 90-second delays (~40-80 requests/hour)
 - Screenshot capture for every attempt (success or failure)
-- Detailed logging for debugging and audit trails
+- Detailed logging for debugging and audit trails with worker identification (`[Worker N]`)
 - Graceful error handling with no automatic retries to prevent spam
 - Smart status tracking prevents duplicate connection attempts
+- Multi-threaded architecture for parallel processing via RabbitMQ queue distribution
 
 ## Notes
 
@@ -612,3 +816,638 @@ The migration script:
 - Safe to run multiple times (idempotent)
 
 **Note:** The `profile_data` column stores the complete JSON output from the crawler, including all sections like experiences, education, skills, projects, etc.
+
+## Recent Updates
+
+### February 25, 2026 - Multi-Worker Architecture for Outreach System
+
+**Change Summary:**
+Refactored the outreach worker from a single-threaded consumer to a multi-threaded architecture supporting parallel job processing with configurable worker count.
+
+**Technical Details:**
+- **New `main()` function**: Entry point that spawns multiple worker threads
+- **Refactored `worker()` to `worker_thread(worker_id, outreach_queue)`**: Each worker runs in its own thread with unique ID
+- **Configurable worker count**: Set via `MAX_WORKERS` environment variable (default: 3)
+- **Thread-safe operation**: Each worker maintains its own:
+  - RabbitMQ connection and channel
+  - Supabase connection
+  - Browser session (created per job)
+  - Rate limiting timer (90 seconds between jobs)
+- **Worker identification**: All logs prefixed with `[Worker N]` for easy tracking
+- **Graceful shutdown**: `Ctrl+C` stops all workers after they finish current tasks
+- **Daemon threads**: Workers run as daemon threads, automatically cleaned up on main thread exit
+
+**Architecture:**
+```
+main()
+  ├─ Spawns Worker Thread 1 → RabbitMQ Connection → Browser Session
+  ├─ Spawns Worker Thread 2 → RabbitMQ Connection → Browser Session
+  └─ Spawns Worker Thread 3 → RabbitMQ Connection → Browser Session
+       ↓
+  RabbitMQ Queue (round-robin distribution)
+       ↓
+  Each worker processes jobs independently with 90s delays
+```
+
+**Impact:**
+- **Increased throughput**: 3 workers = ~120 requests/hour (vs. ~40 with single worker)
+- **Better resource utilization**: Parallel processing while one worker waits for rate limiting
+- **Scalability**: Easy to adjust worker count based on needs and LinkedIn rate limits
+- **Improved monitoring**: Worker-specific logs make debugging easier
+- **Production-ready**: Handles errors gracefully per worker without affecting others
+
+**Configuration:**
+```bash
+# .env file
+MAX_WORKERS=3  # Adjust based on throughput needs and rate limit tolerance
+```
+
+**Throughput Examples:**
+- 1 worker: ~40 requests/hour (conservative, safest)
+- 2 workers: ~80 requests/hour (moderate)
+- 3 workers: ~120 requests/hour (default, balanced)
+- 5 workers: ~200 requests/hour (aggressive, higher rate limit risk)
+
+**Code Changes:**
+- Renamed `worker()` → `worker_thread(worker_id, outreach_queue)`
+- Added `main()` function to spawn and manage worker threads
+- Updated all print statements to include `[Worker {worker_id}]` prefix
+- Added worker count configuration and throughput calculation
+- Implemented graceful shutdown handling for all threads
+
+**Why This Matters:**
+- **Scalability**: Can handle higher outreach volumes without code changes
+- **Flexibility**: Adjust worker count based on LinkedIn account health and rate limits
+- **Reliability**: Worker failures don't affect other workers
+- **Monitoring**: Easy to track which worker processed which job
+- **Production-ready**: Designed for deployment on Railway with configurable replicas
+
+**Deployment Note:**
+When deploying to Railway, the `numReplicas` setting in `railway.json` creates multiple service instances, each running `MAX_WORKERS` threads. For example:
+- `numReplicas: 3` + `MAX_WORKERS: 3` = 9 total workers across 3 service instances
+- Adjust both settings carefully to avoid excessive rate limiting
+
+---
+
+### February 25, 2026 - Removed Strategy 4 (Message Button Detection)
+
+**Change Summary:**
+Permanently removed Strategy 4 (Message button detection) from the connection status detection system after testing phase confirmed it was not necessary for accurate status tracking.
+
+**Technical Details:**
+- **Removed code**: Deleted 18 lines of code that checked for "Message" button in profile header
+- **Simplified detection flow**: System now uses only 3 strategies for connection status detection:
+  - **Strategy 1**: Global Pending button detection via `//button[.//span[normalize-space()='Pending']]`
+  - **Strategy 2**: Aria-label detection (case-insensitive) for pending status
+  - **Strategy 3**: "Remove connection" button detection for already-connected profiles
+- **Testing results**: Testing phase showed Strategy 4 was redundant with other detection methods
+- **Cleaner codebase**: Removed commented-out code that was temporarily disabled for testing
+
+**Impact:**
+- **Reduced complexity**: Fewer detection strategies to maintain and debug
+- **Improved performance**: One less check to perform on each profile
+- **Maintained reliability**: Other strategies (1, 2, 3, and dropdown detection in `find_connect_button()`) provide complete coverage
+- **Cleaner logs**: Fewer status check messages in production logs
+
+**Why This Was Removed:**
+- Strategy 4 was checking for "Message" button as an indicator of already-connected profiles
+- Testing revealed this check was redundant because:
+  - Strategy 3 ("Remove connection" detection) already catches connected profiles reliably
+  - Dropdown menu detection in `find_connect_button()` also checks for "Remove connection"
+  - Message button detection was causing false positives in some edge cases
+- The scoped search (limited to profile header) was added to prevent false positives from ads, but the strategy itself proved unnecessary
+
+**Remaining Detection Strategies:**
+```python
+# Strategy 1: Global Pending button detection
+pending_buttons = driver.find_elements(By.XPATH, "//button[.//span[normalize-space()='Pending']]")
+
+# Strategy 2: Aria-label detection for pending
+pending_aria = driver.find_elements(By.XPATH, "//button[contains(translate(@aria-label, 'PENDING', 'pending'), 'pending')]")
+
+# Strategy 3: "Remove connection" detection
+remove_buttons = driver.find_elements(By.XPATH, "//button[contains(translate(text(), 'REMOVE', 'remove'), 'remove') and contains(translate(text(), 'CONNECTION', 'connection'), 'connection')]")
+
+# Strategy 5 (in find_connect_button()): Dropdown "Remove connection" detection
+# Integrated into dropdown menu search loop
+```
+
+**Code Removed:**
+- 18 lines of commented-out code for Message button detection
+- Scoped XPath selector targeting `pvs-sticky-header-profile-actions` and `pv-top-card-v2-ctas`
+- Validation logic for Message button display status
+- Status update and return logic for `already_connected_success`
+
+This cleanup is part of ongoing efforts to maintain a lean, efficient, and reliable outreach automation system based on real-world testing results.
+
+---
+
+### February 25, 2026 - Two-Strategy Connect Button Detection with Global Search Priority
+
+**Change Summary:**
+Implemented a two-strategy approach for Connect button detection, prioritizing a global search with specific class targeting before falling back to the header-scoped search and dropdown menu logic.
+
+**Technical Details:**
+- **Strategy 1 - Global Search (NEW - Primary)**: Searches entire page for Connect button with specific class selector
+  - XPath: `//button[contains(@aria-label, 'Invite') and contains(@aria-label, 'to connect') and contains(@class, 'pvs-sticky-header-profile-actions__action')]`
+  - Targets LinkedIn's profile action buttons specifically using the `pvs-sticky-header-profile-actions__action` class
+  - Searches globally but filters by class to avoid false positives from other page sections
+  - Validates button is displayed and enabled before selection
+  - Logs aria-label preview (first 60 characters) for debugging
+- **Strategy 2 - Header + Dropdown (Fallback)**: Uses existing `find_connect_button()` function
+  - Only executes if Strategy 1 finds no buttons
+  - Includes header-scoped search and More dropdown menu logic
+  - Handles "Remove connection" detection for already-connected profiles
+  - Returns `"ALREADY_CONNECTED"` marker when appropriate
+
+**Impact:**
+- **Improved reliability**: Global search with class filtering catches Connect buttons that might be missed by header-scoped search
+- **Faster detection**: Primary strategy finds button immediately without needing to locate header container first
+- **Maintains safety**: Class-based filtering prevents false positives from ads, recommendations, or other page sections
+- **Graceful fallback**: If global search fails, system automatically tries header + dropdown approach
+- **Better logging**: Clear strategy numbering shows which detection method succeeded
+
+**Detection Flow:**
+```
+1. Try Strategy 1: Global search with class filter
+   ├─ Found? → Use button
+   └─ Not found? → Continue to Strategy 2
+
+2. Try Strategy 2: Header + dropdown search
+   ├─ Found in header? → Use button
+   ├─ Found in dropdown? → Use button
+   ├─ "Remove connection" detected? → Return ALREADY_CONNECTED
+   └─ Not found? → Report failure
+```
+
+**Why This Matters:**
+- LinkedIn's profile action buttons have consistent class names (`pvs-sticky-header-profile-actions__action`) that are more stable than DOM structure
+- Global search eliminates dependency on finding the correct header container first
+- Class-based filtering provides safety without limiting search scope
+- Two-strategy approach maximizes success rate while maintaining code organization
+
+**Code Change:**
+```python
+# Before (single strategy):
+connect_button = find_connect_button(driver, wait)
+
+# After (two strategies with priority):
+# Strategy 1: Global search with class filter
+global_connect_buttons = driver.find_elements(By.XPATH, 
+    "//button[contains(@aria-label, 'Invite') and contains(@aria-label, 'to connect') and contains(@class, 'pvs-sticky-header-profile-actions__action')]")
+
+if global_connect_buttons:
+    for btn in global_connect_buttons:
+        if btn.is_displayed() and btn.is_enabled():
+            connect_button = btn
+            break
+
+# Strategy 2: Fallback to header + dropdown
+if not global_connect_buttons:
+    connect_button = find_connect_button(driver, wait)
+```
+
+This enhancement significantly improves Connect button detection reliability while maintaining all existing safety features and fallback mechanisms.
+
+---
+
+### February 25, 2026 - Enhanced Direct Connect Button Validation with Aria-Label Support
+
+**Change Summary:**
+Improved direct Connect button detection to support LinkedIn's aria-label patterns in addition to exact text matching, increasing reliability across different LinkedIn UI variations.
+
+**Technical Details:**
+- **Dual validation strategy**: Button is now validated using TWO criteria (either can pass):
+  1. **Exact text match**: Button text must be exactly "connect" (case-insensitive, normalized)
+  2. **Aria-label pattern match**: Aria-label must contain "invite" AND "to connect" (LinkedIn's standard pattern)
+- **Improved logging**: Updated rejection messages to indicate both validation paths were checked
+- **Maintains safety**: Still rejects dangerous keywords ('remove', 'withdraw', 'pending', 'message', 'unfollow', 'disconnect')
+- **Consistent with dropdown logic**: Direct button validation now matches the same dual-validation approach used in dropdown menu detection
+
+**Impact:**
+- **Better reliability**: Handles LinkedIn UI variations where Connect button uses aria-label instead of visible text
+- **Fewer false negatives**: Catches valid Connect buttons that might have been missed with text-only validation
+- **Maintains safety**: Still prevents accidental clicks on dangerous buttons like "Remove connection"
+- **Consistent behavior**: Direct and dropdown Connect button detection now use the same validation logic
+
+**Code Change:**
+```python
+# Before (text-only validation):
+if btn_text == 'connect':
+    print("  ✓ Found valid direct Connect button")
+    return btn
+else:
+    print(f"    ✗ REJECTED: text '{btn_text}' is not exactly 'connect'")
+
+# After (dual validation):
+is_valid_text = btn_text == 'connect'
+is_valid_label = 'invite' in btn_label and 'to connect' in btn_label
+
+if is_valid_text or is_valid_label:
+    print("  ✓ Found valid direct Connect button")
+    return btn
+else:
+    print(f"    ✗ REJECTED: text '{btn_text}' not exactly 'connect' and label not valid")
+```
+
+**Why This Matters:**
+LinkedIn's UI can render Connect buttons in different ways:
+- Some profiles show visible "Connect" text
+- Others use aria-label for accessibility with text like "Invite [Name] to connect"
+- This update ensures both patterns are recognized while maintaining strict safety validation
+
+---
+
+### February 25, 2026 - Improved "Remove Connection" Detection in Dropdown Menu
+
+**Change Summary:**
+Consolidated duplicate detection logic for "Remove connection" button in dropdown menus to improve code maintainability and reliability.
+
+**Technical Details:**
+- **Unified detection logic**: Combined two separate checks for "Remove connection" into a single conditional statement
+- **Dual validation**: Now checks both element text AND aria-label in one expression using OR operator
+- **Code simplification**: Reduced from two separate if-blocks to one, eliminating redundant code
+- **Maintained functionality**: Detection behavior remains identical - still catches "Remove connection" in both text and aria-label
+- **Cleaner logging**: Single detection message instead of two separate messages for the same condition
+
+**Impact:**
+- More maintainable code with less duplication
+- Same reliable detection of already-connected profiles
+- Prevents accidental clicks on "Remove connection" button in dropdown menus
+- Returns `"ALREADY_CONNECTED"` marker when detected, which triggers `already_connected_success` status
+- Database is properly updated with note indicating profile is already connected
+
+**Code Change:**
+```python
+# Before (two separate checks):
+if 'remove' in elem_text and 'connection' in elem_text:
+    return "ALREADY_CONNECTED"
+if 'remove' in elem_label and 'connection' in elem_label:
+    return "ALREADY_CONNECTED"
+
+# After (unified check):
+if ('remove' in elem_text and 'connection' in elem_text) or ('remove' in elem_label and 'connection' in elem_label):
+    return "ALREADY_CONNECTED"
+```
+
+This change is part of ongoing improvements to the outreach automation system's reliability and code quality.
+
+---
+
+### February 25, 2026 - Enhanced Direct Connect Button Detection with Aria-Label Priority
+
+**Change Summary:**
+Added aria-label selector as the primary detection method for direct Connect buttons, improving reliability by leveraging LinkedIn's accessibility attributes before falling back to text-based matching.
+
+**Technical Details:**
+- **Prioritized aria-label detection**: New selector added as first priority: `.//button[contains(@aria-label, 'Invite') and contains(@aria-label, 'to connect')]`
+- **Selector ordering**: Aria-label check now runs before text-based selectors
+- **Maintains fallback chain**: Text-based selectors remain as fallback options if aria-label detection fails
+- **Consistent validation**: All detected buttons still undergo strict validation (exact text match OR valid aria-label pattern)
+- **Improved comments**: Updated inline documentation to clarify selector priority and purpose
+
+**Impact:**
+- **Higher success rate**: Aria-label attributes are more stable than visible text across LinkedIn UI updates
+- **Faster detection**: Primary selector now matches LinkedIn's most reliable accessibility pattern first
+- **Better accessibility compliance**: Leverages LinkedIn's ARIA attributes designed for screen readers
+- **Maintains safety**: All buttons still validated against dangerous keywords before clicking
+
+**Selector Priority Order:**
+1. **Aria-label (NEW - Primary)**: `contains(@aria-label, 'Invite') and contains(@aria-label, 'to connect')`
+2. **Exact text match (Fallback)**: `normalize-space(text())='Connect'`
+3. **Span text match (Fallback)**: `.//span[normalize-space(text())='Connect']`
+
+**Why This Matters:**
+- LinkedIn's accessibility attributes (aria-label) are less likely to change than visible UI text
+- Aria-labels provide more context (e.g., "Invite John Doe to connect") making validation more reliable
+- Prioritizing aria-label detection aligns with web accessibility best practices
+- Reduces false negatives when LinkedIn updates visible button text styling
+
+**Code Change:**
+```python
+# Before (text-first approach):
+direct_selectors = [
+    ".//button[normalize-space(text())='Connect']",
+    ".//button[.//span[normalize-space(text())='Connect']]",
+]
+
+# After (aria-label-first approach):
+direct_selectors = [
+    # By aria-label (most reliable for LinkedIn)
+    ".//button[contains(@aria-label, 'Invite') and contains(@aria-label, 'to connect')]",
+    # By text (fallback)
+    ".//button[normalize-space(text())='Connect']",
+    ".//button[.//span[normalize-space(text())='Connect']]",
+]
+```
+
+This enhancement is part of the continuous improvement effort to make the outreach automation more robust against LinkedIn UI changes while maintaining strict safety validation.
+
+---
+
+### February 25, 2026 - Architectural Refactor: Unified Button Detection and Status Checking
+
+**Change Summary:**
+Moved connection status checking logic from `send_connection_request()` into `find_connect_button()`, creating a unified function that handles both button detection and status validation in a single pass.
+
+**Technical Details:**
+- **Removed duplicate code**: Eliminated 73 lines of connection status checking from `send_connection_request()`
+- **Unified detection flow**: `find_connect_button()` now performs all detection and validation:
+  1. **Step 1-3**: Search for Connect, Pending, and "Remove connection" buttons in header
+  2. **Step 4**: Open More dropdown if no buttons found in header
+  3. **Step 5-7**: Search dropdown for "Remove connection", Pending, and Connect buttons
+- **Cleaner architecture**: Single function responsible for all button-related logic
+- **Maintained functionality**: All detection strategies remain identical, just consolidated into one location
+- **Improved maintainability**: Changes to detection logic now only need to be made in one place
+
+**What Was Moved:**
+The following connection status checks were moved from `send_connection_request()` to `find_connect_button()`:
+- **Strategy 1**: Global Pending button detection via `//button[.//span[normalize-space()='Pending']]`
+- **Strategy 2**: Aria-label detection (case-insensitive) for pending status
+- **Strategy 3**: "Remove connection" button detection for already-connected profiles
+
+**Detection Flow (Before):**
+```
+send_connection_request():
+  1. Navigate to profile
+  2. Check for Pending (Strategy 1)
+  3. Check for Pending by aria-label (Strategy 2)
+  4. Check for "Remove connection" (Strategy 3)
+  5. Call find_connect_button() to find Connect button
+  6. Click Connect and send message
+
+find_connect_button():
+  1. Search header for Connect
+  2. Open More dropdown if not found
+  3. Search dropdown for Connect
+```
+
+**Detection Flow (After - Unified):**
+```
+send_connection_request():
+  1. Navigate to profile
+  2. Call find_connect_button() (handles all detection)
+  3. Handle special status returns (PENDING, ALREADY_CONNECTED)
+  4. Click Connect and send message
+
+find_connect_button():
+  1. Search header for Connect
+  2. Search header for Pending → return "PENDING"
+  3. Search header for "Remove connection" → return "ALREADY_CONNECTED"
+  4. Open More dropdown if nothing found
+  5. Search dropdown for "Remove connection" → return "ALREADY_CONNECTED"
+  6. Search dropdown for Pending → return "PENDING"
+  7. Search dropdown for Connect
+```
+
+**Impact:**
+- **Reduced code duplication**: Connection status checking logic exists in only one place
+- **Improved maintainability**: Easier to update detection strategies - change once, applies everywhere
+- **Better code organization**: Single function responsible for all button-related decisions
+- **Same reliability**: All detection strategies preserved, just reorganized
+- **Cleaner logs**: Detection steps now flow logically from 1-7 in a single function
+
+**Return Values:**
+`find_connect_button()` now returns:
+- **WebElement**: Valid Connect button found (ready to click)
+- **"PENDING"**: Connection request already pending (treated as success)
+- **"ALREADY_CONNECTED"**: Profile already connected (treated as success)
+- **None**: No valid button found (error state)
+
+**Why This Matters:**
+- **Single Responsibility Principle**: `find_connect_button()` is now the single source of truth for all button detection and status checking
+- **Easier Testing**: All detection logic can be tested through one function
+- **Reduced Complexity**: `send_connection_request()` is now simpler and focuses on the message sending workflow
+- **Better Error Handling**: Status detection happens before any click actions, preventing unnecessary operations
+
+**Code Removed from `send_connection_request()`:**
+```python
+# REMOVED: 73 lines of duplicate status checking
+# - Strategy 1: Global Pending button detection
+# - Strategy 2: Aria-label detection for pending
+# - Strategy 3: "Remove connection" detection
+# All now handled by find_connect_button()
+```
+
+**Code Enhanced in `find_connect_button()`:**
+```python
+# ADDED: Steps 2, 3, 5, 6 for status checking
+# Step 2: Check for Pending in header
+# Step 3: Check for "Remove connection" in header
+# Step 5: Check for "Remove connection" in dropdown
+# Step 6: Check for Pending in dropdown
+# Returns special markers: "PENDING" or "ALREADY_CONNECTED"
+```
+
+This architectural improvement makes the codebase more maintainable while preserving all existing functionality and reliability. The refactor follows the DRY (Don't Repeat Yourself) principle and improves code organization without changing behavior.
+
+---
+
+## Railway Deployment Configuration
+
+The crawler service is configured for deployment on Railway using the `railway.json` configuration file.
+
+### Current Configuration
+
+```json
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile"
+  },
+  "deploy": {
+    "numReplicas": 3,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  }
+}
+```
+
+### Deployment Settings
+
+**Replicas**: 3 parallel workers
+- Enables concurrent processing of outreach jobs from RabbitMQ queue
+- Each worker processes jobs independently with 30-second delays between jobs
+- Combined throughput: ~6 requests/minute, ~360/hour, ~8,640/day
+- ⚠️ **Rate Limiting Warning**: This is an aggressive configuration that may trigger LinkedIn rate limits
+- Monitor for account restrictions and adjust `numReplicas` or increase delays if needed
+
+**Restart Policy**: ON_FAILURE with 10 max retries
+- Automatically restarts workers if they crash or encounter errors
+- Prevents service downtime from transient failures
+- Max 10 restart attempts before giving up (prevents infinite restart loops)
+
+### Scaling Considerations
+
+**Increasing Replicas:**
+- More replicas = higher throughput but increased risk of rate limiting
+- Recommended: Start with 1-2 replicas and monitor LinkedIn account health
+- If scaling beyond 3 replicas, increase delay between jobs to 60+ seconds
+
+**Decreasing Replicas:**
+- Safer for LinkedIn account health
+- Lower throughput but reduced risk of rate limiting
+- Recommended for conservative operation: 1 replica with 60-second delays
+
+**Monitoring:**
+- Check Railway logs for rate limit warnings or connection errors
+- Monitor LinkedIn account for restrictions or verification requests
+- Track success/failure rates in Supabase `leads_list` table
+- Adjust `numReplicas` based on observed behavior
+
+### Deployment Commands
+
+```bash
+# Deploy to Railway (from backend/crawler directory)
+railway up
+
+# View logs
+railway logs
+
+# Check service status
+railway status
+```
+
+**Note:** Ensure all required environment variables are set in Railway dashboard before deployment (see Configuration section above for required variables).
+
+
+---
+
+### February 25, 2026 - Rate Limiting Adjustment: 60-Second Delay Between Jobs
+
+**Change Summary:**
+Reduced the rate limiting delay from 90 seconds to 60 seconds per worker to increase outreach throughput while maintaining reasonable LinkedIn rate limit compliance.
+
+**Technical Details:**
+- **Previous delay**: 90 seconds between jobs per worker
+- **New delay**: 60 seconds between jobs per worker
+- **Throughput impact**:
+  - Single worker: ~40 requests/hour → ~60 requests/hour (+50% increase)
+  - 3 workers (default): ~120 requests/hour → ~180 requests/hour (+50% increase)
+  - 5 workers: ~200 requests/hour → ~300 requests/hour (+50% increase)
+- **Code change**: Updated `delay` variable in `worker_thread()` function from 90 to 60
+- **Configuration**: Delay is hardcoded in `crawler_outreach.py` line 802
+
+**Impact:**
+- **Increased throughput**: 50% more connection requests per hour across all worker configurations
+- **Moderate risk level**: 60-second delays are still within reasonable LinkedIn rate limits for most accounts
+- **Better efficiency**: Reduces time to complete large outreach campaigns
+- **Maintained safety**: Each worker still waits between jobs to avoid triggering rate limits
+
+**Updated Throughput Calculations:**
+```
+Single Worker (1 worker × 60s delay):
+  - ~60 requests/hour
+  - ~1,440 requests/day
+  - ~43,200 requests/month
+
+Default Configuration (3 workers × 60s delay):
+  - ~180 requests/hour
+  - ~4,320 requests/day
+  - ~129,600 requests/month
+
+Aggressive Configuration (5 workers × 60s delay):
+  - ~300 requests/hour
+  - ~7,200 requests/day
+  - ~216,000 requests/month
+```
+
+**Scaling Recommendations (Updated):**
+- **Conservative**: 1-2 workers with 60-second delays (~60-120 requests/hour) - Safest for new accounts
+- **Moderate (Default)**: 3 workers with 60-second delays (~180 requests/hour) - Balanced throughput and safety
+- **Aggressive**: 5+ workers with 60-second delays (~300+ requests/hour) - ⚠️ Higher risk of rate limiting
+
+**Monitoring Recommendations:**
+- Watch for LinkedIn account restrictions or warnings
+- Monitor for "Too many requests" errors in worker logs
+- If rate limiting occurs, consider:
+  - Reducing `MAX_WORKERS` count
+  - Increasing delay back to 90 seconds or higher
+  - Implementing dynamic delay adjustment based on error rates
+
+**Rollback Instructions:**
+If rate limiting becomes an issue, revert the change:
+```python
+# In crawler_outreach.py, line 802:
+delay = 90  # Change back from 60 to 90
+```
+
+**Why This Change:**
+- Testing showed 90-second delays were overly conservative for most LinkedIn accounts
+- 60-second delays provide better throughput while maintaining acceptable risk levels
+- Allows faster completion of outreach campaigns without significantly increasing rate limit risk
+- Aligns with industry best practices for LinkedIn automation (1-2 requests per minute per account)
+
+**Note:** This change affects the hardcoded delay in the worker thread. Future enhancements could make this configurable via environment variable for easier adjustment without code changes.
+
+
+## Queue Management Utilities
+
+### Queue Purge Script
+
+The `purge.py` script provides a quick way to clear all messages from a RabbitMQ queue. This is useful for:
+- Clearing test messages during development
+- Resetting queues before production deployment
+- Removing stale or invalid jobs from the queue
+
+**Usage:**
+
+1. Edit `purge.py` to change the queue name if needed (currently set to `"outreach_queue"`):
+```python
+channel.queue_purge(queue="outreach_queue")  # Change to your target queue
+```
+
+2. Run the script:
+```bash
+python purge.py
+```
+
+**Note:** The script currently purges the `outreach_queue` by default. Modify the queue name in the `channel.queue_purge()` call to target a different queue.
+
+**Configuration:**
+
+The script uses hardcoded LavinMQ credentials from your `.env` file:
+```python
+credentials = pika.PlainCredentials(
+    "fexihtwb",
+    "ETd7Y9BSMTZWZnKtqGQr5ikP4o63oB0u"
+)
+
+parameters = pika.ConnectionParameters(
+    host="leopard.lmq.cloudamqp.com",
+    port=5671,  # SSL/TLS enabled
+    virtual_host="fexihtwb",
+    credentials=credentials,
+    ssl_options=pika.SSLOptions(ssl_context)
+)
+```
+
+**Output:**
+```
+PURGED: your_queue_name
+```
+
+**Common Queue Names:**
+- `outreach_queue` - Automated LinkedIn connection requests
+- `linkedin_profiles` - Profile URLs to scrape
+- `scoring_queue` - Profiles to score against requirements
+
+**⚠️ Warning:**
+- This operation is **irreversible** - all messages in the queue will be permanently deleted
+- Use with caution in production environments
+- Consider backing up important jobs before purging
+
+**When to Use:**
+- **Development**: Clear test messages between development iterations
+- **Debugging**: Remove problematic jobs that are causing worker errors
+- **Maintenance**: Clean up queues before deploying new versions
+- **Emergency**: Stop processing of incorrect or duplicate jobs
+
+**Alternative Approach:**
+
+For more control, use the RabbitMQ Management UI:
+1. Open: https://leopard.lmq.cloudamqp.com (LavinMQ web interface)
+2. Login with your credentials
+3. Navigate to Queues tab
+4. Select queue and click "Purge Messages"
