@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { supabase, type Template } from '@/lib/supabase';
 import { X, Search, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
+import { JsonPreviewModal } from './json-preview-modal';
 
 interface TemplatesModalProps {
   companyId: string;
@@ -15,13 +15,13 @@ interface TemplatesModalProps {
 const ITEMS_PER_PAGE = 6;
 
 export function TemplatesModal({ companyId, companyName, isOpen, onClose }: TemplatesModalProps) {
-  const router = useRouter();
   const [templates, setTemplates] = useState<Template[]>([]);
   const [filteredTemplates, setFilteredTemplates] = useState<Template[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set());
+  const [selectedTemplate, setSelectedTemplate] = useState<{ name: string; requirements: any } | null>(null);
 
   useEffect(() => {
     if (isOpen && companyId) {
@@ -61,9 +61,11 @@ export function TemplatesModal({ companyId, companyName, isOpen, onClose }: Temp
     }
   }
 
-  const handleViewLeads = (templateId: string) => {
-    router.push(`/leads?template=${templateId}`);
-    onClose();
+  const handleViewLeads = (template: Template) => {
+    setSelectedTemplate({
+      name: template.name,
+      requirements: template.requirements
+    });
   };
 
   const toggleNoteExpansion = (templateId: string) => {
@@ -86,8 +88,8 @@ export function TemplatesModal({ companyId, companyName, isOpen, onClose }: Temp
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="relative w-full max-w-5xl max-h-[80vh] overflow-hidden rounded-xl border border-gray-700 bg-[#0f1419]">
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-700 bg-[#1a1f2e] p-6">
+      <div className="relative w-full max-w-5xl max-h-[90vh] overflow-hidden rounded-xl border border-gray-700 bg-[#0f1419] flex flex-col">
+        <div className="flex items-center justify-between border-b border-gray-700 bg-[#1a1f2e] p-6 flex-shrink-0">
           <div>
             <h2 className="text-2xl font-bold text-white">Requirements - {companyName}</h2>
             <p className="mt-1 text-sm text-gray-400">{filteredTemplates.length} templates found</p>
@@ -100,7 +102,12 @@ export function TemplatesModal({ companyId, companyName, isOpen, onClose }: Temp
           </button>
         </div>
 
-        <div className="overflow-y-auto p-6" style={{ maxHeight: 'calc(90vh - 140px)' }}>
+        <div className="overflow-y-auto flex-1 p-6 pb-8"
+          style={{ 
+            scrollbarWidth: 'thin', 
+            scrollbarColor: '#4B5563 #1a1f2e' 
+          }}
+        >
           <div className="mb-6">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
@@ -187,10 +194,10 @@ export function TemplatesModal({ companyId, companyName, isOpen, onClose }: Temp
                         })}
                       </span>
                       <button
-                        onClick={() => handleViewLeads(template.id)}
+                        onClick={() => handleViewLeads(template)}
                         className="text-sm font-medium text-blue-500 transition-colors hover:text-blue-400"
                       >
-                        View Leads
+                        View Requirements
                       </button>
                     </div>
                   </div>
@@ -199,7 +206,7 @@ export function TemplatesModal({ companyId, companyName, isOpen, onClose }: Temp
               </div>
 
               {totalPages > 1 && (
-                <div className="mt-6 flex items-center justify-center gap-2">
+                <div className="mt-8 mb-4 flex items-center justify-center gap-2">
                   <button
                     onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                     disabled={currentPage === 1}
@@ -249,6 +256,16 @@ export function TemplatesModal({ companyId, companyName, isOpen, onClose }: Temp
           )}
         </div>
       </div>
+
+      {/* Requirements JSON Preview Modal */}
+      {selectedTemplate && (
+        <JsonPreviewModal
+          isOpen={!!selectedTemplate}
+          onClose={() => setSelectedTemplate(null)}
+          jobName={selectedTemplate.name}
+          jsonData={selectedTemplate.requirements}
+        />
+      )}
     </div>
   );
 }

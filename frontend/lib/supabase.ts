@@ -19,6 +19,7 @@ export type Lead = {
   connection_status: string | null;
   score: number | null;
   scored_at: string | null;
+  processed_at: string | null;
 };
 
 export type Company = {
@@ -36,6 +37,7 @@ export type Template = {
   url: string;
   note: string;
   created_at: string;
+  requirements: any;
 };
 
 export type Requirement = {
