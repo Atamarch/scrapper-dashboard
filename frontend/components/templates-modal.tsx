@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase, type Template } from '@/lib/supabase';
 import { X, Search, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
-import { JsonPreviewModal } from './json-preview-modal';
+import { RequirementsViewModal } from './requirements-view-modal';
 
 interface TemplatesModalProps {
   companyId: string;
@@ -257,13 +257,13 @@ export function TemplatesModal({ companyId, companyName, isOpen, onClose }: Temp
         </div>
       </div>
 
-      {/* Requirements JSON Preview Modal */}
+      {/* Requirements View Modal */}
       {selectedTemplate && (
-        <JsonPreviewModal
+        <RequirementsViewModal
           isOpen={!!selectedTemplate}
           onClose={() => setSelectedTemplate(null)}
-          jobName={selectedTemplate.name}
-          jsonData={selectedTemplate.requirements}
+          templateName={selectedTemplate.name}
+          requirements={selectedTemplate.requirements}
         />
       )}
     </div>
