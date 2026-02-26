@@ -1,29 +1,68 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Sidebar } from '@/components/sidebar'
-import { Loader2, Download, Save, Plus, FileText } from 'lucide-react'
+import { Loader2, Download, Save, Plus, FileText, ChevronDown, ChevronUp } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { supabase } from '@/lib/supabase'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+
+interface Template {
+  id: string
+  name: string
+  requirements: any
+}
 
 export default function RequirementsGeneratorPage() {
   const [loading, setLoading] = useState(false)
   const [mode, setMode] = useState<'url' | 'text'>('url')
   const [url, setUrl] = useState('')
   const [jobDescription, setJobDescription] = useState('')
-  const [position, setPosition] = useState('')
+  const [selectedTemplate, setSelectedTemplate] = useState('')
+  const [templates, setTemplates] = useState<Template[]>([])
+  const [showTemplateDropdown, setShowTemplateDropdown] = useState(false)
   const [requirements, setRequirements] = useState<any>(null)
   const [parsedData, setParsedData] = useState<any>(null)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
+  // Fetch templates on mount
+  useEffect(() => {
+    async function fetchTemplates() {
+      const { data, error } = await supabase
+        .from('search_templates')
+        .select('id, name, requirements')
+        .order('name')
+      
+      if (error) {
+        console.error('Error fetching templates:', error)
+      } else {
+        setTemplates(data || [])
+      }
+    }
+    fetchTemplates()
+  }, [])
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement
+      if (showTemplateDropdown && !target.closest('.template-dropdown-container')) {
+        setShowTemplateDropdown(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showTemplateDropdown])
+
   const handleGenerate = async () => {
     setError('')
     setSuccess('')
     
-    if (!position) {
-      setError('Position title is required')
+    if (!selectedTemplate) {
+      setError('Please select a template')
       return
     }
 
@@ -40,6 +79,9 @@ export default function RequirementsGeneratorPage() {
     setLoading(true)
 
     try {
+      const template = templates.find(t => t.id === selectedTemplate)
+      const position = template?.name || 'Unknown Position'
+
       const response = await fetch(`${API_URL}/api/requirements/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -56,7 +98,7 @@ export default function RequirementsGeneratorPage() {
 
       const data = await response.json()
       setRequirements(data.requirements)
-      setParsedData(data.parsed_data)
+      setParsedData(null) // No longer returned from API
       setSuccess('Requirements generated successfully!')
     } catch (err: any) {
       setError(err.message || 'Failed to generate requirements')
@@ -66,25 +108,18 @@ export default function RequirementsGeneratorPage() {
   }
 
   const handleSave = async () => {
-    if (!requirements) return
-
-    const filename = position.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
+    if (!requirements || !selectedTemplate) return
 
     try {
-      const response = await fetch(`${API_URL}/api/requirements/save`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          requirements,
-          filename
-        })
-      })
+      // Update template in Supabase with new requirements
+      const { error } = await supabase
+        .from('search_templates')
+        .update({ requirements })
+        .eq('id', selectedTemplate)
 
-      if (!response.ok) {
-        throw new Error('Failed to save requirements')
-      }
+      if (error) throw error
 
-      setSuccess('Requirements saved successfully!')
+      setSuccess('Requirements saved to template successfully!')
     } catch (err: any) {
       setError(err.message || 'Failed to save requirements')
     }
@@ -93,7 +128,8 @@ export default function RequirementsGeneratorPage() {
   const handleDownload = () => {
     if (!requirements) return
 
-    const filename = position.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '') + '.json'
+    const template = templates.find(t => t.id === selectedTemplate)
+    const filename = (template?.name || 'requirements').toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '') + '.json'
     const blob = new Blob([JSON.stringify(requirements, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -167,18 +203,56 @@ export default function RequirementsGeneratorPage() {
                     </button>
                   </div>
 
-                  {/* Position Title */}
+                  {/* Template Selection Dropdown */}
                   <div>
                     <label className="block text-sm font-medium text-gray-300 mb-2">
-                      Position Title
+                      Select Template
                     </label>
-                    <input
-                      type="text"
-                      value={position}
-                      onChange={(e) => setPosition(e.target.value)}
-                      placeholder="e.g., Desk Collection"
-                      className="w-full rounded-md border border-gray-700 bg-[#141C33] px-4 py-2.5 text-white placeholder-gray-500 focus:border-gray-600 focus:outline-none focus:ring-1 focus:ring-gray-600"
-                    />
+                    <div className="relative template-dropdown-container">
+                      <button
+                        onClick={() => setShowTemplateDropdown(!showTemplateDropdown)}
+                        className="w-full flex items-center justify-between rounded-md border border-gray-700 bg-[#141C33] px-4 py-2.5 text-white hover:border-gray-600 focus:border-gray-600 focus:outline-none focus:ring-1 focus:ring-gray-600"
+                      >
+                        <span className={selectedTemplate ? 'text-white' : 'text-gray-500'}>
+                          {selectedTemplate 
+                            ? templates.find(t => t.id === selectedTemplate)?.name 
+                            : 'Choose a template...'}
+                        </span>
+                        {showTemplateDropdown ? (
+                          <ChevronUp className="h-4 w-4 flex-shrink-0" />
+                        ) : (
+                          <ChevronDown className="h-4 w-4 flex-shrink-0" />
+                        )}
+                      </button>
+
+                      {showTemplateDropdown && (
+                        <div className="absolute top-full left-0 mt-2 w-full max-h-[300px] overflow-y-auto rounded-lg border border-gray-700 bg-[#141C33] shadow-lg z-10">
+                          {templates.length === 0 ? (
+                            <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                              No templates found
+                            </div>
+                          ) : (
+                            templates.map((template) => (
+                              <button
+                                key={template.id}
+                                onClick={() => {
+                                  setSelectedTemplate(template.id)
+                                  setShowTemplateDropdown(false)
+                                }}
+                                className={cn(
+                                  'w-full px-4 py-2.5 text-left text-sm transition-colors hover:bg-gray-700/50',
+                                  selectedTemplate === template.id 
+                                    ? 'bg-gray-700/50 text-white' 
+                                    : 'text-gray-400'
+                                )}
+                              >
+                                {template.name}
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {/* URL Input */}
@@ -230,24 +304,22 @@ export default function RequirementsGeneratorPage() {
             </div>
 
             {/* Stats Cards */}
-            {parsedData && (
-              <div className="grid gap-4 md:grid-cols-4">
+            {requirements && (
+              <div className="grid gap-4 md:grid-cols-3">
                 <div className="rounded-lg border border-gray-700 bg-[#1a1f2e] p-6">
-                  <p className="text-sm text-gray-400">Gender</p>
-                  <p className="mt-2 text-2xl font-bold text-white">{parsedData.gender || 'Any'}</p>
+                  <p className="text-sm text-gray-400">Position</p>
+                  <p className="mt-2 text-xl font-bold text-white truncate">{requirements.position}</p>
                 </div>
                 <div className="rounded-lg border border-gray-700 bg-[#1a1f2e] p-6">
-                  <p className="text-sm text-gray-400">Location</p>
-                  <p className="mt-2 text-2xl font-bold text-white">{parsedData.location || 'Any'}</p>
+                  <p className="text-sm text-gray-400">Total Requirements</p>
+                  <p className="mt-2 text-2xl font-bold text-white">{requirements.requirements?.length || 0}</p>
                 </div>
                 <div className="rounded-lg border border-gray-700 bg-[#1a1f2e] p-6">
-                  <p className="text-sm text-gray-400">Min Experience</p>
-                  <p className="mt-2 text-2xl font-bold text-white">{parsedData.min_experience_years} years</p>
-                </div>
-                <div className="rounded-lg border border-gray-700 bg-[#1a1f2e] p-6">
-                  <p className="text-sm text-gray-400">Age Range</p>
-                  <p className="mt-2 text-2xl font-bold text-white">
-                    {parsedData.age_range ? `${parsedData.age_range.min}-${parsedData.age_range.max}` : 'Any'}
+                  <p className="text-sm text-gray-400">Requirement Types</p>
+                  <p className="mt-2 text-xl font-bold text-white">
+                    {requirements.requirements ? 
+                      [...new Set(requirements.requirements.map((r: any) => r.type))].length 
+                      : 0}
                   </p>
                 </div>
               </div>
@@ -285,12 +357,60 @@ export default function RequirementsGeneratorPage() {
                     <p className="text-sm mt-2">Fill in the form and click Generate</p>
                   </div>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <div className="rounded-md border border-gray-700 bg-[#141C33]">
-                      <pre className="p-4 text-xs text-gray-300 overflow-auto max-h-96">
-                        {JSON.stringify(requirements, null, 2)}
-                      </pre>
+                  <div className="space-y-4">
+                    {/* Requirements List View */}
+                    <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2">
+                      {requirements.requirements?.map((req: any, index: number) => (
+                        <div 
+                          key={req.id || index}
+                          className="rounded-md border border-gray-700 bg-[#141C33] p-4 hover:border-gray-600 transition-colors"
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className={cn(
+                                  "inline-flex items-center rounded-full px-2 py-1 text-xs font-medium",
+                                  req.type === 'gender' && "bg-pink-900/30 text-pink-400",
+                                  req.type === 'age' && "bg-blue-900/30 text-blue-400",
+                                  req.type === 'education' && "bg-purple-900/30 text-purple-400",
+                                  req.type === 'location' && "bg-green-900/30 text-green-400",
+                                  req.type === 'experience' && "bg-orange-900/30 text-orange-400",
+                                  req.type === 'skill' && "bg-gray-700/50 text-gray-400"
+                                )}>
+                                  {req.type}
+                                </span>
+                                <span className="text-xs text-gray-500">{req.id}</span>
+                              </div>
+                              <p className="text-sm text-white break-words">{req.label}</p>
+                            </div>
+                            <div className="flex-shrink-0 text-right">
+                              <p className="text-xs text-gray-500 mb-1">Value:</p>
+                              <p className="text-xs text-gray-300 font-mono break-all max-w-[200px]">
+                                {typeof req.value === 'object' 
+                                  ? JSON.stringify(req.value) 
+                                  : req.value}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
+
+                    {/* JSON View (Collapsible) */}
+                    <details className="group">
+                      <summary className="cursor-pointer rounded-md border border-gray-700 bg-[#141C33] px-4 py-2 text-sm text-gray-400 hover:bg-gray-700/50 transition-colors">
+                        <span className="inline-flex items-center gap-2">
+                          <FileText className="h-4 w-4" />
+                          View JSON
+                          <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+                        </span>
+                      </summary>
+                      <div className="mt-2 rounded-md border border-gray-700 bg-[#141C33] overflow-hidden">
+                        <pre className="p-4 text-xs text-gray-300 max-h-[300px] overflow-y-auto whitespace-pre-wrap break-words">
+                          {JSON.stringify(requirements, null, 2)}
+                        </pre>
+                      </div>
+                    </details>
                   </div>
                 )}
               </div>
