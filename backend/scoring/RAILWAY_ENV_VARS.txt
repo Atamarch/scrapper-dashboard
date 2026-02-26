@@ -1,0 +1,14 @@
+# Environment Variables untuk Railway Scoring Service
+# Copy semua ini ke Railway Dashboard > Variables
+
+RABBITMQ_HOST=leopard.lmq.cloudamqp.com
+RABBITMQ_PORT=5672
+RABBITMQ_USER=fexihtwb
+RABBITMQ_PASS=ETd7Y9BSMTZWZnKtqGQr5ikP4o63oB0u
+RABBITMQ_VHOST=fexihtwb
+SCORING_QUEUE=scoring_queue
+
+SUPABASE_URL=https://hzkgpdnlkihnlosxwwig.supabase.co
+SUPABASE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh6a2dwZG5sa2lobmxvc3h3d2lnIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NzY4NDU3NiwiZXhwIjoyMDgzMjYwNTc2fQ.evvrqU9dgWmfB1J2gLgsKh3thT0l1MRNX9qbwhqG5Xc
+
+NUM_WORKERS=2

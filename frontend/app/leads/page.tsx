@@ -887,7 +887,7 @@ function LeadsPageContent() {
 
             <div className="p-6 space-y-6">
               {/* Requirements Checklist */}
-              {selectedLead.score_result?.results && (
+              {selectedLead.score_result?.results && selectedLead.score_result.results.length > 0 ? (
                 <div>
                   <h4 className="text-lg font-semibold text-white mb-4">Requirements Checklist</h4>
                   <div className="space-y-2">
@@ -923,17 +923,43 @@ function LeadsPageContent() {
                     ))}
                   </div>
                 </div>
+              ) : (
+                <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-6">
+                  <div className="flex items-start gap-3">
+                    <svg className="h-6 w-6 text-yellow-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <div>
+                      <h4 className="text-lg font-semibold text-yellow-500 mb-2">No Requirements Data</h4>
+                      <p className="text-gray-400 text-sm">
+                        This lead has been scored but no requirements checklist is available. This may happen if:
+                      </p>
+                      <ul className="mt-2 text-gray-400 text-sm list-disc list-inside space-y-1">
+                        <li>The template has no requirements configured</li>
+                        <li>The scoring was done before the checklist system was implemented</li>
+                        <li>There was an error loading requirements during scoring</li>
+                      </ul>
+                      <p className="mt-3 text-gray-400 text-sm">
+                        To fix this, you can re-score this lead by triggering a new crawl.
+                      </p>
+                    </div>
+                  </div>
+                </div>
               )}
 
               {/* Profile Data */}
-              {selectedLead.score_result && (
+              {selectedLead.score_result ? (
                 <div>
-                  <h4 className="text-lg font-semibold text-white mb-4">Scoring Result</h4>
+                  <h4 className="text-lg font-semibold text-white mb-4">Scoring Result (JSON)</h4>
                   <div className="rounded-lg border border-gray-700 bg-[#141C33]">
                     <pre className="p-4 text-xs text-gray-300 overflow-auto max-h-96">
                       {JSON.stringify(selectedLead.score_result, null, 2)}
                     </pre>
                   </div>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-gray-700 bg-[#141C33] p-6">
+                  <p className="text-gray-400 text-center">No scoring data available</p>
                 </div>
               )}
 

@@ -22,7 +22,7 @@ load_dotenv()
 RABBITMQ_HOST = os.getenv('RABBITMQ_HOST', 'localhost')
 RABBITMQ_PORT = int(os.getenv('RABBITMQ_PORT', 5672))
 RABBITMQ_USER = os.getenv('RABBITMQ_USER', 'guest')
-RABBITMQ_PASSWORD = os.getenv('RABBITMQ_PASSWORD', 'guest')
+RABBITMQ_PASSWORD = os.getenv('RABBITMQ_PASS', 'guest')
 RABBITMQ_VHOST = os.getenv('RABBITMQ_VHOST', '/')
 SCORING_QUEUE = os.getenv('SCORING_QUEUE', 'scoring_queue')
 
@@ -399,7 +399,31 @@ def load_requirements(template_id):
             print(f"⚠ No requirements found in template: {template_id}")
             return None
         
-        print(f"✓ Requirements loaded from Supabase")
+        # Debug: Print requirements structure
+        print(f"📋 Requirements structure: {type(requirements)}")
+        if isinstance(requirements, dict):
+            print(f"   Keys: {requirements.keys()}")
+            if 'requirements' in requirements:
+                print(f"   Requirements array length: {len(requirements.get('requirements', []))}")
+        elif isinstance(requirements, list):
+            print(f"   Requirements array length: {len(requirements)}")
+        
+        # If requirements is a list, wrap it in a dict with 'requirements' key
+        if isinstance(requirements, list):
+            print(f"⚠ Requirements is a list, wrapping in dict...")
+            requirements = {'requirements': requirements}
+        
+        # Validate that requirements has the 'requirements' array
+        if not isinstance(requirements, dict) or 'requirements' not in requirements:
+            print(f"⚠ Invalid requirements structure. Expected dict with 'requirements' key")
+            return None
+        
+        req_array = requirements.get('requirements', [])
+        if not req_array or len(req_array) == 0:
+            print(f"⚠ Requirements array is empty")
+            return None
+        
+        print(f"✓ Requirements loaded from Supabase ({len(req_array)} items)")
         return requirements
     
     except Exception as e:
