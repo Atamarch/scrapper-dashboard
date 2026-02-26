@@ -299,6 +299,47 @@ The component queries the following Supabase tables:
 
 Both queries are ordered by `created_at` in descending order to show the most recent items first.
 
+### Requirements View Modal (`frontend/components/requirements-view-modal.tsx`)
+
+A dual-view modal component for displaying job requirements in both structured UI and raw JSON formats.
+
+#### Features
+- **Dual View Modes:**
+  - **UI View**: Structured card-based display with parsed requirement items
+  - **JSON View**: Raw JSON format for technical inspection
+
+- **Smart Requirement Parsing:**
+  - Automatically handles both array and object-based requirement structures
+  - Extracts `id`, `label`, `name`, or `title` fields for display
+  - Falls back to index-based identifiers when fields are missing
+
+- **UI View Display:**
+  - Card-based layout with color-coded ID badges
+  - Shows requirement label/name prominently
+  - Displays up to 3 additional properties per requirement
+  - Hover effects for better interactivity
+  - Empty state handling with user-friendly message
+
+- **JSON View Display:**
+  - Syntax-highlighted JSON output
+  - Properly formatted with 2-space indentation
+  - Horizontal scrolling for long lines
+  - Preserves complete data structure
+
+- **Tab Navigation:**
+  - Smooth transitions between view modes
+  - Visual indicators for active tab
+  - Icon-based navigation (List for UI, Code for JSON)
+
+#### Usage
+The component is typically used to preview requirement configurations before attaching them to crawler jobs or schedules. It provides both human-readable and machine-readable views of the same data.
+
+#### Props
+- `isOpen` (boolean): Controls modal visibility
+- `onClose` (function): Callback when modal is closed
+- `templateName` (string): Display name for the requirement template
+- `requirements` (any): Requirement data (array or object)
+
 ## 🔐 Environment Variables
 
 ### Frontend (.env.local)

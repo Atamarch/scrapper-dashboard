@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { Sidebar } from '@/components/sidebar';
 import { TemplatesModal } from '@/components/templates-modal';
 import { supabase, type Company } from '@/lib/supabase';
-import { Building2, ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { Building2, ChevronLeft, ChevronRight, Search, ArrowUpAZ, ArrowDownZA } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const ITEMS_PER_PAGE = 9;
@@ -16,6 +16,7 @@ export default function CompanyPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCompany, setSelectedCompany] = useState<{ id: string; name: string } | null>(null);
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
   useEffect(() => {
     async function fetchCompanies() {
@@ -58,9 +59,19 @@ export default function CompanyPage() {
       company.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       company.code.toLowerCase().includes(searchQuery.toLowerCase())
     );
-    setFilteredCompanies(filtered);
+    
+    // Sort filtered companies
+    const sorted = [...filtered].sort((a, b) => {
+      if (sortOrder === 'asc') {
+        return a.name.localeCompare(b.name);
+      } else {
+        return b.name.localeCompare(a.name);
+      }
+    });
+    
+    setFilteredCompanies(sorted);
     setCurrentPage(1);
-  }, [searchQuery, companies]);
+  }, [searchQuery, companies, sortOrder]);
 
   const totalPages = Math.ceil(filteredCompanies.length / ITEMS_PER_PAGE);
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -84,8 +95,8 @@ export default function CompanyPage() {
             </div>
           </div>
 
-          <div className="mb-6">
-            <div className="relative">
+          <div className="mb-6 flex flex-col md:flex-row gap-3">
+            <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
               <input
                 type="text"
@@ -94,6 +105,33 @@ export default function CompanyPage() {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full rounded-lg border border-gray-700 bg-[#1a1f2e] py-2.5 pl-10 pr-4 text-white placeholder-gray-400 focus:border-blue-500 focus:outline-none"
               />
+            </div>
+            
+            <div className="flex gap-2">
+              <button
+                onClick={() => setSortOrder('asc')}
+                className={`flex items-center gap-2 rounded-lg border px-4 py-2.5 transition-colors ${
+                  sortOrder === 'asc'
+                    ? 'border-blue-500 bg-blue-500/10 text-blue-500'
+                    : 'border-gray-700 bg-[#1a1f2e] text-gray-400 hover:border-gray-600'
+                }`}
+                title="Sort A to Z"
+              >
+                <ArrowUpAZ className="h-5 w-5" />
+                <span className="hidden sm:inline">A-Z</span>
+              </button>
+              <button
+                onClick={() => setSortOrder('desc')}
+                className={`flex items-center gap-2 rounded-lg border px-4 py-2.5 transition-colors ${
+                  sortOrder === 'desc'
+                    ? 'border-blue-500 bg-blue-500/10 text-blue-500'
+                    : 'border-gray-700 bg-[#1a1f2e] text-gray-400 hover:border-gray-600'
+                }`}
+                title="Sort Z to A"
+              >
+                <ArrowDownZA className="h-5 w-5" />
+                <span className="hidden sm:inline">Z-A</span>
+              </button>
             </div>
           </div>
 
