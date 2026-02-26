@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Sidebar } from '@/components/sidebar';
 import { supabase, type Lead, type Template } from '@/lib/supabase';
-import { ExternalLink, ChevronLeft, ChevronRight, Download, ChevronDown, ChevronUp } from 'lucide-react';
+import { ExternalLink, ChevronLeft, ChevronRight, Download, ChevronDown, ChevronUp, Search } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const ITEMS_PER_PAGE = 10;
@@ -29,6 +29,7 @@ function LeadsPageContent() {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectAll, setSelectAll] = useState(false);
   const [sendingOutreach, setSendingOutreach] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -115,9 +116,17 @@ function LeadsPageContent() {
 
         setTotalCount(allData.length);
 
+        // Filter by search query
+        let filteredData = allData;
+        if (searchQuery.trim()) {
+          filteredData = allData.filter(lead => 
+            lead.name?.toLowerCase().includes(searchQuery.toLowerCase())
+          );
+        }
+
         // Paginate
         const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-        const paginatedLeads = allData.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+        const paginatedLeads = filteredData.slice(startIndex, startIndex + ITEMS_PER_PAGE);
         
         setLeads(paginatedLeads);
       } catch (error) {
@@ -128,7 +137,7 @@ function LeadsPageContent() {
     }
 
     fetchLeads();
-  }, [currentPage, selectedTemplate, sortBy, sortOrder]);
+  }, [currentPage, selectedTemplate, sortBy, sortOrder, searchQuery]);
 
   const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE);
 
@@ -445,13 +454,31 @@ function LeadsPageContent() {
             </div>
           </div>
 
-          <div className="mb-6 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <span className="bg-slate-800 p-2 rounded-xl text-sm text-gray-400">Filter by Template</span>:
-              <div className="relative template-dropdown-container">
+          <div className="mb-6 flex flex-col md:flex-col lg:flex-row items-start md:items-start lg:items-center justify-between gap-4">
+            {/* Search Bar */}
+            <div className="relative w-full md:w-192 lg:w-80">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search by name..."
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-700 bg-[#1a1f2e] text-white placeholder-gray-400 focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+
+            <div className="flex flex-col md:flex-row items-start md:items-center gap-3 w-full lg:w-auto">
+              {/* Filter Section */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full md:w-auto p-3 rounded-xl border border-gray-700 bg-[#1a1f2e]/50">
+                <span className="bg-slate-800 px-3 py-2 rounded-lg text-sm text-gray-400 whitespace-nowrap text-center sm:text-left">Filter by Template</span>
+                <div className="relative template-dropdown-container w-full sm:flex-1 md:flex-initial">
                 <button
                   onClick={() => setShowTemplateDropdown(!showTemplateDropdown)}
-                  className="flex items-center gap-2 rounded-lg border border-gray-700 bg-[#1a1f2e] px-4 py-2 text-white hover:border-gray-600 focus:border-blue-500 focus:outline-none min-w-[350px] justify-between"
+                  className="flex items-center gap-2 rounded-lg border border-gray-700 bg-[#232D48] px-4 py-2 text-white hover:border-gray-600 focus:border-blue-500 focus:outline-none w-full md:w-[240px] md:max-w-[240px] justify-between"
+                  title={selectedTemplate ? templates.find(t => t.id === selectedTemplate)?.name : 'Select Template'}
                 >
                   <span className="truncate">
                     {selectedTemplate 
@@ -467,7 +494,7 @@ function LeadsPageContent() {
 
                 {showTemplateDropdown && (
                   <div 
-                    className="absolute top-full left-0 mt-2 w-full min-w-[300px] max-h-[400px] overflow-y-auto rounded-lg border border-gray-700 bg-[#1a1f2e] shadow-lg z-10"
+                    className="absolute top-full left-0 mt-2 w-full md:w-[240px] md:max-w-[240px] max-h-[400px] overflow-y-auto rounded-lg border border-gray-700 bg-[#1a1f2e] shadow-lg z-10"
                     style={{ 
                       scrollbarWidth: 'thin', 
                       scrollbarColor: '#4B5563 #1a1f2e' 
@@ -480,19 +507,23 @@ function LeadsPageContent() {
                         className={`w-full px-4 py-2.5 text-left text-sm transition-colors hover:bg-gray-700/50 ${
                           selectedTemplate === template.id ? 'bg-gray-700/50 text-white' : 'text-gray-400'
                         }`}
+                        title={template.name}
                       >
-                        {template.name}
+                        <span className="block truncate">{template.name}</span>
                       </button>
                     ))}
                   </div>
                 )}
               </div>
+              </div>
 
-              <span className="bg-slate-800 p-2 rounded-xl text-sm text-gray-400">Sort by</span>:
-              <div className="relative sort-dropdown-container">
+              {/* Sort Section */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full md:w-auto p-3 rounded-xl border border-gray-700 bg-[#1a1f2e]/50">
+                <span className="bg-slate-800 px-3 py-2 rounded-lg text-sm text-gray-400 whitespace-nowrap text-center sm:text-left">Sort by</span>
+                <div className="relative sort-dropdown-container w-full sm:flex-1 md:flex-initial">
                 <button
                   onClick={() => setShowSortDropdown(!showSortDropdown)}
-                  className="flex items-center gap-2 rounded-lg border border-gray-700 bg-[#1a1f2e] px-4 py-2 text-white hover:border-gray-600 focus:border-blue-500 focus:outline-none min-w-[180px] justify-between"
+                  className="flex items-center gap-2 rounded-lg border border-gray-700 bg-[#232D48] px-4 py-2 text-white hover:border-gray-600 focus:border-blue-500 focus:outline-none w-full md:w-[240px] md:max-w-[240px] justify-between"
                 >
                   <span className="truncate">
                     {sortBy === 'date' && sortOrder === 'desc' && 'Date (Newest)'}
@@ -508,7 +539,7 @@ function LeadsPageContent() {
                 </button>
 
                 {showSortDropdown && (
-                  <div className="absolute top-full left-0 mt-2 w-full rounded-lg border border-gray-700 bg-[#1a1f2e] shadow-lg z-10">
+                  <div className="absolute top-full left-0 mt-2 w-full md:w-[240px] md:max-w-[240px] rounded-lg border border-gray-700 bg-[#1a1f2e] shadow-lg z-10">
                     <button
                       onClick={() => {
                         setSortBy('date');
@@ -564,14 +595,15 @@ function LeadsPageContent() {
                   </div>
                 )}
               </div>
+              </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3 w-full lg:w-auto">
               {/* Send Outreach Button */}
               <button
                 onClick={handleSendOutreach}
                 disabled={selectedLeads.length === 0 || sendingOutreach}
-                className="flex items-center gap-2 rounded-lg border border-gray-700 bg-[#1A2E3C] px-4 py-2 text-white transition-colors hover:bg-[#2A4E5C] disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex items-center justify-center gap-2 rounded-lg border border-gray-700 bg-[#1A2E3C] px-4 py-2 text-white transition-colors hover:bg-[#2A4E5C] disabled:cursor-not-allowed disabled:opacity-50 w-full md:w-auto"
                 title={selectedLeads.length === 0 ? 'Select leads to send outreach' : `Send outreach to ${selectedLeads.length} selected lead(s)`}
               >
                 {sendingOutreach ? (
@@ -593,11 +625,11 @@ function LeadsPageContent() {
               </button>
 
               {/* Export Button */}
-              <div className="relative export-menu-container">
+              <div className="relative export-menu-container w-full md:w-auto">
                 <button
                   onClick={() => setShowExportMenu(!showExportMenu)}
                   disabled={exporting || totalCount === 0 || !selectedTemplate}
-                  className="flex items-center gap-2 rounded-lg border border-gray-700 bg-[#1A2E1C] px-4 py-2 text-white transition-colors hover:bg-[#2A472C] disabled:opacity-50"
+                  className="flex items-center justify-center gap-2 rounded-lg border border-gray-700 bg-[#1A2E1C] px-4 py-2 text-white transition-colors hover:bg-[#2A472C] disabled:opacity-50 w-full md:w-auto"
                 >
                   <Download className="h-4 w-4" />
                   {exporting ? 'Exporting...' : 'Export'}

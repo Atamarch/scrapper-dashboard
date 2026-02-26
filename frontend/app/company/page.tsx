@@ -151,7 +151,7 @@ export default function CompanyPage() {
                         onClick={() => handleViewRequirements(company)}
                         className="text-sm font-medium text-blue-500 transition-colors hover:text-blue-400"
                       >
-                        View Requirements
+                        Views All
                       </button>
                     </div>
                   </div>

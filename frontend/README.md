@@ -51,6 +51,7 @@ npm run dev
 - url (text)
 - note (text)
 - created_at (timestamp)
+- requirements (jsonb) - Job requirements configuration
 
 ### Table: companies
 - id (uuid, primary key)
@@ -96,3 +97,56 @@ companies (1) ──→ (N) search_templates (1) ──→ (N) leads_list
   - Search by name atau job title
   - Pagination (6 items per page)
   - Button "View Leads" yang redirect ke leads page dengan filter template
+
+
+## TypeScript Types
+
+### Template Type (`frontend/lib/supabase.ts`)
+
+The `Template` type represents a job template/requirement in the system:
+
+```typescript
+export type Template = {
+  id: string;
+  company_id: string;
+  name: string;
+  job_title: string;
+  url: string;
+  note: string;
+  created_at: string;
+  requirements: any; // JSONB field containing job requirements configuration
+};
+```
+
+#### Requirements Field
+The `requirements` field stores job-specific criteria as a JSON object. This field is used to:
+- Define candidate requirements for the position
+- Store scoring criteria and weights
+- Configure matching rules for lead qualification
+
+**Usage Example:**
+```typescript
+// Accessing requirements from a template
+const template: Template = await fetchTemplate(templateId);
+const requirements = template.requirements;
+
+// Requirements structure (example)
+{
+  "position": "Desk Collection - BPR KS Bandung",
+  "required_skills": {
+    "Desk Collection": 1,
+    "Call Collection": 1
+  },
+  "min_experience_years": 3,
+  "required_gender": "Female",
+  "required_location": "Bandung",
+  "required_age_range": {
+    "min": 20,
+    "max": 35
+  }
+}
+```
+
+**Components Using Requirements:**
+- `templates-modal.tsx` - Displays requirements in JSON preview modal
+- `json-preview-modal.tsx` - Renders requirements JSON for viewing
