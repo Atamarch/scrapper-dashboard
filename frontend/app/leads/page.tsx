@@ -343,17 +343,15 @@ function LeadsPageContent() {
         return;
       }
 
-      const headers = ['Name', 'Date', 'Connection Status', 'Score', 'Scored At', 'Note Sent', 'Profile URL', 'Search URL'];
+      const headers = ['Name', 'Connection Status', 'Score', 'Scored At', 'Profile URL', 'Search URL'];
       const csvRows = [headers.join(',')];
 
       allData.forEach(lead => {
         const row = [
           `"${lead.name || ''}"`,
-          lead.date || '',
           lead.connection_status || '',
           lead.score || '',
           lead.scored_at || '',
-          `"${lead.note_sent || ''}"`,
           lead.profile_url || '',
           lead.search_url || ''
         ];
@@ -685,11 +683,9 @@ function LeadsPageContent() {
                     </th>
                     <th className="px-3 py-4 text-left text-sm font-medium text-gray-400 w-16">No</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Name</th>
-                    <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Date</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Status</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Score</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Processed At</th>
-                    <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Note Sent</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Profile</th>
                   </tr>
                 </thead>
@@ -758,9 +754,6 @@ function LeadsPageContent() {
                             </td>
                             <td className="px-3 py-4 text-sm text-gray-500">{rowNumber}</td>
                             <td className="px-6 py-4 text-white">{lead.name}</td>
-                            <td className="px-6 py-4 text-gray-400">
-                              {new Date(lead.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-                            </td>
                             <td className="px-6 py-4">
                               <span className={`rounded-full px-3 py-1 text-xs font-medium ${
                                 lead.connection_status === 'connected' || lead.connection_status === 'success'
@@ -792,14 +785,9 @@ function LeadsPageContent() {
                                   month: 'short', 
                                   year: 'numeric'
                                 })
-                              ) : (
+              ) : (
                                 <span className="text-gray-500">-</span>
                               )}
-                            </td>
-                            <td className="px-6 py-4 text-gray-400">
-                              <span className="line-clamp-1" title={lead.note_sent || '-'}>
-                                {lead.note_sent || '-'}
-                              </span>
                             </td>
                             <td className="px-6 py-4">
                               {lead.profile_url ? (
@@ -995,6 +983,20 @@ function LeadsPageContent() {
                 </div>
               )}
 
+              {/* Note Sent Section */}
+              <div>
+                <h4 className="text-lg font-semibold text-white mb-4">Outreach Message</h4>
+                {selectedLead.note_sent ? (
+                  <div className="rounded-lg border border-gray-700 bg-[#141C33] p-4">
+                    <p className="text-sm text-gray-300 whitespace-pre-wrap">{selectedLead.note_sent}</p>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-gray-700 bg-[#141C33] p-6">
+                    <p className="text-gray-400 text-center text-sm">No outreach message sent yet</p>
+                  </div>
+                )}
+              </div>
+
               {/* Actions */}
               <div className="flex gap-3">
                 {selectedLead.profile_url && (
@@ -1008,12 +1010,6 @@ function LeadsPageContent() {
                     <ExternalLink className="h-4 w-4" />
                   </a>
                 )}
-                <button
-                  onClick={() => setShowDetailModal(false)}
-                  className="rounded-md border border-gray-700 px-4 py-2 text-sm font-medium text-gray-400 transition-colors hover:bg-gray-700 hover:text-white"
-                >
-                  Close
-                </button>
               </div>
             </div>
           </div>
