@@ -887,11 +887,11 @@ function LeadsPageContent() {
 
             <div className="p-6 space-y-6">
               {/* Requirements Checklist */}
-              {selectedLead.score_result?.results && selectedLead.score_result.results.length > 0 ? (
+              {selectedLead.scoring_data?.results && selectedLead.scoring_data.results.length > 0 ? (
                 <div>
                   <h4 className="text-lg font-semibold text-white mb-4">Requirements Checklist</h4>
                   <div className="space-y-2">
-                    {selectedLead.score_result.results.map((result: any) => (
+                    {selectedLead.scoring_data.results.map((result: any) => (
                       <div 
                         key={result.id}
                         className={`flex items-start gap-3 rounded-lg border p-4 ${
@@ -948,12 +948,12 @@ function LeadsPageContent() {
               )}
 
               {/* Profile Data */}
-              {selectedLead.score_result ? (
+              {selectedLead.scoring_data ? (
                 <div>
                   <h4 className="text-lg font-semibold text-white mb-4">Scoring Result (JSON)</h4>
                   <div className="rounded-lg border border-gray-700 bg-[#141C33]">
                     <pre className="p-4 text-xs text-gray-300 overflow-auto max-h-96">
-                      {JSON.stringify(selectedLead.score_result, null, 2)}
+                      {JSON.stringify(selectedLead.scoring_data, null, 2)}
                     </pre>
                   </div>
                 </div>

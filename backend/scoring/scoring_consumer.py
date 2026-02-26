@@ -531,9 +531,9 @@ def update_supabase_score(profile_url, percentage, profile_data=None, score_resu
             'scored_at': datetime.now().date().isoformat()
         }
         
-        # Add score_result (checklist results) if provided
+        # Add scoring_data (checklist results) if provided
         if score_result:
-            update_data['score_result'] = score_result
+            update_data['scoring_data'] = score_result
         
         # Add profile data if provided and not already in database
         if profile_data:
@@ -580,7 +580,7 @@ def update_supabase_score(profile_url, percentage, profile_data=None, score_resu
             }
             
             if score_result:
-                insert_data['score_result'] = score_result
+                insert_data['scoring_data'] = score_result
             
             if profile_data:
                 insert_data['name'] = profile_data.get('name', 'Unknown')
