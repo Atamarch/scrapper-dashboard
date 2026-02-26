@@ -193,7 +193,7 @@ class ChecklistScorer:
             return 'N/A'
     
     def _check_gender(self, required_gender, profile):
-        """Check if gender matches"""
+        """Check if gender matches using numeric comparison for accuracy"""
         if not required_gender:
             return True
         
@@ -203,16 +203,26 @@ class ChecklistScorer:
         if not profile_gender:
             return False
         
-        # Exact match or word boundary match (avoid "male" matching "female")
-        # Check if they are exactly the same
-        if profile_gender == required_gender:
-            return True
+        # Convert to numeric codes for exact comparison
+        # Male = 0, Female = 1
+        def gender_to_code(gender_str):
+            gender_str = gender_str.lower()
+            if 'male' in gender_str and 'female' not in gender_str:
+                return 0  # Male
+            elif 'female' in gender_str:
+                return 1  # Female
+            else:
+                return -1  # Unknown
         
-        # Check if required gender is a complete word in profile gender
-        # e.g., "female" should match "female" but not "male"
-        import re
-        pattern = r'\b' + re.escape(required_gender) + r'\b'
-        return bool(re.search(pattern, profile_gender))
+        profile_code = gender_to_code(profile_gender)
+        required_code = gender_to_code(required_gender)
+        
+        # If either is unknown, cannot match
+        if profile_code == -1 or required_code == -1:
+            return False
+        
+        # Exact match: 0 == 0 (Male) or 1 == 1 (Female)
+        return profile_code == required_code
     
     def _check_location(self, required_location, profile):
         """Check if location matches (fuzzy)"""
