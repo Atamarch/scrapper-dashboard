@@ -656,7 +656,7 @@ function LeadsPageContent() {
                     <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Date</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Status</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Score</th>
-                    <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Scored At</th>
+                    <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Processed At</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Note Sent</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Profile</th>
                   </tr>
@@ -754,8 +754,8 @@ function LeadsPageContent() {
                               </span>
                             </td>
                             <td className="px-6 py-4 text-gray-400">
-                              {lead.scored_at ? (
-                                new Date(lead.scored_at).toLocaleDateString('en-GB', { 
+                              {lead.processed_at ? (
+                                new Date(lead.processed_at).toLocaleDateString('en-GB', { 
                                   day: 'numeric', 
                                   month: 'short', 
                                   year: 'numeric'

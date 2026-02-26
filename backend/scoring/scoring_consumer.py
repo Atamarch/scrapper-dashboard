@@ -503,7 +503,7 @@ def save_score_result(profile_data, score_result, requirements_id):
         'profile': profile_data,
         'requirements_id': requirements_id,
         'score': score_result,
-        'scored_at': datetime.now().isoformat()
+        'processed_at': datetime.now().isoformat()
     }
     
     # Save to file
@@ -525,10 +525,10 @@ def update_supabase_score(profile_url, percentage, profile_data=None, score_resu
         # Check if lead exists first
         existing = supabase.table('leads_list').select('id, profile_data, score').eq('profile_url', profile_url).execute()
         
-        # Prepare update data - ALWAYS update score and scored_at
+        # Prepare update data - ALWAYS update score and processed_at
         update_data = {
             'score': percentage,
-            'scored_at': datetime.now().date().isoformat()
+            'processed_at': datetime.now().isoformat()
         }
         
         # Add scoring_data (checklist results) if provided
@@ -574,7 +574,7 @@ def update_supabase_score(profile_url, percentage, profile_data=None, score_resu
             insert_data = {
                 'profile_url': profile_url,
                 'score': percentage,
-                'scored_at': datetime.now().date().isoformat(),
+                'processed_at': datetime.now().isoformat(),
                 'date': datetime.now().date().isoformat(),
                 'connection_status': 'scored'
             }

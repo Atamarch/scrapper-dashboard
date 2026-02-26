@@ -193,7 +193,7 @@ class SupabaseManager:
                 'name': profile_data.get('name', 'Unknown'),
                 'profile_data': profile_data,
                 'connection_status': 'scraped',
-                'scraped_at': datetime.now().isoformat()
+                'processed_at': datetime.now().isoformat()
             }
             
             print(f"  → Updating profile_url: {profile_url}")
