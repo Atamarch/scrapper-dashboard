@@ -197,13 +197,22 @@ class ChecklistScorer:
         if not required_gender:
             return True
         
-        profile_gender = profile.get('gender', '').lower()
-        required_gender = str(required_gender).lower()
+        profile_gender = profile.get('gender', '').lower().strip()
+        required_gender = str(required_gender).lower().strip()
         
         if not profile_gender:
             return False
         
-        return required_gender in profile_gender or profile_gender in required_gender
+        # Exact match or word boundary match (avoid "male" matching "female")
+        # Check if they are exactly the same
+        if profile_gender == required_gender:
+            return True
+        
+        # Check if required gender is a complete word in profile gender
+        # e.g., "female" should match "female" but not "male"
+        import re
+        pattern = r'\b' + re.escape(required_gender) + r'\b'
+        return bool(re.search(pattern, profile_gender))
     
     def _check_location(self, required_location, profile):
         """Check if location matches (fuzzy)"""

@@ -280,22 +280,33 @@ class LinkedInCrawler:
             return "N/A"
     
     def extract_gender_from_name(self, full_name, about_text=""):
-        """Extract gender from name using gender-guesser library with about text fallback"""
+        """Extract gender from name using multiple fallback methods for better accuracy"""
         if not full_name or full_name == 'N/A':
             return "Unknown"
         
-        # Try primary name first
-        result = self._predict_gender_from_name(full_name)
+        print(f"  Detecting gender for: '{full_name}'")
         
-        # If unknown and about text is available, try to extract full name from about
-        if result == "Unknown" and about_text:
-            print("  Primary name unknown, checking about section...")
-            # Look for patterns like "Nama saya [Full Name]" or "My name is [Full Name]"
+        # Method 1: Try to extract from pronouns in about text first (most accurate)
+        if about_text:
+            pronoun_gender = self._extract_gender_from_about_pronouns(about_text)
+            if pronoun_gender != "Unknown":
+                print(f"  ✓ Gender from pronouns: {pronoun_gender}")
+                return pronoun_gender
+        
+        # Method 2: Try primary name with gender-guesser
+        result = self._predict_gender_from_name(full_name)
+        if result != "Unknown":
+            return result
+        
+        # Method 3: If unknown and about text is available, try to extract full name from about
+        if about_text:
+            print("  Primary name unknown, checking about section for full name...")
             import re
             patterns = [
                 r'[Nn]ama saya ([A-Z][a-z]+(?: [A-Z][a-z]+)+)',  # "Nama saya Deanira Maharani"
                 r'[Mm]y name is ([A-Z][a-z]+(?: [A-Z][a-z]+)+)',  # "My name is John Doe"
                 r'[Ss]aya ([A-Z][a-z]+(?: [A-Z][a-z]+)+)',  # "Saya Deanira Maharani"
+                r'[Ii]\'m ([A-Z][a-z]+(?: [A-Z][a-z]+)+)',  # "I'm John Doe"
             ]
             
             for pattern in patterns:
@@ -305,10 +316,92 @@ class LinkedInCrawler:
                     print(f"  Found full name in about: '{full_name_from_about}'")
                     result = self._predict_gender_from_name(full_name_from_about)
                     if result != "Unknown":
-                        print(f"  ✓ Gender detected from about text: {result}")
+                        print(f"  ✓ Gender detected from about text name: {result}")
                         return result
         
-        return result
+        # Method 4: Check for gender keywords in about text
+        if about_text:
+            keyword_gender = self._extract_gender_from_about_keywords(about_text)
+            if keyword_gender != "Unknown":
+                print(f"  ✓ Gender from about keywords: {keyword_gender}")
+                return keyword_gender
+        
+        print(f"  ⚠ Could not determine gender, returning Unknown")
+        return "Unknown"
+    
+    def _extract_gender_from_about_pronouns(self, about_text):
+        """Extract gender from pronouns in about text (He/Him, She/Her, They/Them)"""
+        try:
+            about_lower = about_text.lower()
+            
+            # Check for explicit pronouns
+            if 'she/her' in about_lower or 'her/she' in about_lower:
+                return 'Female'
+            if 'he/him' in about_lower or 'him/he' in about_lower:
+                return 'Male'
+            
+            # Check for pronoun usage in sentences
+            # Look for patterns like "She is...", "He has...", etc.
+            import re
+            
+            # Female pronouns in context
+            female_patterns = [
+                r'\bshe\s+(is|has|was|will|can|does)',
+                r'\bher\s+(work|experience|passion|goal)',
+                r'\bherself\b',
+            ]
+            
+            # Male pronouns in context
+            male_patterns = [
+                r'\bhe\s+(is|has|was|will|can|does)',
+                r'\bhis\s+(work|experience|passion|goal)',
+                r'\bhimself\b',
+            ]
+            
+            female_count = sum(1 for pattern in female_patterns if re.search(pattern, about_lower))
+            male_count = sum(1 for pattern in male_patterns if re.search(pattern, about_lower))
+            
+            if female_count > male_count and female_count >= 2:
+                return 'Female'
+            if male_count > female_count and male_count >= 2:
+                return 'Male'
+            
+            return "Unknown"
+        except Exception as e:
+            print(f"  Error extracting gender from pronouns: {e}")
+            return "Unknown"
+    
+    def _extract_gender_from_about_keywords(self, about_text):
+        """Extract gender from keywords in about text (last resort fallback)"""
+        try:
+            about_lower = about_text.lower()
+            
+            # Female indicators
+            female_keywords = [
+                'wanita', 'perempuan', 'ibu', 'putri', 'gadis',
+                'woman', 'female', 'lady', 'girl', 'mother', 'daughter',
+                'wife', 'sister', 'ms.', 'mrs.', 'miss'
+            ]
+            
+            # Male indicators
+            male_keywords = [
+                'pria', 'laki-laki', 'bapak', 'putra', 'cowok',
+                'man', 'male', 'gentleman', 'boy', 'father', 'son',
+                'husband', 'brother', 'mr.'
+            ]
+            
+            female_count = sum(1 for keyword in female_keywords if keyword in about_lower)
+            male_count = sum(1 for keyword in male_keywords if keyword in about_lower)
+            
+            if female_count > male_count and female_count > 0:
+                return 'Female'
+            if male_count > female_count and male_count > 0:
+                return 'Male'
+            
+            return "Unknown"
+        except Exception as e:
+            print(f"  Error extracting gender from keywords: {e}")
+            return "Unknown"
     
     def _predict_gender_from_name(self, full_name):
         """Predict gender from name using gender-guesser library with Indonesian name fallback"""
