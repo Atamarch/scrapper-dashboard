@@ -36,19 +36,54 @@ class LinkedInCrawler:
         self.wait = WebDriverWait(self.driver, 10)
         self.gender_detector = gender.Detector()
         
-        # Indonesian name patterns for gender detection fallback
+        # Indonesian name patterns for gender detection fallback - EXPANDED
         self.indonesian_female_indicators = [
+            # Common female suffixes
             'dewi', 'sari', 'wati', 'ningsih', 'ning', 'putri', 'ayu', 'ratna', 
             'indah', 'fitri', 'rani', 'maharani', 'rini', 'yanti', 'yani', 'tuti',
             'nita', 'dian', 'ika', 'nia', 'nira', 'lestari', 'utami', 'wulan',
-            'kartika', 'permata', 'cahaya', 'anggraini', 'rahayu', 'pratiwi'
+            'kartika', 'permata', 'cahaya', 'anggraini', 'rahayu', 'pratiwi',
+            # Additional common female names/patterns
+            'sri', 'siti', 'nur', 'nurul', 'mega', 'rina', 'tina', 'lina', 'mira',
+            'maya', 'sinta', 'citra', 'puspita', 'melati', 'mawar', 'anisa', 'annisa',
+            'fatimah', 'khadijah', 'aisyah', 'zahra', 'zahrah', 'salma', 'laila', 'layla',
+            'tiara', 'intan', 'mutiara', 'berlian', 'safira', 'safitri', 'safirah',
+            'widya', 'widy', 'retno', 'endah', 'erna', 'yuni', 'yuni', 'yuli',
+            'novita', 'vita', 'vina', 'vivi', 'winda', 'windy', 'linda', 'cindy',
+            'lia', 'lya', 'lia', 'eka', 'dwi', 'tri', 'catur', 'panca', 'enam',
+            'septia', 'okta', 'novia', 'desi', 'dessy', 'desy', 'risa', 'risma',
+            'bella', 'nabila', 'nabilla', 'aulia', 'auliya', 'amelia', 'amelya',
+            'syifa', 'syifah', 'shifa', 'shifah', 'rahma', 'rahmah', 'rahmi',
+            'fika', 'fikri', 'farah', 'farrah', 'fara', 'fira', 'firda', 'firdaus',
+            'dina', 'dinah', 'dini', 'dinda', 'dindah', 'diah', 'dyah', 'ajeng',
+            'ratu', 'ratih', 'ratih', 'rani', 'raniah', 'rania', 'rania',
+            'sinta', 'sintya', 'cynthia', 'cintya', 'cinta', 'cintia'
         ]
         
         self.indonesian_male_indicators = [
+            # Common male suffixes/names
             'budi', 'agus', 'adi', 'eko', 'hadi', 'joko', 'bambang', 'sutrisno',
             'wahyu', 'yudi', 'dedi', 'rudi', 'andi', 'hendro', 'teguh', 'putra',
-            'wijaya', 'kusuma', 'pramono', 'santoso', 'nugroho'
+            'wijaya', 'kusuma', 'pramono', 'santoso', 'nugroho',
+            # Additional common male names/patterns
+            'ahmad', 'muhammad', 'muhamad', 'muh', 'imam', 'umar', 'ali', 'hasan',
+            'husein', 'yusuf', 'ibrahim', 'ismail', 'adam', 'idris', 'ilham',
+            'rizki', 'rizky', 'riski', 'risky', 'fajar', 'fajri', 'bayu', 'bagus',
+            'arif', 'arief', 'arifin', 'irfan', 'irvan', 'iwan', 'ivan', 'iqbal',
+            'dimas', 'dimas', 'doni', 'donny', 'dony', 'ferry', 'feri', 'hendra',
+            'hendy', 'heri', 'hery', 'harry', 'indra', 'jaya', 'yoga', 'yogi',
+            'rama', 'raka', 'reza', 'ridho', 'ridwan', 'rifki', 'rifky', 'rio',
+            'sandy', 'sandi', 'satria', 'satrya', 'surya', 'suryo', 'taufik', 'taufiq',
+            'wawan', 'wawan', 'willy', 'wily', 'yanto', 'yanto', 'yusuf', 'zaki',
+            'zaky', 'zulfikar', 'zulkifli', 'zulkarnain', 'firman', 'firmansyah',
+            'andika', 'andhika', 'aditya', 'adithya', 'adiputra', 'adiputra',
+            'pratama', 'pramudya', 'prasetyo', 'prasetya', 'prabowo', 'praba',
+            'gunawan', 'guntur', 'galih', 'galuh', 'gilang', 'giri', 'gita'
         ]
+        
+        # Common Indonesian name prefixes that indicate gender
+        self.female_prefixes = ['siti', 'sri', 'dewi', 'ratu', 'ajeng', 'dyah', 'diah']
+        self.male_prefixes = ['muhammad', 'muhamad', 'muh', 'ahmad', 'imam', 'haji', 'h.']
     
     def login(self):
         """Login to LinkedIn"""
@@ -260,14 +295,17 @@ class LinkedInCrawler:
                         
                         # Check if it contains pronouns pattern
                         if '/' in text:
-                            # Map pronouns to gender
-                            if 'he' in text and 'him' in text:
+                            # Map pronouns to gender - more comprehensive patterns
+                            # Male patterns: he/him, him/he, he/his, his/he
+                            if any(pattern in text for pattern in ['he/him', 'him/he', 'he/his', 'his/he']):
                                 print(f"  Found pronouns: {element.text.strip()} → Male")
                                 return 'Male'
-                            elif 'she' in text and 'her' in text:
+                            # Female patterns: she/her, her/she, she/hers, hers/she
+                            elif any(pattern in text for pattern in ['she/her', 'her/she', 'she/hers', 'hers/she']):
                                 print(f"  Found pronouns: {element.text.strip()} → Female")
                                 return 'Female'
-                            elif 'they' in text and 'them' in text:
+                            # Non-binary patterns: they/them, them/they
+                            elif any(pattern in text for pattern in ['they/them', 'them/they']):
                                 print(f"  Found pronouns: {element.text.strip()} → Non-binary")
                                 return 'Non-binary'
                     
@@ -334,11 +372,16 @@ class LinkedInCrawler:
         try:
             about_lower = about_text.lower()
             
-            # Check for explicit pronouns
-            if 'she/her' in about_lower or 'her/she' in about_lower:
+            # Check for explicit pronouns - more comprehensive patterns
+            # Female patterns
+            if any(pattern in about_lower for pattern in ['she/her', 'her/she', 'she/hers', 'hers/she']):
                 return 'Female'
-            if 'he/him' in about_lower or 'him/he' in about_lower:
+            # Male patterns
+            if any(pattern in about_lower for pattern in ['he/him', 'him/he', 'he/his', 'his/he']):
                 return 'Male'
+            # Non-binary patterns
+            if any(pattern in about_lower for pattern in ['they/them', 'them/they']):
+                return 'Non-binary'
             
             # Check for pronoun usage in sentences
             # Look for patterns like "She is...", "He has...", etc.
@@ -413,7 +456,19 @@ class LinkedInCrawler:
             if not name_parts:
                 return "Unknown"
             
-            # Try each name part until we find a match
+            # PRIORITY 1: Check Indonesian name prefixes (most reliable)
+            first_name_lower = name_parts[0].lower()
+            for prefix in self.female_prefixes:
+                if first_name_lower == prefix or first_name_lower.startswith(prefix):
+                    print(f"  Indonesian prefix match: '{name_parts[0]}' starts with '{prefix}' → Female")
+                    return 'Female'
+            
+            for prefix in self.male_prefixes:
+                if first_name_lower == prefix or first_name_lower.startswith(prefix):
+                    print(f"  Indonesian prefix match: '{name_parts[0]}' starts with '{prefix}' → Male")
+                    return 'Male'
+            
+            # PRIORITY 2: Try gender-guesser library on each name part
             for idx, name_part in enumerate(name_parts):
                 result = self.gender_detector.get_gender(name_part)
                 
@@ -430,10 +485,9 @@ class LinkedInCrawler:
                     continue
                 else:
                     # Unknown, try next part
-                    print(f"  Name prediction: '{name_part}' (part {idx+1}) → Unknown, trying next...")
                     continue
             
-            # If all parts are unknown, try with lowercase (some names work better in lowercase)
+            # PRIORITY 3: Try with lowercase (some names work better in lowercase)
             print("  Trying lowercase variants...")
             for idx, name_part in enumerate(name_parts):
                 result = self.gender_detector.get_gender(name_part.lower())
@@ -445,24 +499,39 @@ class LinkedInCrawler:
                     print(f"  Name prediction: '{name_part.lower()}' (part {idx+1}, lowercase) → Female (confidence: {result})")
                     return 'Female'
             
-            # Fallback: Check Indonesian name patterns
+            # PRIORITY 4: Check Indonesian name patterns (suffix/contains)
             print("  Trying Indonesian name patterns...")
+            
+            # Check each name part for female indicators
             for idx, name_part in enumerate(name_parts):
                 name_lower = name_part.lower()
                 
-                # Check if name contains or matches Indonesian female indicators
+                # Exact match first (more reliable)
+                if name_lower in self.indonesian_female_indicators:
+                    print(f"  Indonesian exact match: '{name_part}' → Female")
+                    return 'Female'
+                
+                if name_lower in self.indonesian_male_indicators:
+                    print(f"  Indonesian exact match: '{name_part}' → Male")
+                    return 'Male'
+            
+            # Then check contains/suffix (less reliable)
+            for idx, name_part in enumerate(name_parts):
+                name_lower = name_part.lower()
+                
+                # Check if name ends with or contains female indicators
                 for indicator in self.indonesian_female_indicators:
-                    if indicator in name_lower or name_lower in indicator:
-                        print(f"  Indonesian pattern match: '{name_part}' contains '{indicator}' → Female")
+                    if name_lower.endswith(indicator) or (len(indicator) > 3 and indicator in name_lower):
+                        print(f"  Indonesian pattern match: '{name_part}' contains/ends with '{indicator}' → Female")
                         return 'Female'
                 
-                # Check if name contains or matches Indonesian male indicators
+                # Check if name ends with or contains male indicators
                 for indicator in self.indonesian_male_indicators:
-                    if indicator in name_lower or name_lower in indicator:
-                        print(f"  Indonesian pattern match: '{name_part}' contains '{indicator}' → Male")
+                    if name_lower.endswith(indicator) or (len(indicator) > 3 and indicator in name_lower):
+                        print(f"  Indonesian pattern match: '{name_part}' contains/ends with '{indicator}' → Male")
                         return 'Male'
             
-            print(f"  All methods exhausted, cannot determine gender")
+            print(f"  All methods exhausted, cannot determine gender from name: {full_name}")
             return 'Unknown'
         
         except Exception as e:
