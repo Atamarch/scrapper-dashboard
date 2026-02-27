@@ -46,3 +46,5 @@ ENV/
 # OS
 .DS_Store
 Thumbs.db
+
+manual_score_test.py

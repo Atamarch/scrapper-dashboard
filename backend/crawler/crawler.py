@@ -468,7 +468,27 @@ class LinkedInCrawler:
                     print(f"  Indonesian prefix match: '{name_parts[0]}' starts with '{prefix}' → Male")
                     return 'Male'
             
-            # PRIORITY 2: Try gender-guesser library on each name part
+            # PRIORITY 2: Check exact match Indonesian patterns FIRST (before gender-guesser)
+            # This prevents false positives from gender-guesser
+            print("  Checking Indonesian exact matches...")
+            for idx, name_part in enumerate(name_parts):
+                name_lower = name_part.lower()
+                
+                # Exact match female indicators (highest priority)
+                if name_lower in self.indonesian_female_indicators:
+                    print(f"  Indonesian exact match: '{name_part}' → Female")
+                    return 'Female'
+            
+            # Check male indicators only if no female match found
+            for idx, name_part in enumerate(name_parts):
+                name_lower = name_part.lower()
+                
+                if name_lower in self.indonesian_male_indicators:
+                    print(f"  Indonesian exact match: '{name_part}' → Male")
+                    return 'Male'
+            
+            # PRIORITY 3: Try gender-guesser library on each name part
+            print("  Trying gender-guesser library...")
             for idx, name_part in enumerate(name_parts):
                 result = self.gender_detector.get_gender(name_part)
                 
@@ -487,7 +507,7 @@ class LinkedInCrawler:
                     # Unknown, try next part
                     continue
             
-            # PRIORITY 3: Try with lowercase (some names work better in lowercase)
+            # PRIORITY 4: Try with lowercase (some names work better in lowercase)
             print("  Trying lowercase variants...")
             for idx, name_part in enumerate(name_parts):
                 result = self.gender_detector.get_gender(name_part.lower())
@@ -499,23 +519,10 @@ class LinkedInCrawler:
                     print(f"  Name prediction: '{name_part.lower()}' (part {idx+1}, lowercase) → Female (confidence: {result})")
                     return 'Female'
             
-            # PRIORITY 4: Check Indonesian name patterns (suffix/contains)
-            print("  Trying Indonesian name patterns...")
+            # PRIORITY 5: Check suffix/contains Indonesian patterns (less reliable)
+            print("  Trying Indonesian suffix/contains patterns...")
             
-            # Check each name part for female indicators
-            for idx, name_part in enumerate(name_parts):
-                name_lower = name_part.lower()
-                
-                # Exact match first (more reliable)
-                if name_lower in self.indonesian_female_indicators:
-                    print(f"  Indonesian exact match: '{name_part}' → Female")
-                    return 'Female'
-                
-                if name_lower in self.indonesian_male_indicators:
-                    print(f"  Indonesian exact match: '{name_part}' → Male")
-                    return 'Male'
-            
-            # Then check contains/suffix (less reliable)
+            # Check female patterns first (prioritize female)
             for idx, name_part in enumerate(name_parts):
                 name_lower = name_part.lower()
                 
@@ -524,6 +531,10 @@ class LinkedInCrawler:
                     if name_lower.endswith(indicator) or (len(indicator) > 3 and indicator in name_lower):
                         print(f"  Indonesian pattern match: '{name_part}' contains/ends with '{indicator}' → Female")
                         return 'Female'
+            
+            # Then check male patterns
+            for idx, name_part in enumerate(name_parts):
+                name_lower = name_part.lower()
                 
                 # Check if name ends with or contains male indicators
                 for indicator in self.indonesian_male_indicators:

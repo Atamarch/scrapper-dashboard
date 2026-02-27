@@ -2,127 +2,82 @@
   "position": "Desk Collection - BPR KS Bandung",
   "requirements": [
     {
-      "id": "req_1",
-      "label": "Gender: Female",
+      "id": "gender",
       "type": "gender",
+      "label": "Gender: Female",
       "value": "female"
     },
     {
-      "id": "req_2",
-      "label": "Location: Bandung",
+      "id": "location",
       "type": "location",
+      "label": "Location: Bandung",
       "value": "bandung"
     },
     {
-      "id": "req_3",
-      "label": "Age: 20-35 years",
+      "id": "age_range",
       "type": "age",
-      "value": {
-        "min": 20,
-        "max": 35
-      }
+      "label": "Age: 20-35 years",
+      "value": "20-35"
     },
     {
-      "id": "req_4",
-      "label": "Minimum 1 year experience",
+      "id": "min_experience",
       "type": "experience",
+      "label": "Minimum 1 years experience",
       "value": 1
     },
     {
-      "id": "req_5",
-      "label": "Experience in Desk Collection",
-      "type": "experience",
-      "value": "desk collection"
-    },
-    {
-      "id": "req_6",
-      "label": "Experience in Call Collection",
-      "type": "experience",
-      "value": "call collection"
-    },
-    {
-      "id": "req_7",
-      "label": "Experience in Telecollection",
-      "type": "experience",
-      "value": "telecollection"
-    },
-    {
-      "id": "req_8",
-      "label": "Experience in Debt Collection",
-      "type": "experience",
-      "value": "debt collection"
-    },
-    {
-      "id": "req_9",
-      "label": "Experience in Collection",
-      "type": "experience",
-      "value": "collection"
-    },
-    {
-      "id": "req_10",
-      "label": "Experience in Penagihan",
-      "type": "experience",
-      "value": "penagihan"
-    },
-    {
-      "id": "req_11",
-      "label": "Experience as Collector",
-      "type": "experience",
-      "value": "collector"
-    },
-    {
-      "id": "req_12",
-      "label": "Skill: Communication",
+      "id": "skill_communication",
       "type": "skill",
+      "label": "Skill: Communication",
       "value": "communication"
     },
     {
-      "id": "req_13",
-      "label": "Skill: Negotiation",
+      "id": "skill_customer_service",
       "type": "skill",
-      "value": "negotiation"
-    },
-    {
-      "id": "req_14",
       "label": "Skill: Customer Service",
-      "type": "skill",
       "value": "customer service"
     },
     {
-      "id": "req_15",
-      "label": "Skill: Persuasion",
+      "id": "skill_debt_collection",
       "type": "skill",
+      "label": "Skill: Debt Collection",
+      "value": "debt collection"
+    },
+    {
+      "id": "skill_desk_collection",
+      "type": "skill",
+      "label": "Skill: Desk Collection",
+      "value": "desk collection"
+    },
+    {
+      "id": "skill_negotiation",
+      "type": "skill",
+      "label": "Skill: Negotiation",
+      "value": "negotiation"
+    },
+    {
+      "id": "skill_persuasion",
+      "type": "skill",
+      "label": "Skill: Persuasion",
       "value": "persuasion"
     },
     {
-      "id": "req_16",
-      "label": "Skill: Microsoft Office",
+      "id": "skill_outbound_call",
       "type": "skill",
+      "label": "Skill: Outbound Call",
+      "value": "outbound call"
+    },
+    {
+      "id": "skill_microsoft_office",
+      "type": "skill",
+      "label": "Skill: Microsoft Office",
       "value": "microsoft office"
     },
     {
-      "id": "req_17",
-      "label": "Skill: Computer Skills",
-      "type": "skill",
-      "value": "computer skills"
-    },
-    {
-      "id": "req_18",
-      "label": "Skill: Data Entry",
-      "type": "skill",
-      "value": "data entry"
-    },
-    {
-      "id": "req_19",
-      "label": "Skill: Reporting",
-      "type": "skill",
-      "value": "reporting"
-    },
-    {
-      "id": "req_20",
-      "label": "Education: High School or Diploma or Bachelor",
+      "id": "education",
       "type": "education",
-      "value": "high school"
+      "label": "Education: Bachelor",
+      "value": "bachelor"
     }
   ]
 }
