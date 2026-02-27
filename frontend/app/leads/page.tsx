@@ -30,6 +30,9 @@ function LeadsPageContent() {
   const [selectAll, setSelectAll] = useState(false);
   const [sendingOutreach, setSendingOutreach] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedRequirements, setSelectedRequirements] = useState<string[]>([]);
+  const [showRequirementsFilter, setShowRequirementsFilter] = useState(false);
+  const [templateRequirements, setTemplateRequirements] = useState<any[]>([]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -43,11 +46,14 @@ function LeadsPageContent() {
       if (showSortDropdown && !target.closest('.sort-dropdown-container')) {
         setShowSortDropdown(false);
       }
+      if (showRequirementsFilter && !target.closest('.requirements-filter-container')) {
+        setShowRequirementsFilter(false);
+      }
     };
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showExportMenu, showTemplateDropdown, showSortDropdown]);
+  }, [showExportMenu, showTemplateDropdown, showSortDropdown, showRequirementsFilter]);
 
   useEffect(() => {
     const templateId = searchParams.get('template');
@@ -67,6 +73,33 @@ function LeadsPageContent() {
     }
     fetchTemplates();
   }, []);
+
+  // Fetch template requirements when template changes
+  useEffect(() => {
+    async function fetchTemplateRequirements() {
+      if (!selectedTemplate) {
+        setTemplateRequirements([]);
+        setSelectedRequirements([]);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('search_templates')
+        .select('requirements')
+        .eq('id', selectedTemplate)
+        .single();
+
+      if (error) {
+        console.error('Error fetching template requirements:', error);
+        setTemplateRequirements([]);
+      } else if (data?.requirements?.requirements) {
+        setTemplateRequirements(data.requirements.requirements);
+      } else {
+        setTemplateRequirements([]);
+      }
+    }
+    fetchTemplateRequirements();
+  }, [selectedTemplate]);
 
   useEffect(() => {
     async function fetchLeads() {
@@ -114,8 +147,6 @@ function LeadsPageContent() {
           }
         }
 
-        setTotalCount(allData.length);
-
         // Filter by search query
         let filteredData = allData;
         if (searchQuery.trim()) {
@@ -123,6 +154,21 @@ function LeadsPageContent() {
             lead.name?.toLowerCase().includes(searchQuery.toLowerCase())
           );
         }
+
+        // Filter by selected requirements
+        if (selectedRequirements.length > 0) {
+          filteredData = filteredData.filter(lead => {
+            if (!lead.scoring_data?.results) return false;
+            
+            // Check if lead matches ALL selected requirements
+            return selectedRequirements.every(reqId => {
+              const result = lead.scoring_data.results.find((r: any) => r.id === reqId);
+              return result && result.matched === true;
+            });
+          });
+        }
+
+        setTotalCount(filteredData.length);
 
         // Paginate
         const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -137,7 +183,7 @@ function LeadsPageContent() {
     }
 
     fetchLeads();
-  }, [currentPage, selectedTemplate, sortBy, sortOrder, searchQuery]);
+  }, [currentPage, selectedTemplate, sortBy, sortOrder, searchQuery, selectedRequirements]);
 
   const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE);
 
@@ -147,11 +193,23 @@ function LeadsPageContent() {
     setShowTemplateDropdown(false);
     setSelectedLeads([]);
     setSelectAll(false);
+    setSelectedRequirements([]); // Reset requirements filter
     if (templateId) {
       router.push(`/leads?template=${templateId}`);
     } else {
       router.push('/leads');
     }
+  };
+
+  const handleToggleRequirement = (reqId: string) => {
+    setSelectedRequirements(prev => {
+      if (prev.includes(reqId)) {
+        return prev.filter(id => id !== reqId);
+      } else {
+        return [...prev, reqId];
+      }
+    });
+    setCurrentPage(1); // Reset to first page when filter changes
   };
 
   const handleSelectAll = () => {
@@ -594,6 +652,72 @@ function LeadsPageContent() {
                 )}
               </div>
               </div>
+
+              {/* Requirements Filter Section */}
+              {selectedTemplate && templateRequirements.length > 0 && (
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full md:w-auto p-3 rounded-xl border border-gray-700 bg-[#1a1f2e]/50">
+                  <span className="bg-slate-800 px-3 py-2 rounded-lg text-sm text-gray-400 whitespace-nowrap text-center sm:text-left">
+                    Requirements {selectedRequirements.length > 0 && `(${selectedRequirements.length})`}
+                  </span>
+                  <div className="relative requirements-filter-container w-full sm:flex-1 md:flex-initial">
+                    <button
+                      onClick={() => setShowRequirementsFilter(!showRequirementsFilter)}
+                      className="flex items-center gap-2 rounded-lg border border-gray-700 bg-[#232D48] px-4 py-2 text-white hover:border-gray-600 focus:border-blue-500 focus:outline-none w-full md:w-[240px] md:max-w-[240px] justify-between"
+                    >
+                      <span className="truncate">
+                        {selectedRequirements.length === 0 ? 'Select Requirements' : `${selectedRequirements.length} selected`}
+                      </span>
+                      {showRequirementsFilter ? (
+                        <ChevronUp className="h-4 w-4 flex-shrink-0" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4 flex-shrink-0" />
+                      )}
+                    </button>
+
+                    {showRequirementsFilter && (
+                      <div className="absolute top-full left-0 mt-2 w-full md:w-[320px] max-h-[400px] overflow-y-auto rounded-lg border border-gray-700 bg-[#1a1f2e] shadow-lg z-10">
+                        <div className="p-2 border-b border-gray-700 bg-[#141C33]">
+                          <p className="text-xs text-gray-400 px-2">Select requirements to filter leads</p>
+                        </div>
+                        <div className="p-2 space-y-1">
+                          {templateRequirements.map((req) => (
+                            <label
+                              key={req.id}
+                              className="flex items-start gap-3 px-3 py-2 rounded-md hover:bg-gray-700/30 cursor-pointer transition-colors"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selectedRequirements.includes(req.id)}
+                                onChange={() => handleToggleRequirement(req.id)}
+                                className="mt-0.5 h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-0"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm text-white break-words">{req.label}</p>
+                                <p className="text-xs text-gray-500 mt-0.5">
+                                  Type: <span className="text-gray-400">{req.type}</span>
+                                </p>
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                        {selectedRequirements.length > 0 && (
+                          <div className="p-2 border-t border-gray-700 bg-[#141C33]">
+                            <button
+                              onClick={() => {
+                                setSelectedRequirements([]);
+                                setCurrentPage(1);
+                              }}
+                              className="w-full px-3 py-1.5 text-xs text-gray-400 hover:text-white transition-colors"
+                            >
+                              Clear all filters
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3 w-full lg:w-auto">
