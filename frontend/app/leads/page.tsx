@@ -161,8 +161,9 @@ function LeadsPageContent() {
             if (!lead.scoring_data?.results) return false;
             
             // Check if lead matches ALL selected requirements
+            const results = lead.scoring_data.results;
             return selectedRequirements.every(reqId => {
-              const result = lead.scoring_data.results.find((r: any) => r.id === reqId);
+              const result = results.find((r: any) => r.id === reqId);
               return result && result.matched === true;
             });
           });

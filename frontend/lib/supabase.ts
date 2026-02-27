@@ -20,6 +20,15 @@ export type Lead = {
   score: number | null;
   scored_at: string | null;
   processed_at: string | null;
+  scoring_data?: {
+    results?: Array<{
+      id: string;
+      label: string;
+      matched: boolean;
+      candidate_value?: string;
+    }>;
+    [key: string]: any;
+  };
 };
 
 export type Company = {
