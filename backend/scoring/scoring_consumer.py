@@ -334,13 +334,14 @@ class ChecklistScorer:
         return False
     
     def _check_skill(self, required_skill, profile):
-        """Check if skill exists"""
+        """Check if skill exists in skills list OR in experience"""
         if not required_skill:
             return True
         
-        skills = profile.get('skills', [])
         required_skill_lower = str(required_skill).lower()
         
+        # Check in skills list first
+        skills = profile.get('skills', [])
         for skill in skills:
             skill_name = ''
             if isinstance(skill, dict):
@@ -358,6 +359,24 @@ class ChecklistScorer:
             # Fuzzy match (70% threshold)
             if fuzz.ratio(required_skill_lower, skill_name) >= 70:
                 return True
+        
+        # If not found in skills, check in experience (title, company, description)
+        experiences = profile.get('experiences', [])
+        for exp in experiences:
+            if isinstance(exp, dict):
+                title = exp.get('title', '').lower()
+                company = exp.get('company', '').lower()
+                description = exp.get('description', '').lower()
+                exp_text = f"{title} {company} {description}"
+                
+                # Check if skill keyword exists in experience
+                if required_skill_lower in exp_text:
+                    return True
+                
+                # Fuzzy match on individual words
+                for word in exp_text.split():
+                    if len(word) > 3 and fuzz.ratio(required_skill_lower, word) >= 75:
+                        return True
         
         return False
     
