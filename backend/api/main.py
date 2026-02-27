@@ -483,52 +483,6 @@ def parse_kualifikasi(text: str) -> Dict:
                 data['skills'].append(skill.title())
     
     return data
-            if exp_match:
-                years = int(exp_match.group(1))
-                if years > data['min_experience_years']:
-                    data['min_experience_years'] = years
-                break
-        
-        # Experience keywords - more comprehensive
-        collection_keywords = {
-            'desk collection': 'Desk Collection',
-            'call collection': 'Call Collection',
-            'telecollection': 'Telecollection',
-            'collection': 'Collection',
-            'penagihan': 'Penagihan',
-            'debt collection': 'Debt Collection',
-            'kredit': 'Credit',
-            'banking': 'Banking',
-            'finance': 'Finance',
-            'bpr': 'BPR',
-            'lembaga keuangan': 'Lembaga Keuangan'
-        }
-        for keyword, label in collection_keywords.items():
-            if keyword in line_lower and label not in data['experience_keywords']:
-                data['experience_keywords'].append(label)
-        
-        # Skills - comprehensive list
-        skill_keywords = {
-            'komunikasi': 'Communication',
-            'communication': 'Communication',
-            'negosiasi': 'Negotiation',
-            'negotiation': 'Negotiation',
-            'komputer': 'Computer Skills',
-            'computer': 'Computer Skills',
-            'ms office': 'MS Office',
-            'microsoft office': 'MS Office',
-            'excel': 'Excel',
-            'persuasi': 'Persuasion',
-            'persuasion': 'Persuasion',
-            'problem solving': 'Problem Solving',
-            'customer service': 'Customer Service',
-            'target oriented': 'Target Oriented'
-        }
-        for keyword, label in skill_keywords.items():
-            if keyword in line_lower and label not in data['skills']:
-                data['skills'].append(label)
-    
-    return data
 
 # ============================================================================
 # SIMPLIFIED REQUIREMENTS GENERATOR - HELPER FUNCTIONS
