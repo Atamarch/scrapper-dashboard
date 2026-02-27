@@ -1,5 +1,6 @@
 """
-Requirements Generator - Convert Job Description to JSON Requirements
+Requirements Generator - Generate Checklist Format Requirements
+UPDATED: Now uses new checklist format compatible with new scoring system
 Usage: python requirements_generator.py
 """
 import json
@@ -9,134 +10,220 @@ from pathlib import Path
 
 def clean_html(text):
     """Remove HTML tags from text"""
-    # Remove HTML tags
     text = re.sub(r'<[^>]+>', '', text)
-    # Remove extra whitespace
     text = re.sub(r'\s+', ' ', text)
-    # Decode HTML entities
-    text = text.replace('&nbsp;', ' ')
-    text = text.replace('&amp;', '&')
-    text = text.replace('&lt;', '<')
-    text = text.replace('&gt;', '>')
+    text = text.replace('&nbsp;', ' ').replace('&amp;', '&')
+    text = text.replace('&lt;', '<').replace('&gt;', '>')
     text = text.replace('&quot;', '"')
     return text.strip()
 
 
-def extract_experience_years(text):
-    """Extract minimum experience years from text"""
-    # Pattern: "minimal X tahun", "minimum X years", "X+ years", etc.
-    patterns = [
-        r'minimal\s+(\d+)\s+tahun',
-        r'minimum\s+(\d+)\s+tahun',
-        r'minimum\s+(\d+)\s+years?',
-        r'(\d+)\+?\s+years?\s+(?:of\s+)?experience',
-        r'pengalaman\s+(\d+)\s+tahun',
-    ]
+def extract_bullet_points(text):
+    """Extract bullet points from text"""
+    if not text:
+        return []
     
+    bullets = []
+    lines = [line.strip() for line in text.split('\n') if line.strip()]
+    
+    # Remove heading line if present
+    if lines and any(keyword in lines[0].lower() for keyword in ['kualifikasi', 'persyaratan', 'requirements', 'syarat']):
+        lines = lines[1:]
+    
+    for line in lines:
+        # Skip if too short
+        if len(line) < 5:
+            continue
+        
+        # Clean bullet markers
+        line_clean = re.sub(r'^[•\-\*○\d+\.\)]\s*', '', line).strip()
+        
+        if line_clean and len(line_clean) >= 5:
+            bullets.append(line_clean)
+    
+    return bullets
+
+
+def classify_requirement(text, req_id):
+    """Classify a single requirement and extract structured value"""
     text_lower = text.lower()
-    for pattern in patterns:
-        match = re.search(pattern, text_lower)
-        if match:
-            return int(match.group(1))
     
-    return 0  # Default if not found
+    # Priority 1: Gender
+    if any(word in text_lower for word in ['pria', 'wanita', 'laki-laki', 'perempuan', 'male', 'female']):
+        # Determine gender value
+        if 'pria / wanita' in text_lower or 'pria/wanita' in text_lower or ('pria' in text_lower and 'wanita' in text_lower):
+            gender_value = 'any'
+        elif any(word in text_lower for word in ['wanita', 'perempuan', 'female']):
+            gender_value = 'female'
+        elif any(word in text_lower for word in ['pria', 'laki-laki', 'male']):
+            gender_value = 'male'
+        else:
+            gender_value = 'any'
+        
+        return {
+            'id': f'req_{req_id}',
+            'label': text,
+            'type': 'gender',
+            'value': gender_value
+        }
+    
+    # Priority 2: Age
+    if any(word in text_lower for word in ['usia', 'umur', 'age']):
+        # Extract age range
+        age_patterns = [
+            r'(\d+)\s*-\s*(\d+)\s*tahun',
+            r'(\d+)\s*sampai\s*(\d+)\s*tahun',
+            r'maksimal\s*(\d+)\s*tahun',
+            r'max\s*(\d+)\s*tahun'
+        ]
+        
+        age_value = {'min': 18, 'max': 35}  # default
+        
+        for pattern in age_patterns:
+            match = re.search(pattern, text_lower)
+            if match:
+                if match.lastindex >= 2:
+                    age_value = {
+                        'min': int(match.group(1)),
+                        'max': int(match.group(2))
+                    }
+                else:
+                    age_value = {
+                        'min': 18,
+                        'max': int(match.group(1))
+                    }
+                break
+        
+        return {
+            'id': f'req_{req_id}',
+            'label': text,
+            'type': 'age',
+            'value': age_value
+        }
+    
+    # Priority 3: Education
+    if any(word in text_lower for word in ['pendidikan', 'education', 'lulusan', 'ijazah', 'sma', 'smk', 'diploma', 's1', 'sarjana']):
+        # Determine education level
+        if any(word in text_lower for word in ['sarjana', 's1', 's-1', 'bachelor']):
+            edu_value = 'bachelor'
+        elif any(word in text_lower for word in ['diploma', 'd3', 'd-3']):
+            edu_value = 'diploma'
+        elif any(word in text_lower for word in ['sma', 'smk', 'high school', 'slta']):
+            edu_value = 'high school'
+        else:
+            edu_value = 'high school'  # default
+        
+        return {
+            'id': f'req_{req_id}',
+            'label': text,
+            'type': 'education',
+            'value': edu_value
+        }
+    
+    # Priority 4: Location
+    if any(word in text_lower for word in ['penempatan', 'lokasi', 'domisili', 'location', 'ditempatkan']):
+        # Extract location name
+        location_match = re.search(r'(?:penempatan|lokasi|domisili|location|ditempatkan)\s*:?\s*([A-Za-z\s]+)', text, re.IGNORECASE)
+        if location_match:
+            location_value = location_match.group(1).strip()
+            # Remove trailing words like "atau", "dan"
+            location_value = re.sub(r'\s+(atau|or|dan|and)\s+.*', '', location_value, flags=re.IGNORECASE).strip()
+        else:
+            location_value = 'any'
+        
+        return {
+            'id': f'req_{req_id}',
+            'label': text,
+            'type': 'location',
+            'value': location_value.lower()
+        }
+    
+    # Priority 5: Experience (with years)
+    if any(word in text_lower for word in ['pengalaman', 'experience', 'berpengalaman']):
+        # Extract years
+        exp_patterns = [
+            r'(?:minimal|minimum|min\.?)\s*(\d+)\s*(?:tahun|years?)',
+            r'(\d+)\s*(?:tahun|years?)\s*(?:pengalaman|experience)',
+            r'(\d+)\+?\s*(?:tahun|years?)'
+        ]
+        
+        exp_value = 1  # default
+        
+        for pattern in exp_patterns:
+            match = re.search(pattern, text_lower)
+            if match:
+                exp_value = int(match.group(1))
+                break
+        
+        return {
+            'id': f'req_{req_id}',
+            'label': text,
+            'type': 'experience',
+            'value': exp_value
+        }
+    
+    # Default: Skill
+    return {
+        'id': f'req_{req_id}',
+        'label': text,
+        'type': 'skill',
+        'value': text.lower()
+    }
 
 
-def extract_gender(text):
-    """Extract gender requirement from text"""
-    text_lower = text.lower()
+def generate_requirements_from_text(job_description, position_title):
+    """Generate requirements in new checklist format"""
     
-    if any(word in text_lower for word in ['wanita', 'perempuan', 'female', 'woman']):
-        return "Female"
-    elif any(word in text_lower for word in ['pria', 'laki-laki', 'male', 'man']):
-        return "Male"
+    # Extract bullet points
+    bullets = extract_bullet_points(job_description)
     
-    return None
-
-
-def extract_location(text):
-    """Extract location from text"""
-    # Common Indonesian cities
-    cities = [
-        'Jakarta', 'Bandung', 'Surabaya', 'Medan', 'Semarang', 
-        'Makassar', 'Palembang', 'Tangerang', 'Depok', 'Bekasi',
-        'Bogor', 'Yogyakarta', 'Malang', 'Bali', 'Denpasar'
-    ]
+    # Classify each bullet point
+    requirements_array = []
+    for i, bullet in enumerate(bullets):
+        req = classify_requirement(bullet, i + 1)
+        requirements_array.append(req)
     
-    for city in cities:
-        if city.lower() in text.lower():
-            return city
-    
-    # Try to find "penempatan di X" or "lokasi X"
-    patterns = [
-        r'penempatan\s+(?:di\s+)?([A-Z][a-z]+)',
-        r'lokasi\s*:?\s*([A-Z][a-z]+)',
-        r'location\s*:?\s*([A-Z][a-z]+)',
-    ]
-    
-    for pattern in patterns:
-        match = re.search(pattern, text)
-        if match:
-            return match.group(1)
-    
-    return None
-
-
-def extract_age_range(text):
-    """Extract age range from text"""
-    # Pattern: "usia 20-35 tahun", "age 20 to 35", "20-35 years old"
-    patterns = [
-        r'usia\s+(\d+)\s*-\s*(\d+)',
-        r'age\s+(\d+)\s*-\s*(\d+)',
-        r'(\d+)\s*-\s*(\d+)\s+tahun',
-        r'(\d+)\s*-\s*(\d+)\s+years?\s+old',
-    ]
-    
-    text_lower = text.lower()
-    for pattern in patterns:
-        match = re.search(pattern, text_lower)
-        if match:
-            return {
-                "min": int(match.group(1)),
-                "max": int(match.group(2))
+    # Add default requirements if none found
+    if len(requirements_array) == 0:
+        requirements_array = [
+            {
+                'id': 'req_1',
+                'label': 'Minimum 1 year experience',
+                'type': 'experience',
+                'value': 1
+            },
+            {
+                'id': 'req_2',
+                'label': 'Education: High School',
+                'type': 'education',
+                'value': 'high school'
             }
+        ]
     
-    return None
+    # Build final output
+    return {
+        'position': position_title,
+        'requirements': requirements_array
+    }
 
 
-def extract_education(text):
-    """Extract education requirements from text"""
-    education_levels = []
-    text_lower = text.lower()
-    
-    # Check for each education level
-    if any(word in text_lower for word in ['sma', 'smk', 'high school']):
-        education_levels.append("High School")
-    
-    if any(word in text_lower for word in ['diploma', 'd3', 'associate']):
-        education_levels.append("Diploma")
-    
-    if any(word in text_lower for word in ['sarjana', 's1', 'bachelor']):
-        education_levels.append("Bachelor")
-    
-    if any(word in text_lower for word in ['master', 's2', 'mba']):
-        education_levels.append("Master")
-    
-    if any(word in text_lower for word in ['doktor', 's3', 'phd', 'doctoral']):
-        education_levels.append("Doctoral")
-    
-    return education_levels if education_levels else ["High School", "Diploma", "Bachelor"]
-
-
-def interactive_requirements_generator():
-    """Interactive mode to generate requirements"""
+def main():
     print("="*70)
-    print("REQUIREMENTS GENERATOR - Checklist Format")
+    print("REQUIREMENTS GENERATOR - New Checklist Format")
     print("="*70)
-    print("\nPaste your job description below (can be HTML/Markdown).")
-    print("Press Ctrl+D (Linux/Mac) or Ctrl+Z then Enter (Windows) when done.\n")
+    print("\nGenerate requirements from job description")
+    print("Output format: Checklist array for new scoring system\n")
     
-    # Read multi-line input
+    # Get position title
+    position = input("Position Title: ").strip()
+    if not position:
+        print("Error: Position title is required!")
+        return
+    
+    # Get job description
+    print("\nPaste job description (press Ctrl+D or Ctrl+Z when done):")
+    print("-" * 70)
+    
     lines = []
     try:
         while True:
@@ -147,166 +234,31 @@ def interactive_requirements_generator():
     
     job_description = '\n'.join(lines)
     
-    # Clean HTML
-    job_description_clean = clean_html(job_description)
-    
-    print("\n" + "="*70)
-    print("EXTRACTED INFORMATION")
-    print("="*70)
-    
-    # Extract information
-    min_exp = extract_experience_years(job_description_clean)
-    gender = extract_gender(job_description_clean)
-    location = extract_location(job_description_clean)
-    age_range = extract_age_range(job_description_clean)
-    education = extract_education(job_description_clean)
-    
-    print(f"\nMinimum Experience: {min_exp} years")
-    print(f"Gender: {gender or 'Not specified'}")
-    print(f"Location: {location or 'Not specified'}")
-    print(f"Age Range: {age_range or 'Not specified'}")
-    print(f"Education: {', '.join(education)}")
-    
-    # Interactive input
-    print("\n" + "="*70)
-    print("MANUAL INPUT (Press Enter to use extracted value)")
-    print("="*70)
-    
-    position = input("\nPosition Title: ").strip()
-    if not position:
-        print("Error: Position title is required!")
+    if not job_description.strip():
+        print("\nError: Job description is required!")
         return
     
-    # Confirm or override extracted values
-    min_exp_input = input(f"Minimum Experience Years [{min_exp}]: ").strip()
-    min_exp = int(min_exp_input) if min_exp_input else min_exp
+    # Generate requirements
+    print("\n" + "="*70)
+    print("GENERATING REQUIREMENTS...")
+    print("="*70)
     
-    gender_input = input(f"Required Gender (Male/Female/None) [{gender or 'None'}]: ").strip()
-    gender = gender_input if gender_input else gender
-    if gender and gender.lower() == 'none':
-        gender = None
+    requirements = generate_requirements_from_text(job_description, position)
     
-    location_input = input(f"Required Location [{location or 'None'}]: ").strip()
-    location = location_input if location_input else location
-    
-    age_input = input(f"Age Range (format: 20-35) [{age_range or 'None'}]: ").strip()
-    if age_input and '-' in age_input:
-        min_age, max_age = age_input.split('-')
-        age_range = {"min": int(min_age.strip()), "max": int(max_age.strip())}
-    
-    # Experience keywords
-    print("\n" + "-"*70)
-    print("EXPERIENCE KEYWORDS")
-    print("-"*70)
-    print("Enter experience keywords (one per line, empty line to finish):")
-    experience_keywords = []
-    while True:
-        keyword = input("  - ").strip()
-        if not keyword:
-            break
-        experience_keywords.append(keyword)
-    
-    # Skills
-    print("\n" + "-"*70)
-    print("SKILLS")
-    print("-"*70)
-    print("Enter required skills (one per line, empty line to finish):")
-    skills = []
-    while True:
-        skill = input("  - ").strip()
-        if not skill:
-            break
-        skills.append(skill)
-    
-    # Build requirements array
-    requirements_array = []
-    req_counter = 1
-    
-    # Add gender requirement
-    if gender:
-        requirements_array.append({
-            "id": f"req_{req_counter}",
-            "label": f"Gender: {gender}",
-            "type": "gender",
-            "value": gender.lower()
-        })
-        req_counter += 1
-    
-    # Add location requirement
-    if location:
-        requirements_array.append({
-            "id": f"req_{req_counter}",
-            "label": f"Location: {location}",
-            "type": "location",
-            "value": location.lower()
-        })
-        req_counter += 1
-    
-    # Add age range requirement
-    if age_range:
-        requirements_array.append({
-            "id": f"req_{req_counter}",
-            "label": f"Age: {age_range['min']}-{age_range['max']} years",
-            "type": "age",
-            "value": age_range
-        })
-        req_counter += 1
-    
-    # Add minimum experience requirement
-    if min_exp > 0:
-        requirements_array.append({
-            "id": f"req_{req_counter}",
-            "label": f"Minimum {min_exp} years experience",
-            "type": "experience",
-            "value": min_exp
-        })
-        req_counter += 1
-    
-    # Add experience keyword requirements
-    for keyword in experience_keywords:
-        requirements_array.append({
-            "id": f"req_{req_counter}",
-            "label": f"Experience in {keyword}",
-            "type": "experience",
-            "value": keyword.lower()
-        })
-        req_counter += 1
-    
-    # Add skill requirements
-    for skill in skills:
-        requirements_array.append({
-            "id": f"req_{req_counter}",
-            "label": f"Skill: {skill}",
-            "type": "skill",
-            "value": skill.lower()
-        })
-        req_counter += 1
-    
-    # Add education requirement (use first/highest from extracted)
-    if education:
-        edu_level = education[-1]  # Get highest level
-        requirements_array.append({
-            "id": f"req_{req_counter}",
-            "label": f"Education: {edu_level}",
-            "type": "education",
-            "value": edu_level.lower()
-        })
-        req_counter += 1
-    
-    # Build final requirements object
-    requirements = {
-        "position": position,
-        "job_description": job_description_clean[:500] + "..." if len(job_description_clean) > 500 else job_description_clean,
-        "requirements": requirements_array
-    }
+    # Display result
+    print("\n" + "="*70)
+    print("GENERATED REQUIREMENTS (Checklist Format)")
+    print("="*70)
+    print(json.dumps(requirements, indent=2, ensure_ascii=False))
+    print("="*70)
+    print(f"\nTotal requirements: {len(requirements['requirements'])}")
     
     # Save to file
-    print("\n" + "="*70)
-    filename_slug = position.lower().replace(' ', '_').replace('/', '_')
-    filename_slug = re.sub(r'[^a-z0-9_]', '', filename_slug)
+    filename_slug = position.lower().replace(' ', '_').replace('-', '_')
+    filename_slug = ''.join(c for c in filename_slug if c.isalnum() or c == '_')
     default_filename = f"{filename_slug}.json"
     
-    filename = input(f"Save as (default: {default_filename}): ").strip()
+    filename = input(f"\nSave as (default: {default_filename}): ").strip()
     if not filename:
         filename = default_filename
     
@@ -319,27 +271,8 @@ def interactive_requirements_generator():
     with open(filepath, 'w', encoding='utf-8') as f:
         json.dump(requirements, f, indent=2, ensure_ascii=False)
     
-    print(f"\n✓ Requirements saved to: {filepath}")
-    print(f"\nTotal requirements: {len(requirements_array)}")
-    print("\nPreview:")
-    print(json.dumps(requirements, indent=2, ensure_ascii=False))
-
-
-def main():
-    print("\n" + "="*70)
-    print("REQUIREMENTS GENERATOR")
-    print("="*70)
-    print("\nThis tool helps you convert job descriptions to JSON requirements.")
-    print("\nOptions:")
-    print("  1. Interactive mode (paste job description)")
-    print("  2. Exit")
-    
-    choice = input("\nChoose option (1-2): ").strip()
-    
-    if choice == '1':
-        interactive_requirements_generator()
-    else:
-        print("Goodbye!")
+    print(f"\n✓ Saved to: {filepath}")
+    print("\nYou can now use this requirements file for scoring!")
 
 
 if __name__ == "__main__":

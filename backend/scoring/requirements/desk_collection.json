@@ -1,52 +1,128 @@
 {
   "position": "Desk Collection - BPR KS Bandung",
-  "job_description": "Posisi Desk Collection bertanggung jawab melakukan penagihan kredit bermasalah melalui telepon (outbound call) kepada debitur. Kandidat harus terbiasa bekerja dengan target penagihan harian dan bulanan, mampu menghadapi debitur dengan berbagai karakter dalam situasi sulit, serta melakukan pencatatan hasil penagihan ke dalam sistem dengan teliti. Pengalaman di BPR atau lembaga keuangan menjadi nilai tambah. Penempatan di Bandung.",
-  
-  "min_experience_years": 1,
-  "required_experience_keywords": [
-    "Desk Collection",
-    "Call Collection",
-    "Telecollection",
-    "Debt Collection",
-    "Collection",
-    "Penagihan",
-    "Collector"
-  ],
-  "preferred_experience_keywords": [
-    "BPR",
-    "Bank Perkreditan Rakyat",
-    "Lembaga Keuangan",
-    "Financial Institution",
-    "Microfinance",
-    "Credit",
-    "Banking",
-    "Finance"
-  ],
-  
-  "required_skills": {
-    "Communication": 10,
-    "Negotiation": 10,
-    "Customer Service": 8,
-    "Persuasion": 8,
-    "Microsoft Office": 5,
-    "Computer Skills": 5,
-    "Data Entry": 4,
-    "Reporting": 4
-  },
-  "preferred_skills": {
-    "Problem Solving": 7,
-    "Target Oriented": 7,
-    "Sales": 6,
-    "Microsoft Excel": 5,
-    "CRM": 5,
-    "Account Management": 4
-  },
-  
-  "education_level": ["High School", "Diploma", "Bachelor"],
-  "required_gender": "Female",
-  "required_location": "Bandung",
-  "required_age_range": {
-    "min": 20,
-    "max": 35
-  }
+  "requirements": [
+    {
+      "id": "req_1",
+      "label": "Gender: Female",
+      "type": "gender",
+      "value": "female"
+    },
+    {
+      "id": "req_2",
+      "label": "Location: Bandung",
+      "type": "location",
+      "value": "bandung"
+    },
+    {
+      "id": "req_3",
+      "label": "Age: 20-35 years",
+      "type": "age",
+      "value": {
+        "min": 20,
+        "max": 35
+      }
+    },
+    {
+      "id": "req_4",
+      "label": "Minimum 1 year experience",
+      "type": "experience",
+      "value": 1
+    },
+    {
+      "id": "req_5",
+      "label": "Experience in Desk Collection",
+      "type": "experience",
+      "value": "desk collection"
+    },
+    {
+      "id": "req_6",
+      "label": "Experience in Call Collection",
+      "type": "experience",
+      "value": "call collection"
+    },
+    {
+      "id": "req_7",
+      "label": "Experience in Telecollection",
+      "type": "experience",
+      "value": "telecollection"
+    },
+    {
+      "id": "req_8",
+      "label": "Experience in Debt Collection",
+      "type": "experience",
+      "value": "debt collection"
+    },
+    {
+      "id": "req_9",
+      "label": "Experience in Collection",
+      "type": "experience",
+      "value": "collection"
+    },
+    {
+      "id": "req_10",
+      "label": "Experience in Penagihan",
+      "type": "experience",
+      "value": "penagihan"
+    },
+    {
+      "id": "req_11",
+      "label": "Experience as Collector",
+      "type": "experience",
+      "value": "collector"
+    },
+    {
+      "id": "req_12",
+      "label": "Skill: Communication",
+      "type": "skill",
+      "value": "communication"
+    },
+    {
+      "id": "req_13",
+      "label": "Skill: Negotiation",
+      "type": "skill",
+      "value": "negotiation"
+    },
+    {
+      "id": "req_14",
+      "label": "Skill: Customer Service",
+      "type": "skill",
+      "value": "customer service"
+    },
+    {
+      "id": "req_15",
+      "label": "Skill: Persuasion",
+      "type": "skill",
+      "value": "persuasion"
+    },
+    {
+      "id": "req_16",
+      "label": "Skill: Microsoft Office",
+      "type": "skill",
+      "value": "microsoft office"
+    },
+    {
+      "id": "req_17",
+      "label": "Skill: Computer Skills",
+      "type": "skill",
+      "value": "computer skills"
+    },
+    {
+      "id": "req_18",
+      "label": "Skill: Data Entry",
+      "type": "skill",
+      "value": "data entry"
+    },
+    {
+      "id": "req_19",
+      "label": "Skill: Reporting",
+      "type": "skill",
+      "value": "reporting"
+    },
+    {
+      "id": "req_20",
+      "label": "Education: High School or Diploma or Bachelor",
+      "type": "education",
+      "value": "high school"
+    }
+  ]
 }
