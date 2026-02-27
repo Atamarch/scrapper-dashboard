@@ -21,8 +21,8 @@ parameters = pika.ConnectionParameters(
 connection = pika.BlockingConnection(parameters)
 channel = connection.channel()
 
-channel.queue_purge(queue="outreach_queue")
+channel.queue_purge(queue=QUEUE_NAME)
 
-print("PURGED:", "outreach_queue")
+print("PURGED:", QUEUE_NAME)
 
 connection.close()

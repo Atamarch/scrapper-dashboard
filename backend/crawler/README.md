@@ -1,27 +1,33 @@
 # LinkedIn Profile Crawler
 
-Simplified crawler with only 2 main files
+Simplified crawler with multiple specialized tools
 
 ## File Structure
 
 ```
 crawler/
-├── crawler.py              # Main crawler class + all helper functions
-├── crawler_consumer.py     # RabbitMQ consumer + utilities
-├── scheduler_daemon.py     # Scheduled crawl job executor
-├── .env                    # Configuration
-├── requirements.txt        # Dependencies
+├── crawler.py                    # Main crawler class + all helper functions
+├── crawler_consumer.py           # RabbitMQ consumer + utilities
+├── crawler_search.py             # Search profiles by name
+├── crawler_search_consumer.py    # NEW: RabbitMQ consumer for search jobs
+├── scheduler_daemon.py           # Scheduled crawl job executor
+├── test_search.py                # Quick test for single profile search
+├── .env                          # Configuration
+├── requirements.txt              # Dependencies
 ├── helper/
-│   ├── supabase_helper.py # Supabase integration for storing leads
-│   └── rabbitmq_helper.py # RabbitMQ queue management
+│   ├── supabase_helper.py       # Supabase integration for storing leads
+│   └── rabbitmq_helper.py       # RabbitMQ queue management
 └── data/
-    ├── cookie/            # LinkedIn session cookies
-    └── output/            # Scraped profiles (JSON)
+    ├── cookie/                  # LinkedIn session cookies
+    ├── output/                  # Scraped profiles (JSON)
+    └── search_input_example.json  # Example input for search crawler
 ```
 
 ## Features
 
 - **All-in-one design**: Core crawler with modular helpers
+- **Profile search by name**: Search LinkedIn profiles by name and extract URLs
+- **Queue-based search processing**: NEW - Multi-worker RabbitMQ consumer for parallel search jobs
 - **Supabase integration**: Direct storage to `leads_list` table with duplicate prevention
 - **Browser restart**: Prevents memory leak every N profiles
 - **Mobile/Desktop mode**: Choose scraping mode
@@ -52,6 +58,161 @@ python test-lavinmq.py
 ```
 
 ## Usage
+
+### Profile Search by Name (NEW)
+Search LinkedIn profiles by name and extract URLs:
+
+```bash
+# Quick test - search single profile
+python test_search.py "Vika Vitaloka Pramansah"
+
+# RECOMMENDED: Automatic mode - Send to queue + start workers
+python crawler_search.py data/names.json
+
+# Manual mode: Send jobs to queue only
+python crawler_search.py --send data/names.json
+
+# Manual mode: Start workers only (process queued jobs)
+python crawler_search.py --queue
+```
+
+**Automatic Mode (Recommended)**:
+The default mode automatically sends all search jobs to the RabbitMQ queue and starts worker threads to process them in parallel. This is the simplest way to process large batches of names.
+
+**Manual Mode**:
+For more control, you can separate the send and consume operations:
+1. Send jobs to queue: `python crawler_search.py --send data/names.json`
+2. Start workers separately: `python crawler_search.py --queue`
+
+**Note**: As of the latest update, `crawler_search.py` now includes RabbitMQ integration support with queue configuration constants (`SEARCH_QUEUE` and `MAX_WORKERS`). These are primarily used by `crawler_search_consumer.py` for queue-based processing, but the constants are defined in the base search module for consistency.
+
+**Input format** (`data/search_input_example.json`):
+```json
+[
+  {"name": "Vika Vitaloka Pramansah"},
+  {"name": "Deanira Maharani"}
+]
+```
+
+**Output format**:
+```json
+[
+  {
+    "name": "Vika Vitaloka Pramansah",
+    "linkedin_url": "https://www.linkedin.com/in/username"
+  },
+  {
+    "name": "Deanira Maharani",
+    "linkedin_url": null
+  }
+]
+```
+
+**Features**:
+- Searches LinkedIn using global search
+- Extracts first profile URL from results
+- Random delay 3-7 seconds between searches
+- Handles no results, timeouts, redirects
+- Sets `linkedin_url` to `null` if not found
+
+**See detailed documentation**: [SEARCH_README.md](SEARCH_README.md)
+
+### Profile Search Consumer (Queue-Based Processing)
+Process search jobs from RabbitMQ queue with multiple parallel workers:
+
+```bash
+python crawler_search_consumer.py
+```
+
+**Features**:
+- Multi-worker architecture for parallel processing
+- RabbitMQ queue integration for job distribution
+- Automatic browser session management per worker
+- Statistics tracking (found, not found, errors)
+- Optional result queue for downstream processing
+- Graceful error handling and worker isolation
+
+**Configuration** (`.env`):
+```bash
+SEARCH_QUEUE=linkedin_search_queue  # Queue name for search jobs
+SEARCH_MAX_WORKERS=3                # Number of parallel workers (default: 3)
+```
+
+**Job Format** (send to queue):
+```json
+{
+  "job_id": "search-001",
+  "name": "John Doe",
+  "result_queue": "search_results"  // Optional: queue to send results
+}
+```
+
+**Result Format** (sent to result_queue if specified):
+```json
+{
+  "job_id": "search-001",
+  "name": "John Doe",
+  "linkedin_url": "https://www.linkedin.com/in/johndoe",
+  "status": "found"  // or "not_found", "error"
+}
+```
+
+**How It Works**:
+1. Each worker connects to RabbitMQ and waits for jobs
+2. RabbitMQ distributes jobs across workers using round-robin
+3. Worker initializes browser session (reused across jobs)
+4. Worker searches LinkedIn for the profile
+5. Result is acknowledged and optionally sent to result queue
+6. Worker processes next job (with rate limiting delays)
+
+**Worker Statistics**:
+Each worker tracks:
+- `processed`: Total jobs processed
+- `found`: Profiles successfully found
+- `not_found`: Profiles not found
+- `errors`: Failed searches
+
+**Starting Workers**:
+```bash
+python crawler_search_consumer.py
+```
+
+Output:
+```
+============================================================
+LINKEDIN PROFILE SEARCH CONSUMER
+============================================================
+Queue: linkedin_search_queue
+Workers: 3
+============================================================
+
+[Worker 1] Starting...
+[Worker 1] ✓ Connected to RabbitMQ
+[Worker 2] Starting...
+[Worker 2] ✓ Connected to RabbitMQ
+[Worker 3] Starting...
+[Worker 3] ✓ Connected to RabbitMQ
+
+✓ All 3 workers started!
+
+💡 How it works:
+  1. Workers wait for search jobs in queue
+  2. Each worker processes 1 job at a time
+  3. Multiple workers run in parallel
+  4. Results can be sent to result queue (optional)
+
+  Press Ctrl+C to stop all workers
+```
+
+**Use Cases**:
+- Bulk profile URL discovery from name lists
+- Integration with other services via result queue
+- Parallel processing of large search batches
+- Automated lead generation pipelines
+
+**Comparison with Direct Search**:
+- **Direct (`crawler_search.py`)**: Best for small batches, JSON file processing, one-off searches
+- **Consumer (`crawler_search_consumer.py`)**: Best for continuous processing, service integration, high-volume searches
 
 ### Scheduler Daemon (Production)
 Run scheduled crawl jobs from Supabase:
@@ -253,6 +414,10 @@ POLL_INTERVAL=300  # Check for schedules every 5 minutes
 
 # Outreach Workers
 MAX_WORKERS=3  # Number of parallel outreach workers (default: 3)
+
+# Search Consumer
+SEARCH_QUEUE=linkedin_search_queue  # Queue name for search jobs
+SEARCH_MAX_WORKERS=3                # Number of parallel search workers (default: 3)
 ```
 
 ### RabbitMQ Configuration Options
@@ -331,6 +496,21 @@ python manage_cookies.py delete   # Delete cookies
 - Profile save utilities
 - Scoring integration
 - Supabase integration (automatic save to database)
+
+**crawler_search.py** contains:
+- `LinkedInSearchCrawler` class
+- Profile search by name functionality
+- JSON file processing utilities
+- Search result extraction and validation
+- RabbitMQ integration support (queue configuration constants)
+- Multi-threading support for parallel processing
+
+**crawler_search_consumer.py** contains:
+- `SearchConsumer` class for job processing
+- Multi-worker thread management
+- RabbitMQ queue integration for search jobs
+- Statistics tracking per worker
+- Optional result queue support
 
 **scheduler_daemon.py** contains:
 - Supabase schedule polling
@@ -1836,3 +2016,230 @@ If you see "⚠ Session expired, cookies invalid":
 3. For OAuth accounts, ensure `USE_OAUTH_LOGIN=true` in `.env`
 4. Complete login in browser and press ENTER when prompted
 
+
+
+---
+
+## LinkedIn Profile Search Crawler
+
+### Overview
+
+The `crawler_search.py` module provides automated LinkedIn profile search functionality. It searches for profiles by name and extracts profile URLs, making it easy to build lists of LinkedIn profiles for further processing.
+
+### Features
+
+- **Name-based search**: Search LinkedIn profiles by person's name
+- **Automated URL extraction**: Automatically extracts the first matching profile URL
+- **Batch processing**: Process JSON files containing multiple names
+- **Smart validation**: Filters out invalid URLs (companies, schools, posts, etc.)
+- **URL cleaning**: Removes query parameters for clean profile URLs
+- **No results detection**: Identifies when searches return no results
+- **Rate limiting**: Built-in delays to avoid LinkedIn rate limits
+- **Session persistence**: Uses saved cookies for authentication
+
+### Usage
+
+#### Command Line
+
+Process a JSON file containing names:
+
+```bash
+python crawler_search.py input.json [output.json]
+```
+
+**Examples:**
+```bash
+# Overwrite input file with results
+python crawler_search.py data/names.json
+
+# Save results to a different file
+python crawler_search.py data/names.json data/names_with_urls.json
+```
+
+#### Input JSON Format
+
+The input file must be a JSON array of objects with a `name` field:
+
+```json
+[
+  {
+    "name": "John Doe",
+    "company": "Acme Corp"
+  },
+  {
+    "name": "Jane Smith",
+    "title": "Software Engineer"
+  }
+]
+```
+
+#### Output JSON Format
+
+The script adds a `linkedin_url` field to each object:
+
+```json
+[
+  {
+    "name": "John Doe",
+    "company": "Acme Corp",
+    "linkedin_url": "https://www.linkedin.com/in/johndoe"
+  },
+  {
+    "name": "Jane Smith",
+    "title": "Software Engineer",
+    "linkedin_url": "https://www.linkedin.com/in/janesmith"
+  }
+]
+```
+
+If a profile is not found, `linkedin_url` will be `null`.
+
+#### Python API
+
+Use the crawler programmatically in your code:
+
+```python
+from crawler_search import LinkedInSearchCrawler
+
+# Initialize crawler (automatically logs in)
+crawler = LinkedInSearchCrawler()
+
+# Search for a single profile
+profile_url = crawler.search_profile("John Doe")
+if profile_url:
+    print(f"Found: {profile_url}")
+else:
+    print("Profile not found")
+
+# Process a JSON file
+crawler.process_json_file("data/names.json", "data/output.json")
+
+# Close browser when done
+crawler.close()
+```
+
+### How It Works
+
+1. **Login**: Uses saved cookies from `data/cookie/.linkedin_cookies.json` for authentication
+2. **Search**: Constructs LinkedIn search URL with encoded name
+3. **Wait**: Waits for search results page to load (10 second timeout)
+4. **Validate**: Checks if search returned results or "No results" message
+5. **Extract**: Finds the first valid profile URL from search results
+6. **Clean**: Removes query parameters and normalizes URL format
+7. **Rate limit**: Waits 3-7 seconds between searches to avoid detection
+
+### URL Validation
+
+The crawler validates profile URLs to ensure they are actual LinkedIn profiles:
+
+**Valid URLs:**
+- `https://www.linkedin.com/in/username`
+- `https://linkedin.com/in/username`
+
+**Invalid URLs (filtered out):**
+- Company pages: `/company/`
+- School pages: `/school/`
+- Posts: `/posts/`
+- Feed items: `/feed/`
+- Groups: `/groups/`
+- Events: `/events/`
+
+### Search Selectors
+
+The crawler uses multiple XPath selectors to find profile links, prioritized by reliability:
+
+1. `//a[contains(@href, '/in/') and contains(@class, 'app-aware-link')]` - Primary selector
+2. `//a[contains(@href, 'linkedin.com/in/')]` - Fallback for full URLs
+3. `//span[contains(@class, 'entity-result__title')]//a[contains(@href, '/in/')]` - Result title links
+4. `//div[contains(@class, 'entity-result')]//a[contains(@href, '/in/')]` - Generic result links
+
+### Error Handling
+
+The crawler handles various error scenarios gracefully:
+
+- **Timeout waiting for results**: Returns `None` and logs warning
+- **No results found**: Detects "No results" message and returns `None`
+- **Invalid JSON format**: Validates input file is a JSON array
+- **Missing name field**: Skips entries without `name` field
+- **Network errors**: Catches exceptions and continues processing
+
+### Rate Limiting
+
+To avoid LinkedIn rate limits and detection:
+
+- **Between searches**: 3-7 second random delay
+- **Page load wait**: 2-3 second delay after page loads
+- **Element wait**: 1-2 second delay before extracting URLs
+
+**Recommended usage:**
+- Process small batches (10-20 names at a time)
+- Run during off-peak hours
+- Monitor for CAPTCHA or rate limit warnings
+- Use saved cookies to avoid repeated logins
+
+### Output Summary
+
+After processing, the crawler displays a summary:
+
+```
+Summary:
+  Total entries: 10
+  Found: 8
+  Not found: 2
+
+Entries without LinkedIn URL:
+  - John Unknown
+  - Jane Notfound
+```
+
+### Integration with Main Crawler
+
+The search crawler can be used as a preprocessing step before the main profile crawler:
+
+```python
+from crawler_search import LinkedInSearchCrawler
+from crawler import LinkedInCrawler
+
+# Step 1: Search for profile URLs
+search_crawler = LinkedInSearchCrawler()
+search_crawler.process_json_file("names.json", "profiles_with_urls.json")
+search_crawler.close()
+
+# Step 2: Scrape full profile data
+profile_crawler = LinkedInCrawler()
+# ... load URLs from profiles_with_urls.json and scrape
+profile_crawler.close()
+```
+
+### Troubleshooting
+
+**"No results found" for valid names:**
+- Name spelling might be incorrect
+- Profile might not be public
+- LinkedIn search might require more specific query (add company, location, etc.)
+
+**Timeout waiting for search results:**
+- Network connection slow
+- LinkedIn page structure changed
+- Increase timeout in `WebDriverWait(self.driver, 10)` to higher value
+
+**Wrong profile extracted:**
+- Multiple people with same name
+- Consider adding additional filters (company, location) to search query
+- Manually verify extracted URLs before scraping
+
+**Rate limiting / CAPTCHA:**
+- Reduce batch size
+- Increase delays between searches
+- Wait before retrying
+- Use different LinkedIn account
+
+### Recent Updates
+
+**February 27, 2026 - Initial Implementation**
+- Added `LinkedInSearchCrawler` class for name-based profile search
+- Implemented automated URL extraction from search results
+- Added batch processing for JSON files with multiple names
+- Included smart URL validation and cleaning
+- Built-in rate limiting and error handling
+- Session persistence using saved cookies
