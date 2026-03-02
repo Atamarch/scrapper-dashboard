@@ -669,3 +669,262 @@ Both endpoints return appropriate HTTP status codes:
 - Changed `db.supabase.table()` to `db.client.table()` for proper Supabase client access
 - Affects both `/api/companies` and `/api/companies/{company_id}` endpoints
 - Ensures consistent database access pattern across the API
+
+## 📊 Leads Filtering API Endpoints
+
+The API provides advanced filtering endpoints for retrieving leads based on company platform or company ID. These endpoints follow the relational chain: `platform → companies → search_templates → leads_list`.
+
+### Endpoint: GET `/api/leads/by-platform`
+
+Retrieve leads filtered by company platform with full relationship chain visibility.
+
+#### Query Parameters
+- `platform` (string, required): Platform name to filter by (case-insensitive partial match)
+- `limit` (integer, optional): Number of results to return. Default: `100`
+- `offset` (integer, optional): Pagination offset. Default: `0`
+
+#### Response
+```json
+{
+  "success": true,
+  "platform": "mejakita",
+  "companies_found": 2,
+  "companies": [
+    {
+      "id": "123e4567-e89b-12d3-a456-426614174000",
+      "name": "PT Example Company",
+      "code": "EXAMPLE",
+      "platform": "mejakita"
+    }
+  ],
+  "templates_found": 5,
+  "templates": [
+    {
+      "id": "template-uuid-1",
+      "name": "Backend Developer",
+      "company_id": "123e4567-e89b-12d3-a456-426614174000"
+    }
+  ],
+  "leads_count": 150,
+  "leads_returned": 100,
+  "limit": 100,
+  "offset": 0,
+  "leads": [
+    {
+      "id": "lead-uuid-1",
+      "template_id": "template-uuid-1",
+      "name": "John Doe",
+      "profile_url": "https://linkedin.com/in/johndoe",
+      "score": 85.5,
+      "date": "2026-02-23",
+      "connection_status": "scraped"
+    }
+  ]
+}
+```
+
+#### Response Fields
+- `success`: Operation status (boolean)
+- `platform`: Platform name used for filtering
+- `companies_found`: Number of companies matching the platform
+- `companies`: Array of company objects matching the platform
+- `templates_found`: Number of search templates linked to these companies
+- `templates`: Array of search template objects
+- `leads_count`: Total number of leads across all templates (for pagination)
+- `leads_returned`: Number of leads in current response
+- `limit`: Applied result limit
+- `offset`: Applied pagination offset
+- `leads`: Array of lead objects
+
+#### Query Flow
+1. **Step 1**: Query `companies` table filtered by platform (case-insensitive partial match)
+2. **Step 2**: Query `search_templates` table using company IDs from step 1
+3. **Step 3**: Query `leads_list` table using template IDs from step 2
+4. **Step 4**: Count total leads for pagination metadata
+
+#### Usage Examples
+```bash
+# Get first 100 leads for mejakita platform
+curl "http://localhost:8000/api/leads/by-platform?platform=mejakita"
+
+# Get next 50 leads with pagination
+curl "http://localhost:8000/api/leads/by-platform?platform=mejakita&limit=50&offset=100"
+
+# Get leads for different platform
+curl "http://localhost:8000/api/leads/by-platform?platform=jobstreet"
+```
+
+#### Empty Results Handling
+If no companies match the platform:
+```json
+{
+  "success": true,
+  "platform": "nonexistent",
+  "companies_found": 0,
+  "templates_found": 0,
+  "leads_count": 0,
+  "leads": []
+}
+```
+
+If companies exist but no templates:
+```json
+{
+  "success": true,
+  "platform": "mejakita",
+  "companies_found": 2,
+  "companies": [...],
+  "templates_found": 0,
+  "leads_count": 0,
+  "leads": []
+}
+```
+
+### Endpoint: GET `/api/leads/by-company/{company_id}`
+
+Retrieve leads filtered by a specific company ID with full relationship chain visibility.
+
+#### Path Parameters
+- `company_id` (string, required): UUID of the company
+
+#### Query Parameters
+- `limit` (integer, optional): Number of results to return. Default: `100`
+- `offset` (integer, optional): Pagination offset. Default: `0`
+
+#### Response (Success)
+```json
+{
+  "success": true,
+  "company": {
+    "id": "123e4567-e89b-12d3-a456-426614174000",
+    "name": "PT Example Company",
+    "code": "EXAMPLE",
+    "platform": "mejakita",
+    "created_at": "2026-02-23T10:00:00Z"
+  },
+  "templates_found": 3,
+  "templates": [
+    {
+      "id": "template-uuid-1",
+      "name": "Backend Developer",
+      "company_id": "123e4567-e89b-12d3-a456-426614174000"
+    }
+  ],
+  "leads_count": 75,
+  "leads_returned": 75,
+  "limit": 100,
+  "offset": 0,
+  "leads": [
+    {
+      "id": "lead-uuid-1",
+      "template_id": "template-uuid-1",
+      "name": "Jane Smith",
+      "profile_url": "https://linkedin.com/in/janesmith",
+      "score": 92.0,
+      "date": "2026-02-23",
+      "connection_status": "scraped"
+    }
+  ]
+}
+```
+
+#### Response (Company Not Found)
+```json
+{
+  "detail": "Company not found"
+}
+```
+Status Code: 404
+
+#### Response Fields
+- `success`: Operation status (boolean)
+- `company`: Complete company object
+- `templates_found`: Number of search templates for this company
+- `templates`: Array of search template objects
+- `leads_count`: Total number of leads across all templates (for pagination)
+- `leads_returned`: Number of leads in current response
+- `limit`: Applied result limit
+- `offset`: Applied pagination offset
+- `leads`: Array of lead objects
+
+#### Query Flow
+1. **Step 1**: Query `companies` table by company ID (validates existence)
+2. **Step 2**: Query `search_templates` table using company ID
+3. **Step 3**: Query `leads_list` table using template IDs from step 2
+4. **Step 4**: Count total leads for pagination metadata
+
+#### Usage Examples
+```bash
+# Get all leads for a specific company
+curl "http://localhost:8000/api/leads/by-company/123e4567-e89b-12d3-a456-426614174000"
+
+# Get leads with pagination
+curl "http://localhost:8000/api/leads/by-company/123e4567-e89b-12d3-a456-426614174000?limit=50&offset=0"
+
+# Get next page
+curl "http://localhost:8000/api/leads/by-company/123e4567-e89b-12d3-a456-426614174000?limit=50&offset=50"
+```
+
+#### Empty Results Handling
+If company exists but has no templates:
+```json
+{
+  "success": true,
+  "company": {...},
+  "templates_found": 0,
+  "leads_count": 0,
+  "leads": []
+}
+```
+
+### Database Relationships
+
+These endpoints leverage the following table relationships:
+
+```
+companies (platform)
+    ↓ (1:N)
+search_templates (company_id)
+    ↓ (1:N)
+leads_list (template_id)
+```
+
+**Table Columns Used:**
+- `companies`: `id`, `name`, `code`, `platform`, `created_at`
+- `search_templates`: `id`, `name`, `company_id`
+- `leads_list`: All columns (full lead data)
+
+### Pagination
+
+Both endpoints support pagination through `limit` and `offset` parameters:
+- **Default limit**: 100 leads per request
+- **Offset**: Starting position in result set (0-indexed)
+- **Total count**: Returned in `leads_count` field for building pagination UI
+
+Example pagination calculation:
+```javascript
+const totalPages = Math.ceil(leads_count / limit);
+const currentPage = Math.floor(offset / limit) + 1;
+```
+
+### Error Handling
+
+Both endpoints return appropriate HTTP status codes:
+- `200 OK`: Successful request (even if no results found)
+- `404 Not Found`: Company not found (by-company endpoint only)
+- `500 Internal Server Error`: Database or server error
+- `503 Service Unavailable`: Database connection not available
+
+### Use Cases
+
+**By Platform Endpoint:**
+- Dashboard views showing all leads across multiple companies on a platform
+- Platform-level analytics and reporting
+- Cross-company lead comparison
+- Platform performance metrics
+
+**By Company Endpoint:**
+- Company-specific lead management
+- Single company analytics
+- Template performance within a company
+- Company-focused recruitment workflows

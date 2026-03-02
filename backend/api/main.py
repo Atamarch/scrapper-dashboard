@@ -1091,6 +1091,193 @@ async def get_company_by_id(company_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/leads/by-platform")
+async def get_leads_by_platform(
+    platform: str,
+    limit: Optional[int] = 100,
+    offset: Optional[int] = 0
+):
+    """
+    Get leads filtered by company platform
+    
+    Flow: platform → companies → search_templates → leads_list
+    
+    Query params:
+    - platform: Platform name (required)
+    - limit: Number of results (default: 100)
+    - offset: Pagination offset (default: 0)
+    
+    Example:
+    - GET /api/leads/by-platform?platform=mejakita
+    - GET /api/leads/by-platform?platform=mejakita&limit=50&offset=0
+    """
+    try:
+        if not db:
+            raise HTTPException(status_code=503, detail="Database not available")
+        
+        # Step 1: Get companies by platform
+        companies_response = db.client.table('companies')\
+            .select('id, name, code, platform')\
+            .ilike('platform', f'%{platform}%')\
+            .execute()
+        
+        if not companies_response.data or len(companies_response.data) == 0:
+            return {
+                "success": True,
+                "platform": platform,
+                "companies_found": 0,
+                "templates_found": 0,
+                "leads_count": 0,
+                "leads": []
+            }
+        
+        companies = companies_response.data
+        company_ids = [c['id'] for c in companies]
+        
+        # Step 2: Get search_templates by company_ids
+        templates_response = db.client.table('search_templates')\
+            .select('id, name, company_id')\
+            .in_('company_id', company_ids)\
+            .execute()
+        
+        if not templates_response.data or len(templates_response.data) == 0:
+            return {
+                "success": True,
+                "platform": platform,
+                "companies_found": len(companies),
+                "companies": companies,
+                "templates_found": 0,
+                "leads_count": 0,
+                "leads": []
+            }
+        
+        templates = templates_response.data
+        template_ids = [t['id'] for t in templates]
+        
+        # Step 3: Get leads by template_ids
+        leads_query = db.client.table('leads_list')\
+            .select('*')\
+            .in_('template_id', template_ids)\
+            .order('date', desc=True)\
+            .range(offset, offset + limit - 1)
+        
+        leads_response = leads_query.execute()
+        leads = leads_response.data or []
+        
+        # Get total count
+        count_response = db.client.table('leads_list')\
+            .select('id', count='exact')\
+            .in_('template_id', template_ids)\
+            .execute()
+        
+        total_count = count_response.count or 0
+        
+        return {
+            "success": True,
+            "platform": platform,
+            "companies_found": len(companies),
+            "companies": companies,
+            "templates_found": len(templates),
+            "templates": templates,
+            "leads_count": total_count,
+            "leads_returned": len(leads),
+            "limit": limit,
+            "offset": offset,
+            "leads": leads
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/leads/by-company/{company_id}")
+async def get_leads_by_company(
+    company_id: str,
+    limit: Optional[int] = 100,
+    offset: Optional[int] = 0
+):
+    """
+    Get leads filtered by company ID
+    
+    Flow: company_id → search_templates → leads_list
+    
+    Query params:
+    - limit: Number of results (default: 100)
+    - offset: Pagination offset (default: 0)
+    
+    Example:
+    - GET /api/leads/by-company/123e4567-e89b-12d3-a456-426614174000
+    - GET /api/leads/by-company/123e4567-e89b-12d3-a456-426614174000?limit=50
+    """
+    try:
+        if not db:
+            raise HTTPException(status_code=503, detail="Database not available")
+        
+        # Step 1: Get company info
+        company_response = db.client.table('companies')\
+            .select('*')\
+            .eq('id', company_id)\
+            .execute()
+        
+        if not company_response.data or len(company_response.data) == 0:
+            raise HTTPException(status_code=404, detail="Company not found")
+        
+        company = company_response.data[0]
+        
+        # Step 2: Get search_templates by company_id
+        templates_response = db.client.table('search_templates')\
+            .select('id, name, company_id')\
+            .eq('company_id', company_id)\
+            .execute()
+        
+        if not templates_response.data or len(templates_response.data) == 0:
+            return {
+                "success": True,
+                "company": company,
+                "templates_found": 0,
+                "leads_count": 0,
+                "leads": []
+            }
+        
+        templates = templates_response.data
+        template_ids = [t['id'] for t in templates]
+        
+        # Step 3: Get leads by template_ids
+        leads_query = db.client.table('leads_list')\
+            .select('*')\
+            .in_('template_id', template_ids)\
+            .order('date', desc=True)\
+            .range(offset, offset + limit - 1)
+        
+        leads_response = leads_query.execute()
+        leads = leads_response.data or []
+        
+        # Get total count
+        count_response = db.client.table('leads_list')\
+            .select('id', count='exact')\
+            .in_('template_id', template_ids)\
+            .execute()
+        
+        total_count = count_response.count or 0
+        
+        return {
+            "success": True,
+            "company": company,
+            "templates_found": len(templates),
+            "templates": templates,
+            "leads_count": total_count,
+            "leads_returned": len(leads),
+            "limit": limit,
+            "offset": offset,
+            "leads": leads
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
