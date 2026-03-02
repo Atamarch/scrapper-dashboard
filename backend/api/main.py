@@ -1041,7 +1041,7 @@ async def get_companies(platform: Optional[str] = None):
             raise HTTPException(status_code=503, detail="Database not available")
         
         # Get companies from Supabase
-        query = db.supabase.table('companies').select('*')
+        query = db.client.table('companies').select('*')
         
         # Filter by platform if provided
         if platform:
@@ -1075,7 +1075,7 @@ async def get_company_by_id(company_id: str):
         if not db:
             raise HTTPException(status_code=503, detail="Database not available")
         
-        response = db.supabase.table('companies').select('*').eq('id', company_id).execute()
+        response = db.client.table('companies').select('*').eq('id', company_id).execute()
         
         if not response.data or len(response.data) == 0:
             raise HTTPException(status_code=404, detail="Company not found")

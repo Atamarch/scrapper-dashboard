@@ -661,3 +661,11 @@ Both endpoints return appropriate HTTP status codes:
 - `404 Not Found`: Company not found (single company endpoint)
 - `500 Internal Server Error`: Database or server error
 - `503 Service Unavailable`: Database connection not available
+
+### Recent Updates
+
+**Database Client Reference Fix (Latest)**
+- Fixed incorrect database client reference in companies endpoints
+- Changed `db.supabase.table()` to `db.client.table()` for proper Supabase client access
+- Affects both `/api/companies` and `/api/companies/{company_id}` endpoints
+- Ensures consistent database access pattern across the API
