@@ -1020,6 +1020,77 @@ async def send_outreach(request: OutreachRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============================================================================
+# COMPANIES ENDPOINTS (External API)
+# ============================================================================
+
+@app.get("/api/companies")
+async def get_companies(platform: Optional[str] = None):
+    """
+    Get companies data, optionally filtered by platform
+    
+    Query params:
+    - platform: Filter by platform/code (optional)
+    
+    Example:
+    - GET /api/companies - Get all companies
+    - GET /api/companies?platform=mejakita - Get companies for mejakita platform
+    """
+    try:
+        if not db:
+            raise HTTPException(status_code=503, detail="Database not available")
+        
+        # Get companies from Supabase
+        query = db.supabase.table('companies').select('*')
+        
+        # Filter by platform if provided
+        if platform:
+            # Try to match by code (case-insensitive)
+            query = query.ilike('code', f'%{platform}%')
+        
+        response = query.order('created_at', desc=True).execute()
+        
+        companies = response.data or []
+        
+        return {
+            "success": True,
+            "count": len(companies),
+            "platform": platform,
+            "companies": companies
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/companies/{company_id}")
+async def get_company_by_id(company_id: str):
+    """
+    Get single company by ID
+    
+    Example:
+    - GET /api/companies/123e4567-e89b-12d3-a456-426614174000
+    """
+    try:
+        if not db:
+            raise HTTPException(status_code=503, detail="Database not available")
+        
+        response = db.supabase.table('companies').select('*').eq('id', company_id).execute()
+        
+        if not response.data or len(response.data) == 0:
+            raise HTTPException(status_code=404, detail="Company not found")
+        
+        return {
+            "success": True,
+            "company": response.data[0]
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

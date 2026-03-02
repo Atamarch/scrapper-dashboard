@@ -563,3 +563,99 @@ curl -X POST http://localhost:8000/api/outreach/send \
     "dry_run": true
   }'
 ```
+
+
+## 🏢 Companies API Endpoints
+
+The API provides endpoints for managing and retrieving company data from the Supabase `companies` table.
+
+### Endpoint: GET `/api/companies`
+
+Retrieve all companies, optionally filtered by platform/code.
+
+#### Query Parameters
+- `platform` (string, optional): Filter companies by platform code (case-insensitive partial match)
+
+#### Response
+```json
+{
+  "success": true,
+  "count": 2,
+  "platform": "mejakita",
+  "companies": [
+    {
+      "id": "123e4567-e89b-12d3-a456-426614174000",
+      "name": "PT Example Company",
+      "code": "mejakita",
+      "created_at": "2026-02-23T10:00:00Z"
+    }
+  ]
+}
+```
+
+#### Response Fields
+- `success`: Operation status (boolean)
+- `count`: Number of companies returned
+- `platform`: Platform filter applied (null if no filter)
+- `companies`: Array of company objects
+
+#### Usage Examples
+```bash
+# Get all companies
+curl http://localhost:8000/api/companies
+
+# Get companies for specific platform
+curl http://localhost:8000/api/companies?platform=mejakita
+```
+
+### Endpoint: GET `/api/companies/{company_id}`
+
+Retrieve a single company by its UUID.
+
+#### Path Parameters
+- `company_id` (string, required): UUID of the company
+
+#### Response (Success)
+```json
+{
+  "success": true,
+  "company": {
+    "id": "123e4567-e89b-12d3-a456-426614174000",
+    "name": "PT Example Company",
+    "code": "mejakita",
+    "created_at": "2026-02-23T10:00:00Z"
+  }
+}
+```
+
+#### Response (Not Found)
+```json
+{
+  "detail": "Company not found"
+}
+```
+Status Code: 404
+
+#### Usage Example
+```bash
+curl http://localhost:8000/api/companies/123e4567-e89b-12d3-a456-426614174000
+```
+
+### Database Schema
+
+The companies endpoints interact with the `companies` table in Supabase:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID | Primary key (auto-generated) |
+| `name` | String | Company name |
+| `code` | String | Platform/company code identifier |
+| `created_at` | Timestamp | Record creation timestamp |
+
+### Error Handling
+
+Both endpoints return appropriate HTTP status codes:
+- `200 OK`: Successful request
+- `404 Not Found`: Company not found (single company endpoint)
+- `500 Internal Server Error`: Database or server error
+- `503 Service Unavailable`: Database connection not available
