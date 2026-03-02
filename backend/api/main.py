@@ -1030,7 +1030,7 @@ async def get_companies(platform: Optional[str] = None):
     Get companies data, optionally filtered by platform
     
     Query params:
-    - platform: Filter by platform/code (optional)
+    - platform: Filter by platform (optional)
     
     Example:
     - GET /api/companies - Get all companies
@@ -1045,8 +1045,8 @@ async def get_companies(platform: Optional[str] = None):
         
         # Filter by platform if provided
         if platform:
-            # Try to match by code (case-insensitive)
-            query = query.ilike('code', f'%{platform}%')
+            # Match by platform column (case-insensitive)
+            query = query.ilike('platform', f'%{platform}%')
         
         response = query.order('created_at', desc=True).execute()
         

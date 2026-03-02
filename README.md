@@ -571,10 +571,10 @@ The API provides endpoints for managing and retrieving company data from the Sup
 
 ### Endpoint: GET `/api/companies`
 
-Retrieve all companies, optionally filtered by platform/code.
+Retrieve all companies, optionally filtered by platform.
 
 #### Query Parameters
-- `platform` (string, optional): Filter companies by platform code (case-insensitive partial match)
+- `platform` (string, optional): Filter companies by platform (case-insensitive partial match)
 
 #### Response
 ```json
@@ -586,7 +586,7 @@ Retrieve all companies, optionally filtered by platform/code.
     {
       "id": "123e4567-e89b-12d3-a456-426614174000",
       "name": "PT Example Company",
-      "code": "mejakita",
+      "platform": "mejakita",
       "created_at": "2026-02-23T10:00:00Z"
     }
   ]
@@ -622,7 +622,7 @@ Retrieve a single company by its UUID.
   "company": {
     "id": "123e4567-e89b-12d3-a456-426614174000",
     "name": "PT Example Company",
-    "code": "mejakita",
+    "platform": "mejakita",
     "created_at": "2026-02-23T10:00:00Z"
   }
 }
@@ -649,8 +649,10 @@ The companies endpoints interact with the `companies` table in Supabase:
 |--------|------|-------------|
 | `id` | UUID | Primary key (auto-generated) |
 | `name` | String | Company name |
-| `code` | String | Platform/company code identifier |
+| `platform` | String | Platform identifier for filtering |
 | `created_at` | Timestamp | Record creation timestamp |
+
+**Note:** The `platform` column is used for filtering companies by platform. The API performs case-insensitive partial matching on this field.
 
 ### Error Handling
 
