@@ -386,6 +386,8 @@ PROFILE_DELAY_MAX=20.0
 # Mode
 USE_MOBILE_MODE=false
 
+# Headle
+
 # Supabase Configuration
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=your-supabase-anon-key
@@ -2233,6 +2235,87 @@ profile_crawler.close()
 - Increase delays between searches
 - Wait before retrying
 - Use different LinkedIn account
+
+**Browser not visible during development:**
+- Set `HEADLESS=false` in `.env` to force visible browser mode
+- Useful for debugging and watching the crawler in action
+- See "Headless Mode Configuration" section below for details
+
+## Headless Mode Configuration
+
+The crawler supports flexible browser visibility control through the `HEADLESS` environment variable. This allows you to force visible or headless mode regardless of the environment.
+
+### Configuration Options
+
+Add to your `.env` file:
+
+```bash
+# Force visible browser (for development/debugging)
+HEADLESS=false
+
+# Force headless mode (for production/background)
+HEADLESS=true
+
+# Auto-detect (omit or leave empty)
+# HEADLESS=
+```
+
+### Behavior
+
+**Priority System:**
+1. **Explicit HEADLESS setting** - If set to `true`/`false`, always uses that mode
+2. **Auto-detection** - If not set, detects production environment (Docker/Render) and uses headless mode automatically
+
+**Accepted Values:**
+- **Force Visible**: `false`, `0`, `no` (case-insensitive)
+- **Force Headless**: `true`, `1`, `yes` (case-insensitive)
+- **Auto-detect**: Empty string or omit the variable
+
+### Use Cases
+
+**Development/Debugging:**
+```bash
+HEADLESS=false
+```
+- Watch the crawler navigate LinkedIn in real-time
+- Debug element selection issues
+- Verify login flow
+- Inspect page state during errors
+
+**Production/Background:**
+```bash
+HEADLESS=true
+```
+- Run crawler on servers without display
+- Reduce resource usage
+- Run multiple instances in parallel
+- Docker/cloud deployments
+
+**Auto-detect (Default):**
+```bash
+# Omit HEADLESS variable or leave empty
+```
+- Automatically uses headless mode in production (Docker, Render)
+- Automatically uses visible mode in local development
+- Best for environments that switch between dev and prod
+
+### Console Output
+
+The crawler logs the selected mode on startup:
+
+```
+🔧 Running in VISIBLE mode (HEADLESS=false)
+🔧 Running in HEADLESS mode (HEADLESS=true)
+🔧 Running in HEADLESS mode (production detected)
+🔧 Running in VISIBLE mode (development)
+```
+
+### Technical Details
+
+- Uses Chrome's new headless mode (`--headless=new`) for better stability
+- Headless mode includes `--disable-software-rasterizer` for performance
+- All anti-detection features work in both modes
+- Cookie persistence works identically in both modes
 
 ### Recent Updates
 
