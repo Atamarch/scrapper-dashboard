@@ -91,7 +91,11 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
-    // Temporarily disable to test
-    // '/((?!_next/static|_next/image|favicon.ico|logo_sarana_ai.jpg|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/',
+    '/company/:path*',
+    '/leads/:path*',
+    '/profile/:path*',
+    '/requirements/:path*',
+    '/scheduler/:path*',
   ],
 };
