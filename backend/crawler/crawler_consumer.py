@@ -319,8 +319,8 @@ def worker_thread(worker_id, mq_config):
                 # Add template_id to profile data
                 profile_data['template_id'] = template_id
                 
-                # Save to file (backup)
-                save_profile_data(profile_data)
+                # Save to file (DISABLED - data saved to Supabase instead)
+                # save_profile_data(profile_data)
                 
                 # Update Supabase with scraped data
                 if supabase:
