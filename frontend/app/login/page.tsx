@@ -33,13 +33,21 @@ export default function LoginPage() {
                    (data.user as any).app_metadata?.role || 
                    (data.user as any).raw_app_meta_data?.role;
 
+      console.log('User role:', role);
+      console.log('User metadata:', data.user.user_metadata);
+      console.log('App metadata:', (data.user as any).app_metadata);
+
       if (role !== 'admin') {
         await supabase.auth.signOut();
-        throw new Error('Access denied. Admin privileges required.');
+        throw new Error(`Access denied. Admin privileges required. Your role: ${role || 'none'}`);
       }
 
       sessionStorage.setItem('showWelcomeToast', 'true');
+      
+      // Wait for cookies to be set properly
       await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Use hard redirect to ensure middleware picks up the new session
       window.location.href = '/';
       
     } catch (err: any) {

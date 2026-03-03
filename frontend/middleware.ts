@@ -80,6 +80,8 @@ export async function middleware(req: NextRequest) {
   
   const role = userMetadata?.role || appMetadata?.role || rawAppMetadata?.role;
 
+  console.log('Middleware - User role:', role);
+
   if (role !== 'admin') {
     // Not admin, redirect to login
     await supabase.auth.signOut();
