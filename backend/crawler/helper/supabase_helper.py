@@ -172,6 +172,60 @@ class SupabaseManager:
             print(f"  ✗ Failed to get lead: {e}")
             return None
     
+    def update_lead_after_scrape(self, profile_url, profile_data):
+        """
+        Update lead after scraping (insert or update)
+        
+        Args:
+            profile_url: LinkedIn profile URL
+            profile_data: Complete scraped profile data
+        
+        Returns:
+            bool: Success status
+        """
+        try:
+            # Check if lead exists
+            existing = self.client.table('leads_list')\
+                .select('id')\
+                .eq('profile_url', profile_url)\
+                .execute()
+            
+            name = profile_data.get('name', 'Unknown')
+            
+            if existing.data and len(existing.data) > 0:
+                # Update existing lead
+                result = self.client.table('leads_list')\
+                    .update({
+                        'name': name,
+                        'profile_data': profile_data,
+                        'connection_status': 'scraped'
+                    })\
+                    .eq('profile_url', profile_url)\
+                    .execute()
+                
+                print(f"  ✓ Updated existing lead: {name}")
+            else:
+                # Insert new lead
+                result = self.client.table('leads_list')\
+                    .insert({
+                        'profile_url': profile_url,
+                        'name': name,
+                        'profile_data': profile_data,
+                        'connection_status': 'scraped',
+                        'date': datetime.now().date().isoformat()
+                    })\
+                    .execute()
+                
+                print(f"  ✓ Inserted new lead: {name}")
+            
+            return True
+            
+        except Exception as e:
+            print(f"  ✗ Failed to save to Supabase: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
     def get_lead_by_url(self, profile_url):
         """Get lead by profile URL (alias for get_lead)"""
         return self.get_lead(profile_url)

@@ -8,8 +8,9 @@ Simplified crawler with multiple specialized tools
 crawler/
 ├── crawler.py                    # Main crawler class + all helper functions
 ├── crawler_consumer.py           # RabbitMQ consumer + utilities
+├── crawler_manager.py            # NEW: Manages crawler lifecycle based on schedules
 ├── crawler_search.py             # Search profiles by name
-├── crawler_search_consumer.py    # NEW: RabbitMQ consumer for search jobs
+├── crawler_search_consumer.py    # RabbitMQ consumer for search jobs
 ├── scheduler_daemon.py           # Scheduled crawl job executor
 ├── test_search.py                # Quick test for single profile search
 ├── .env                          # Configuration
@@ -27,7 +28,8 @@ crawler/
 
 - **All-in-one design**: Core crawler with modular helpers
 - **Profile search by name**: Search LinkedIn profiles by name and extract URLs
-- **Queue-based search processing**: NEW - Multi-worker RabbitMQ consumer for parallel search jobs
+- **Queue-based search processing**: Multi-worker RabbitMQ consumer for parallel search jobs
+- **Automated crawler lifecycle management**: NEW - Start/stop crawler based on database schedules
 - **Supabase integration**: Direct storage to `leads_list` table with duplicate prevention
 - **Browser restart**: Prevents memory leak every N profiles
 - **Mobile/Desktop mode**: Choose scraping mode
@@ -266,6 +268,99 @@ The daemon workflow:
    - `date`: Current date (for new leads only)
 6. Reports statistics: Success count, Skipped count, Failed count
 
+### Crawler Manager (NEW - Automated Lifecycle Management)
+Automatically start and stop the crawler consumer based on database schedules:
+
+```bash
+python crawler_manager.py
+```
+
+**What It Does:**
+The Crawler Manager monitors your Supabase `crawler_schedules` table and automatically starts/stops the crawler consumer process based on the schedule's start and stop times. This eliminates the need to manually manage crawler processes.
+
+**Features:**
+- **Automatic process management**: Starts `crawler_consumer.py` when schedules are active
+- **Graceful shutdown**: Stops crawler when no schedules are active
+- **Health monitoring**: Detects if crawler process dies and restarts if needed
+- **Cron-based scheduling**: Supports standard cron expressions for start/stop times
+- **Weekday filtering**: Run crawlers only on specific days (e.g., weekdays only)
+- **Time-based control**: Start at 9 AM, stop at 5 PM automatically
+- **Single schedule priority**: Uses first active schedule if multiple are running
+
+**How It Works:**
+1. Polls Supabase every 60 seconds (configurable via `POLL_INTERVAL`)
+2. Checks which schedules should be running based on current time
+3. Compares schedule's `start_schedule` and `stop_schedule` cron expressions
+4. Starts crawler if schedule is active and crawler is not running
+5. Stops crawler if no schedules are active and crawler is running
+6. Monitors crawler health and restarts if process dies unexpectedly
+
+**Cron Expression Support:**
+The manager supports simplified cron expressions in the format:
+```
+minute hour day month weekday
+```
+
+**Examples:**
+- `0 9 * * *` - Every day at 9:00 AM
+- `0 9 * * 1-5` - Weekdays (Mon-Fri) at 9:00 AM
+- `30 8 * * *` - Every day at 8:30 AM
+- `0 17 * * 1-5` - Weekdays at 5:00 PM (for stop_schedule)
+
+**Schedule Configuration:**
+In your `crawler_schedules` table:
+- `start_schedule`: Cron expression for when to start crawler (e.g., `0 9 * * 1-5`)
+- `stop_schedule`: Cron expression for when to stop crawler (e.g., `0 17 * * 1-5`)
+- `status`: Must be `active` for manager to consider the schedule
+
+**Example Schedule:**
+```sql
+INSERT INTO crawler_schedules (name, start_schedule, stop_schedule, status)
+VALUES ('Weekday Crawler', '0 9 * * 1-5', '0 17 * * 1-5', 'active');
+```
+This runs the crawler Monday-Friday from 9 AM to 5 PM.
+
+**Process Management:**
+- **Graceful shutdown**: Sends SIGTERM and waits up to 30 seconds
+- **Force kill**: If graceful shutdown fails, forces process termination
+- **Health checks**: Monitors process status every poll interval
+- **Auto-restart**: Restarts crawler if it dies unexpectedly during active schedule
+
+**Configuration (`.env`):**
+```bash
+POLL_INTERVAL=60  # Check schedules every 60 seconds (default)
+```
+
+**Output Example:**
+```
+============================================================
+CRAWLER MANAGER STARTED
+Poll Interval: 60 seconds
+Python: /usr/bin/python3
+Crawler Script: crawler_consumer.py
+============================================================
+
+Schedule active: Weekday Crawler
+Starting crawler consumer for schedule: abc-123-def
+✓ Crawler consumer started (PID: 12345)
+Crawler running (Schedule: abc-123-def)
+...
+No active schedules, stopping crawler
+Stopping crawler consumer...
+✓ Crawler consumer stopped
+```
+
+**Use Cases:**
+- **Business hours crawling**: Run crawler only during work hours
+- **Weekday-only operations**: Avoid weekend crawling
+- **Resource optimization**: Stop crawler when not needed to save resources
+- **Automated operations**: Set-and-forget crawler management
+- **Multiple schedule support**: Different schedules for different time windows
+
+**Comparison with Scheduler Daemon:**
+- **Scheduler Daemon**: Executes crawl jobs at specific times (one-time or periodic execution)
+- **Crawler Manager**: Manages crawler consumer lifecycle (continuous operation during time windows)
+
 ### Consumer Mode (Recommended)
 Process URLs from `profile/*.json` files with RabbitMQ:
 
@@ -332,6 +427,14 @@ The `SupabaseManager` class provides methods for storing and managing leads:
 **`get_lead(profile_url)`**
 - Retrieves complete lead data from database
 - Returns: `dict` or `None`
+
+**`update_lead_after_scrape(profile_url, profile_data)`**
+- Updates or inserts a lead after scraping profile data
+- Automatically extracts name from profile_data
+- Sets connection_status to 'scraped'
+- Updates existing lead or inserts new lead if not found
+- Adds processed_at timestamp
+- Returns: `bool` (success status)
 
 ### Usage Example
 
