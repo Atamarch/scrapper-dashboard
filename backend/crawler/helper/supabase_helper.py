@@ -184,44 +184,71 @@ class SupabaseManager:
             bool: Success status
         """
         try:
+            print(f"  → Checking if lead exists: {profile_url}")
+            
             # Check if lead exists
             existing = self.client.table('leads_list')\
-                .select('id')\
+                .select('id, name, connection_status')\
                 .eq('profile_url', profile_url)\
                 .execute()
+            
+            print(f"  → Existing lead query result: {existing.data}")
             
             name = profile_data.get('name', 'Unknown')
             
             if existing.data and len(existing.data) > 0:
                 # Update existing lead
+                print(f"  → Updating existing lead: {existing.data[0]}")
+                
+                update_data = {
+                    'name': name,
+                    'profile_data': profile_data,
+                    'connection_status': 'scraped',
+                    'processed_at': datetime.now().isoformat()
+                }
+                
                 result = self.client.table('leads_list')\
-                    .update({
-                        'name': name,
-                        'profile_data': profile_data,
-                        'connection_status': 'scraped'
-                    })\
+                    .update(update_data)\
                     .eq('profile_url', profile_url)\
                     .execute()
                 
-                print(f"  ✓ Updated existing lead: {name}")
+                print(f"  → Update result: {result.data}")
+                
+                if result.data:
+                    print(f"  ✓ Updated existing lead: {name}")
+                    return True
+                else:
+                    print(f"  ⚠️  Update returned empty data")
+                    return False
             else:
                 # Insert new lead
+                print(f"  → Inserting new lead: {name}")
+                
+                insert_data = {
+                    'profile_url': profile_url,
+                    'name': name,
+                    'profile_data': profile_data,
+                    'connection_status': 'scraped',
+                    'date': datetime.now().date().isoformat(),
+                    'processed_at': datetime.now().isoformat()
+                }
+                
                 result = self.client.table('leads_list')\
-                    .insert({
-                        'profile_url': profile_url,
-                        'name': name,
-                        'profile_data': profile_data,
-                        'connection_status': 'scraped',
-                        'date': datetime.now().date().isoformat()
-                    })\
+                    .insert(insert_data)\
                     .execute()
                 
-                print(f"  ✓ Inserted new lead: {name}")
-            
-            return True
+                print(f"  → Insert result: {result.data}")
+                
+                if result.data:
+                    print(f"  ✓ Inserted new lead: {name}")
+                    return True
+                else:
+                    print(f"  ⚠️  Insert returned empty data")
+                    return False
             
         except Exception as e:
             print(f"  ✗ Failed to save to Supabase: {e}")
+            print(f"  → Error type: {type(e).__name__}")
             import traceback
             traceback.print_exc()
             return False
@@ -229,49 +256,3 @@ class SupabaseManager:
     def get_lead_by_url(self, profile_url):
         """Get lead by profile URL (alias for get_lead)"""
         return self.get_lead(profile_url)
-    
-    def update_lead_after_scrape(self, profile_url, profile_data):
-        """
-        Update lead after scraping with profile data
-        
-        Args:
-            profile_url: LinkedIn profile URL
-            profile_data: Complete scraped profile data
-        
-        Returns:
-            bool: Success status
-        """
-        try:
-            # Extract relevant fields from profile_data
-            update_data = {
-                'name': profile_data.get('name', 'Unknown'),
-                'profile_data': profile_data,
-                'connection_status': 'scraped',
-                'processed_at': datetime.now().isoformat()
-            }
-            
-            print(f"  → Updating profile_url: {profile_url}")
-            print(f"  → Update data: name={update_data['name']}, status={update_data['connection_status']}")
-            
-            # Update the lead
-            result = self.client.table('leads_list')\
-                .update(update_data)\
-                .eq('profile_url', profile_url)\
-                .execute()
-            
-            print(f"  → Supabase response: {result}")
-            
-            if result.data:
-                print(f"  ✓ Updated lead after scrape: {update_data['name']}")
-                return True
-            else:
-                print(f"  ⚠️  No lead found to update: {profile_url}")
-                print(f"  → Response data: {result.data}")
-                return False
-            
-        except Exception as e:
-            print(f"  ✗ Failed to update lead after scrape: {e}")
-            print(f"  → Error type: {type(e).__name__}")
-            import traceback
-            traceback.print_exc()
-            return False
