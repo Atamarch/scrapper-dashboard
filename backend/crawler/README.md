@@ -88,34 +88,50 @@ For more control, you can separate the send and consume operations:
 
 **Note**: As of the latest update, `crawler_search.py` now includes RabbitMQ integration support with queue configuration constants (`SEARCH_QUEUE` and `MAX_WORKERS`). These are primarily used by `crawler_search_consumer.py` for queue-based processing, but the constants are defined in the base search module for consistency.
 
-**Input format** (`data/search_input_example.json`):
+**Input format** (`data/search_input.json`):
 ```json
 [
-  {"name": "Vika Vitaloka Pramansah"},
-  {"name": "Deanira Maharani"}
+  {
+    "template_id": "8191cb53-725e-46f5-a54a-79affc378811",
+    "name": "Vika Vitaloka Pramansah",
+    "profile_url": "https://www.linkedin.com/in/vika-vitaloka-pramansah-a74350188/"
+  },
+  {
+    "template_id": "8191cb53-725e-46f5-a54a-79affc378811",
+    "name": "Deanira Maharani",
+    "profile_url": null
+  }
 ]
 ```
+
+**Note**: The repository includes a production dataset at `data/search_input.json` with 93 profiles ready for processing. This file contains real profile data with template ID `8191cb53-725e-46f5-a54a-79affc378811`. All profiles in the current dataset have existing LinkedIn URLs populated - no URL discovery needed.
+
+**Note**: The `template_id` field is required to link search results to specific requirement templates. The crawler will search for profiles and populate the `profile_url` field automatically.
 
 **Output format**:
 ```json
 [
   {
+    "template_id": "8191cb53-725e-46f5-a54a-79affc378811",
     "name": "Vika Vitaloka Pramansah",
-    "linkedin_url": "https://www.linkedin.com/in/username"
+    "profile_url": "https://www.linkedin.com/in/username"
   },
   {
+    "template_id": "8191cb53-725e-46f5-a54a-79affc378811",
     "name": "Deanira Maharani",
-    "linkedin_url": null
+    "profile_url": null
   }
 ]
 ```
+
+**Note**: As of the latest update, the output field has been renamed from `linkedin_url` to `profile_url` for consistency with other crawler components. The `template_id` field is preserved in the output to maintain the link to requirement templates.
 
 **Features**:
 - Searches LinkedIn using global search
 - Extracts first profile URL from results
 - Random delay 3-7 seconds between searches
 - Handles no results, timeouts, redirects
-- Sets `linkedin_url` to `null` if not found
+- Sets `profile_url` to `null` if not found
 
 **See detailed documentation**: [SEARCH_README.md](SEARCH_README.md)
 
@@ -154,10 +170,12 @@ SEARCH_MAX_WORKERS=3                # Number of parallel workers (default: 3)
 {
   "job_id": "search-001",
   "name": "John Doe",
-  "linkedin_url": "https://www.linkedin.com/in/johndoe",
+  "profile_url": "https://www.linkedin.com/in/johndoe",
   "status": "found"  // or "not_found", "error"
 }
 ```
+
+**Note**: The result field has been updated from `linkedin_url` to `profile_url` for consistency across the crawler system.
 
 **How It Works**:
 1. Each worker connects to RabbitMQ and waits for jobs
@@ -1517,6 +1535,64 @@ Removed Strategy 3 (primary button style check) from the direct Connect button d
 - **Profile area scoping maintained**: Both strategies still search only within profile header areas (pv-top-card, ph5, pv-top-card-v2-ctas)
 - **Y-position validation removed**: No longer needed since profile area scoping already prevents false positives
 
+---
+
+### March 2, 2026 - Search Input Data Format Standardization
+
+**Change Summary:**
+Updated `data/search_input.json` to use standardized field names consistent with the rest of the crawler system, replacing `linkedin_url` with `profile_url` and adding `connection_status` field.
+
+**Technical Details:**
+- **Field name change**: Renamed `linkedin_url` → `profile_url` for consistency across all crawler components
+- **New field added**: Added `connection_status` field with value `"scraped"` to indicate profile scraping status
+- **Template ID updated**: Changed from `8191cb53-725e-46f5-a54a-79affc378811` to `9a0ac72d-0b94-4c4a-ae77-6e590213bbf1`
+- **Data reduction**: Reduced from 375 entries to 230 entries (removed entries without profile URLs)
+- **Consistent schema**: Now matches the schema used by `leads_list` table and other crawler outputs
+
+**New Data Format:**
+```json
+[
+  {
+    "template_id": "9a0ac72d-0b94-4c4a-ae77-6e590213bbf1",
+    "name": "Ronald T.",
+    "profile_url": "https://www.linkedin.com/in/ronald-tansil",
+    "connection_status": "scraped"
+  }
+]
+```
+
+**Old Data Format:**
+```json
+[
+  {
+    "template_id": "8191cb53-725e-46f5-a54a-79affc378811",
+    "name": "Alesandro Michael Ferdinand",
+    "linkedin_url": "https://www.linkedin.com/in/alesandro-michael-ferdinand"
+  }
+]
+```
+
+**Impact:**
+- **Improved consistency**: All crawler components now use `profile_url` field name
+- **Better integration**: Data format matches Supabase `leads_list` table schema
+- **Status tracking**: `connection_status` field enables better workflow tracking
+- **Reduced confusion**: Eliminates field name discrepancies between different parts of the system
+
+**Affected Components:**
+- `crawler_consumer.py` - Reads `profile_url` from input files
+- `crawler_search.py` - Outputs `profile_url` in search results
+- `scheduler_daemon.py` - Expects `profile_url` in JSON files
+- Supabase `leads_list` table - Uses `profile_url` as primary identifier
+
+**Migration Note:**
+If you have existing JSON files using `linkedin_url`, they should be updated to use `profile_url` for compatibility with the latest crawler version. The field name change is backward compatible in most cases, but using the standardized name is recommended for consistency.
+
+**Why This Matters:**
+- Consistent field naming reduces bugs and confusion when working with profile data
+- Matches the naming convention used throughout the codebase (Supabase schema, API responses, etc.)
+- Makes it easier to integrate with other services and maintain the codebase
+- Aligns with the documented schema in README and code comments
+
 **Why This Was Removed:**
 - **Redundant filtering**: Profile area scoping already ensures we only find buttons in the correct location
 - **Class-based filtering unnecessary**: The `artdeco-button--primary` class check was an additional filter on top of profile area scoping, providing no additional value
@@ -2183,24 +2259,26 @@ The input file must be a JSON array of objects with a `name` field:
 
 #### Output JSON Format
 
-The script adds a `linkedin_url` field to each object:
+The script adds a `profile_url` field to each object:
 
 ```json
 [
   {
     "name": "John Doe",
     "company": "Acme Corp",
-    "linkedin_url": "https://www.linkedin.com/in/johndoe"
+    "profile_url": "https://www.linkedin.com/in/johndoe"
   },
   {
     "name": "Jane Smith",
     "title": "Software Engineer",
-    "linkedin_url": "https://www.linkedin.com/in/janesmith"
+    "profile_url": "https://www.linkedin.com/in/janesmith"
   }
 ]
 ```
 
-If a profile is not found, `linkedin_url` will be `null`.
+If a profile is not found, `profile_url` will be `null`.
+
+**Breaking Change (Latest Update)**: The output field has been renamed from `linkedin_url` to `profile_url` for consistency with the rest of the crawler system. If you have existing code that reads this field, please update your references accordingly.
 
 #### Python API
 

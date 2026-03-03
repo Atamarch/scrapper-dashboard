@@ -202,7 +202,7 @@ class LinkedInSearchCrawler:
     
     def process_json_file(self, input_file, output_file=None):
         """
-        Process JSON file berisi array of names dan tambahkan linkedin_url
+        Process JSON file berisi array of names dan tambahkan profile_url
         
         Args:
             input_file (str): Path ke input JSON file
@@ -229,21 +229,21 @@ class LinkedInSearchCrawler:
                 # Validasi entry memiliki field 'name'
                 if 'name' not in entry:
                     print("  ⚠ Skipping: No 'name' field")
-                    entry['linkedin_url'] = None
+                    entry['profile_url'] = None
                     continue
                 
                 name = entry['name']
                 
-                # Skip jika sudah ada linkedin_url
-                if 'linkedin_url' in entry and entry['linkedin_url']:
-                    print(f"  ℹ Already has linkedin_url: {entry['linkedin_url']}")
+                # Skip jika sudah ada profile_url
+                if 'profile_url' in entry and entry['profile_url']:
+                    print(f"  ℹ Already has profile_url: {entry['profile_url']}")
                     continue
                 
                 # Search profile
                 profile_url = self.search_profile(name)
                 
                 # Tambahkan ke entry
-                entry['linkedin_url'] = profile_url
+                entry['profile_url'] = profile_url
             
             # Save hasil
             output_path = output_file if output_file else input_file
@@ -300,7 +300,7 @@ class LinkedInSearchCrawler:
     def _print_summary(self, data):
         """Print summary hasil processing"""
         total = len(data)
-        found = sum(1 for entry in data if entry.get('linkedin_url'))
+        found = sum(1 for entry in data if entry.get('profile_url'))
         not_found = total - found
         
         print("\nSummary:")
@@ -311,7 +311,7 @@ class LinkedInSearchCrawler:
         if not_found > 0:
             print("\nEntries without LinkedIn URL:")
             for entry in data:
-                if not entry.get('linkedin_url'):
+                if not entry.get('profile_url'):
                     print(f"  - {entry.get('name', 'N/A')}")
     
     def close(self):
@@ -387,7 +387,7 @@ def send_to_queue(json_file):
                 print(f"[{idx}/{len(data)}] ⚠ Skipping: No 'name' field")
                 continue
             
-            if entry.get('linkedin_url'):
+            if entry.get('profile_url'):
                 print(f"[{idx}/{len(data)}] ⚠ Skipping: {entry['name']} (already has URL)")
                 continue
             
@@ -501,14 +501,14 @@ def worker_thread(worker_id):
         print(f"[Worker {worker_id}] Stopped")
 
 
-def update_json_file(file_path, index, linkedin_url):
+def update_json_file(file_path, index, profile_url):
     """Update JSON file dengan hasil search"""
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
         if 0 <= index < len(data):
-            data[index]['linkedin_url'] = linkedin_url
+            data[index]['profile_url'] = profile_url
             
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)

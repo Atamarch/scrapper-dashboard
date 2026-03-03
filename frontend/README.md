@@ -7,6 +7,7 @@ Dashboard untuk mengelola leads dan templates dengan integrasi Supabase.
 - **Dashboard**: Menampilkan statistik total leads, connected, pending, conversion rate, dan total templates
 - **Leads**: Tabel leads dengan filter by template dan pagination
 - **Company**: Grid view companies dengan search, pagination, dan modal untuk view requirements (templates)
+- **Authentication**: Login/Sign up page with social OAuth integration and animated UI
 
 ## Tech Stack
 
@@ -73,6 +74,7 @@ companies (1) ──→ (N) search_templates (1) ──→ (N) leads_list
 - `/` - Dashboard dengan statistik
 - `/leads` - Daftar leads dengan filter template
 - `/company` - Daftar companies dengan search dan modal requirements
+- `/login` - Authentication page with sign in/sign up functionality
 
 ## Fitur Detail
 
@@ -97,6 +99,92 @@ companies (1) ──→ (N) search_templates (1) ──→ (N) leads_list
   - Search by name atau job title
   - Pagination (6 items per page)
   - Button "View Leads" yang redirect ke leads page dengan filter template
+
+### Login/Authentication
+- Dual-mode authentication page (Sign In / Sign Up)
+- Animated toggle between sign in and sign up modes
+- Form fields:
+  - Email (both modes)
+  - Password with show/hide toggle (both modes)
+  - Full Name (sign up only)
+  - Forgot password link (sign in only)
+- Social authentication buttons:
+  - Google OAuth
+  - Facebook OAuth
+  - Apple OAuth
+- Glassmorphism design with decorative cloud elements
+- Sarana AI branding with logo display
+- Responsive layout with centered card design
+- Smooth flip animation when switching modes (300ms transition)
+
+## Authentication & Authorization
+
+### Middleware Protection (`frontend/middleware.ts`)
+
+The application implements route-level authentication and role-based access control using Next.js middleware.
+
+#### Features
+
+**1. Session Management**
+- Validates user session on every request using Supabase Auth
+- Automatically redirects unauthenticated users to `/login`
+- Prevents authenticated users from accessing login page (redirects to dashboard)
+
+**2. Role-Based Access Control (RBAC)**
+- Enforces admin-only access to all protected routes
+- Checks user role from multiple metadata sources:
+  - `user_metadata.role`
+  - `app_metadata.role`
+  - `raw_app_meta_data.role`
+- Automatically signs out non-admin users and redirects to login
+
+**3. Protected Routes**
+All routes except the following are protected:
+- `/login` - Public authentication page
+- `/_next/static/*` - Next.js static assets
+- `/_next/image/*` - Next.js image optimization
+- `/favicon.ico` - Favicon
+- `/logo_sarana_ai.jpg` - Logo image
+- Static assets (`.svg`, `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`)
+
+#### Implementation Details
+
+```typescript
+// Middleware flow:
+1. Create Supabase client with middleware context
+2. Get current session
+3. Check if accessing login page:
+   - If logged in → redirect to dashboard
+   - If not logged in → allow access
+4. For all other routes:
+   - If not logged in → redirect to login
+   - If logged in but not admin → sign out and redirect to login
+   - If logged in and admin → allow access
+```
+
+#### User Role Configuration
+
+To grant admin access, set the user's role in Supabase:
+
+**Option 1: Via Supabase Dashboard**
+1. Go to Authentication → Users
+2. Select user
+3. Edit user metadata
+4. Add: `{ "role": "admin" }`
+
+**Option 2: Via SQL**
+```sql
+UPDATE auth.users
+SET raw_app_meta_data = raw_app_meta_data || '{"role": "admin"}'::jsonb
+WHERE email = 'user@example.com';
+```
+
+#### Security Considerations
+
+- Session validation occurs on every request (server-side)
+- Non-admin users are immediately signed out (prevents token reuse)
+- Multiple metadata sources checked for role (fallback mechanism)
+- Static assets excluded from auth checks (performance optimization)
 
 
 ## TypeScript Types

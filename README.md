@@ -360,6 +360,37 @@ SUPABASE_URL=
 SUPABASE_KEY=
 ```
 
+## 🔒 Authentication & Authorization
+
+### Frontend Middleware (`frontend/middleware.ts`)
+
+The application uses Next.js middleware with Supabase SSR for authentication and authorization.
+
+#### Features
+- **Session Management**: Uses `@supabase/ssr` for server-side session handling
+- **Cookie-based Auth**: Properly manages authentication cookies across requests
+- **Role-based Access Control**: Enforces admin-only access to protected routes
+- **Auto-redirect Logic**:
+  - Logged-in users accessing `/login` → redirected to dashboard (`/`)
+  - Non-authenticated users → redirected to `/login`
+  - Non-admin users → signed out and redirected to `/login`
+
+#### Protected Routes
+All routes are protected except:
+- Static assets (`_next/static`, `_next/image`)
+- Public images (`favicon.ico`, `logo_sarana_ai.jpg`, and image files)
+
+#### Role Verification
+The middleware checks for admin role in multiple metadata locations:
+- `user_metadata.role`
+- `app_metadata.role`
+- `raw_app_meta_data.role`
+
+Only users with `role: 'admin'` can access the application.
+
+#### Migration from Auth Helpers
+The middleware has been updated from `@supabase/auth-helpers-nextjs` to `@supabase/ssr` for better Next.js 13+ compatibility and improved cookie handling.
+
 ## 📞 Support
 
 Jika ada masalah, cek:
