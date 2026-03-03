@@ -34,6 +34,10 @@ wheels/
 data/output/*
 !data/output/.gitkeep
 
+# Ignore cookie files (sensitive)
+data/cookie/*.json
+!data/cookie/.gitkeep
+
 # Keep other data folders
 !data/cookie/
 

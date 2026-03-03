@@ -542,7 +542,7 @@ The crawler consumer tracks the following metrics:
 Each worker automatically:
 1. Connects to Supabase on startup (gracefully continues without it if connection fails)
 2. Scrapes the LinkedIn profile
-3. Saves profile data to local JSON file (`data/output/`)
+3. ~~Saves profile data to local JSON file (`data/output/`)~~ **DISABLED** - Local file saving is now disabled to reduce disk usage
 4. Saves profile data to Supabase `leads_list` table with:
    - `profile_url`: LinkedIn profile URL
    - `name`: Extracted from profile data
@@ -550,13 +550,16 @@ Each worker automatically:
    - `connection_status`: Set to 'scraped'
 5. Sends profile data to scoring queue for processing
 
-If Supabase connection fails, the worker continues operating and saves data locally only.
+**Note**: As of the latest update, local JSON file backups are disabled. All profile data is stored exclusively in Supabase. This reduces disk usage and simplifies data management. The `save_profile_data()` function remains available in the codebase but is commented out in the consumer workflow.
 
 ## Output
 
-JSON files saved to: `data/output/`
+**Note**: Local JSON file saving has been disabled in the consumer workflow. Profile data is now stored exclusively in Supabase.
 
-Example structure:
+~~JSON files saved to: `data/output/`~~
+
+The `data/output/` directory may still contain historical profile data from previous runs, but new profiles are no longer saved locally. All profile data is stored in the Supabase `leads_list` table with the following structure in the `profile_data` JSONB column:
+
 ```json
 {
   "profile_url": "...",
