@@ -18,13 +18,27 @@ class ScheduleManager:
     
     @staticmethod
     def get_all_simple() -> List[Dict]:
-        """Get all schedules (simple version, no template names)"""
-        response = supabase.table('crawler_schedules')\
-            .select('*')\
-            .order('created_at', desc=True)\
-            .execute()
-        
-        return response.data or []
+        """Get all schedules with template names (using FK relationship)"""
+        try:
+            response = supabase.table('crawler_schedules').select('''
+                *,
+                search_templates (
+                    id,
+                    name
+                )
+            ''').order('created_at', desc=True).execute()
+            
+            return response.data or []
+            
+        except Exception as e:
+            print(f"Error getting schedules with JOIN: {e}")
+            # Fallback: get without template names if FK not ready yet
+            response = supabase.table('crawler_schedules')\
+                .select('*')\
+                .order('created_at', desc=True)\
+                .execute()
+            
+            return response.data or []
     
     @staticmethod
     def get_by_id(schedule_id: str) -> Optional[Dict]:
