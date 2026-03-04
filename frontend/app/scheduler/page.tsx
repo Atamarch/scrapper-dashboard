@@ -225,9 +225,9 @@ export default function SchedulerPage() {
             <div className="rounded-lg border border-gray-700 bg-[#1a1f2e] p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-400">Paused Schedules</p>
+                  <p className="text-sm text-gray-400">Inactive Schedules</p>
                   <p className="mt-2 text-3xl font-bold text-white">
-                    {jobs.filter(j => j.status === 'paused').length}
+                    {jobs.filter(j => j.status === 'inactive').length}
                   </p>
                 </div>
                 <div className="rounded-full bg-yellow-500/10 p-3">
@@ -320,7 +320,7 @@ export default function SchedulerPage() {
                                 job.status === 'active' ? 'bg-green-500' : 'bg-yellow-500'
                               }`}
                             />
-                            {job.status}
+                            {job.status === 'active' ? 'Active' : 'Paused'}
                           </span>
                         </td>
                         <td className="px-6 py-4 text-sm text-gray-400">
