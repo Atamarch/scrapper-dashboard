@@ -171,42 +171,16 @@ class CrawlerScheduleUpdate(BaseModel):
     status: Optional[str] = None
 
 @app.get("/api/schedules")
-async def get_schedules(
-    status: Optional[str] = None,
-    template_id: Optional[str] = None,
-    limit: Optional[int] = None,
-    offset: Optional[int] = 0
-):
-    """Get all schedules with optional filters
-    
-    Query params:
-    - status: Filter by status ('active' or 'inactive')
-    - template_id: Filter by template ID
-    - limit: Number of results (optional, no limit by default)
-    - offset: Pagination offset (default: 0)
-    
-    Examples:
-    - GET /api/schedules                    → Get ALL schedules
-    - GET /api/schedules?status=active      → Get all active schedules
-    - GET /api/schedules?limit=10&offset=0  → Get first 10 schedules
-    """
+async def get_schedules():
+    """Get all schedules (simple - no parameters needed)"""
     try:
-        result = ScheduleManager.get_all(status, template_id, limit, offset)
+        schedules = ScheduleManager.get_all_simple()
         
-        response_data = {
+        return {
             "success": True,
-            "count": result['total'],
-            "returned": len(result['schedules']),
-            "schedules": result['schedules']
+            "count": len(schedules),
+            "schedules": schedules
         }
-        
-        # Only include pagination info if limit was specified
-        if limit is not None:
-            response_data["limit"] = limit
-            response_data["offset"] = offset
-            response_data["has_more"] = (offset + len(result['schedules'])) < result['total']
-        
-        return response_data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

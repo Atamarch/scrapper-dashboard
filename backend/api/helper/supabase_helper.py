@@ -17,42 +17,17 @@ class ScheduleManager:
     """Manage crawler schedules in Supabase"""
     
     @staticmethod
-    def get_all(status: Optional[str] = None, template_id: Optional[str] = None, 
-                limit: Optional[int] = None, offset: int = 0) -> Dict:
-        """Get all schedules with filters"""
-        query = supabase.table('crawler_schedules').select('''
+    def get_all_simple() -> List[Dict]:
+        """Get all schedules (simple version, no filters)"""
+        response = supabase.table('crawler_schedules').select('''
             *,
             search_templates (
                 id,
                 name
             )
-        ''')
+        ''').order('created_at', desc=True).execute()
         
-        if status:
-            query = query.eq('status', status)
-        if template_id:
-            query = query.eq('template_id', template_id)
-        
-        query = query.order('created_at', desc=True)
-        
-        # Apply pagination only if limit is specified
-        if limit is not None:
-            query = query.range(offset, offset + limit - 1)
-        
-        response = query.execute()
-        
-        # Get total count
-        count_query = supabase.table('crawler_schedules').select('id', count='exact')
-        if status:
-            count_query = count_query.eq('status', status)
-        if template_id:
-            count_query = count_query.eq('template_id', template_id)
-        count_response = count_query.execute()
-        
-        return {
-            'schedules': response.data or [],
-            'total': count_response.count or 0
-        }
+        return response.data or []
     
     @staticmethod
     def get_by_id(schedule_id: str) -> Optional[Dict]:
