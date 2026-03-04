@@ -172,3 +172,80 @@ class LeadsManager:
             'leads': leads.data or [],
             'total': count.count or 0
         }
+
+
+class ReQueueManager:
+    """Manage re-queueing of failed leads"""
+    
+    @staticmethod
+    def get_failed_leads(template_id: Optional[str] = None, check_profile_data: bool = True, check_scoring_data: bool = True) -> List[Dict]:
+        """Get leads that failed scraping or scoring"""
+        query = supabase.table('leads_list').select('*')
+        
+        # Filter by template if provided
+        if template_id:
+            query = query.eq('template_id', template_id)
+        
+        # Get all leads and filter in Python since Supabase OR with null checks can be tricky
+        response = query.execute()
+        leads = response.data or []
+        
+        # Filter leads with missing data
+        failed_leads = []
+        for lead in leads:
+            should_requeue = False
+            
+            if check_profile_data and (not lead.get('profile_data') or lead.get('profile_data') in [None, '', {}]):
+                should_requeue = True
+            
+            if check_scoring_data and (not lead.get('scoring_data') or lead.get('scoring_data') in [None, '', {}]):
+                should_requeue = True
+            
+            if should_requeue:
+                failed_leads.append(lead)
+        
+        return failed_leads
+
+
+class ReQueueManager:
+    """Manage re-queueing of failed leads"""
+
+    @staticmethod
+    def get_failed_leads(template_id: Optional[str] = None, check_profile_data: bool = True, check_scoring_data: bool = True) -> List[Dict]:
+        """Get leads that failed scraping or scoring"""
+        query = supabase.table('leads_list').select('*')
+
+        # Filter by template if provided
+        if template_id:
+            query = query.eq('template_id', template_id)
+
+        # Build conditions for missing data
+        conditions = []
+        if check_profile_data:
+            conditions.append('profile_data.is.null')
+        if check_scoring_data:
+            conditions.append('scoring_data.is.null')
+
+        # Apply OR condition for missing data
+        if conditions:
+            # For now, we'll get all and filter in Python since Supabase OR with null checks can be tricky
+            response = query.execute()
+            leads = response.data or []
+
+            # Filter leads with missing data
+            failed_leads = []
+            for lead in leads:
+                should_requeue = False
+
+                if check_profile_data and (not lead.get('profile_data') or lead.get('profile_data') in [None, '', {}]):
+                    should_requeue = True
+
+                if check_scoring_data and (not lead.get('scoring_data') or lead.get('scoring_data') in [None, '', {}]):
+                    should_requeue = True
+
+                if should_requeue:
+                    failed_leads.append(lead)
+
+            return failed_leads
+
+        return []

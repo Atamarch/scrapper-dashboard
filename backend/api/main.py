@@ -20,7 +20,7 @@ sys.path.append(str(Path(__file__).parent.parent / "crawler"))
 from scheduler_service import SchedulerService
 from database import Database
 from helper.rabbitmq_helper import queue_publisher
-from helper.supabase_helper import ScheduleManager, CompanyManager, LeadsManager
+from helper.supabase_helper import ScheduleManager, CompanyManager, LeadsManager, ReQueueManager
 
 app = FastAPI(title="LinkedIn Crawler API", version="1.0.0")
 
@@ -188,22 +188,27 @@ class WebhookLeadInsert(BaseModel):
         description="Previous record data (for UPDATE operations)"
     )
 
-class InstantCrawlRequest(BaseModel):
-    """Request to crawl single profile immediately"""
-    profile_url: str = Field(
-        ...,
-        example="https://linkedin.com/in/johndoe",
-        description="LinkedIn profile URL to crawl"
-    )
+class ReQueueRequest(BaseModel):
+    """Request to re-queue failed leads"""
     template_id: Optional[str] = Field(
         None,
         example="38a1699d-ad54-4f05-9483-e3d35142d35f",
-        description="Template ID for scoring"
+        description="Template ID to filter leads (optional, if not provided will check all)"
     )
-    requirements_id: Optional[str] = Field(
-        'default',
-        example="desk_collection",
-        description="Requirements ID for scoring"
+    check_profile_data: bool = Field(
+        True,
+        example=True,
+        description="Check for missing profile_data"
+    )
+    check_scoring_data: bool = Field(
+        True,
+        example=True,
+        description="Check for missing scoring_data"
+    )
+    dry_run: bool = Field(
+        False,
+        example=False,
+        description="If true, only show what would be re-queued (for testing)"
     )
 
 
@@ -1150,6 +1155,75 @@ async def get_leads_by_company(
         }
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/leads/requeue")
+async def requeue_failed_leads(request: ReQueueRequest):
+    """Re-queue leads that failed scraping or scoring"""
+    try:
+        # Get failed leads
+        failed_leads = ReQueueManager.get_failed_leads(
+            template_id=request.template_id,
+            check_profile_data=request.check_profile_data,
+            check_scoring_data=request.check_scoring_data
+        )
+        
+        if request.dry_run:
+            # Just return what would be re-queued
+            return {
+                "success": True,
+                "dry_run": True,
+                "total_failed_leads": len(failed_leads),
+                "template_id": request.template_id,
+                "check_profile_data": request.check_profile_data,
+                "check_scoring_data": request.check_scoring_data,
+                "leads_to_requeue": [
+                    {
+                        "id": lead.get('id'),
+                        "name": lead.get('name'),
+                        "profile_url": lead.get('profile_url'),
+                        "template_id": lead.get('template_id'),
+                        "has_profile_data": bool(lead.get('profile_data')),
+                        "has_scoring_data": bool(lead.get('scoring_data'))
+                    }
+                    for lead in failed_leads
+                ]
+            }
+        
+        # Actually re-queue the leads
+        requeued_count = 0
+        failed_requeue = []
+        
+        for lead in failed_leads:
+            profile_url = lead.get('profile_url')
+            template_id = lead.get('template_id')
+            
+            if profile_url:
+                success = queue_publisher.publish_crawler_job(profile_url, template_id)
+                if success:
+                    requeued_count += 1
+                else:
+                    failed_requeue.append({
+                        "id": lead.get('id'),
+                        "name": lead.get('name'),
+                        "profile_url": profile_url,
+                        "error": "Failed to publish to queue"
+                    })
+        
+        return {
+            "success": True,
+            "dry_run": False,
+            "total_failed_leads": len(failed_leads),
+            "requeued_successfully": requeued_count,
+            "failed_to_requeue": len(failed_requeue),
+            "template_id": request.template_id,
+            "check_profile_data": request.check_profile_data,
+            "check_scoring_data": request.check_scoring_data,
+            "failed_requeue_details": failed_requeue
+        }
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
