@@ -360,19 +360,6 @@ export default function SchedulerPage() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Description (Optional)
-                </label>
-                <textarea
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className="w-full rounded-md border border-gray-700 bg-[#141C33] px-3 py-2 text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  placeholder="Describe what this schedule does..."
-                  rows={3}
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
                   Status
                 </label>
                 <select
