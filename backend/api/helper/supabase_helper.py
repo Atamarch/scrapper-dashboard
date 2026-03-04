@@ -18,14 +18,11 @@ class ScheduleManager:
     
     @staticmethod
     def get_all_simple() -> List[Dict]:
-        """Get all schedules (simple version, no filters)"""
-        response = supabase.table('crawler_schedules').select('''
-            *,
-            search_templates (
-                id,
-                name
-            )
-        ''').order('created_at', desc=True).execute()
+        """Get all schedules (simple version, no template names)"""
+        response = supabase.table('crawler_schedules')\
+            .select('*')\
+            .order('created_at', desc=True)\
+            .execute()
         
         return response.data or []
     
