@@ -22,6 +22,18 @@ from database import Database
 from helper.rabbitmq_helper import queue_publisher
 from helper.supabase_helper import ScheduleManager, CompanyManager, LeadsManager, ReQueueManager
 
+# Error handling decorator
+def handle_api_errors(func):
+    """Decorator to handle common API errors"""
+    async def wrapper(*args, **kwargs):
+        try:
+            return await func(*args, **kwargs)
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    return wrapper
+
 app = FastAPI(title="LinkedIn Crawler API", version="1.0.0")
 
 # CORS - Allow Vercel and localhost
@@ -69,21 +81,6 @@ def init_services():
         return False
 
 # Pydantic models
-class ScheduleCreate(BaseModel):
-    name: str
-    start_schedule: str  # cron expression
-    stop_schedule: Optional[str] = None  # cron expression
-    profile_urls: List[str] = []  # URLs to crawl
-    max_workers: int = 3
-
-class ScheduleUpdate(BaseModel):
-    name: Optional[str] = None
-    start_schedule: Optional[str] = None
-    stop_schedule: Optional[str] = None
-    status: Optional[str] = None  # 'active' or 'paused'
-    profile_urls: Optional[List[str]] = None
-    max_workers: Optional[int] = None
-
 class RequirementsGenerateRequest(BaseModel):
     url: Optional[str] = Field(
         None,
@@ -328,18 +325,14 @@ async def get_schedules():
 
 
 @app.get("/api/schedules/{schedule_id}")
+@handle_api_errors
 async def get_schedule(schedule_id: str):
     """Get specific schedule by ID"""
-    try:
-        schedule = ScheduleManager.get_by_id(schedule_id)
-        if not schedule:
-            raise HTTPException(status_code=404, detail="Schedule not found")
-        
-        return {"success": True, "schedule": schedule}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    schedule = ScheduleManager.get_by_id(schedule_id)
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    
+    return {"success": True, "schedule": schedule}
 
 
 @app.post("/api/schedules")
@@ -458,6 +451,162 @@ async def toggle_schedule(schedule_id: str):
             "new_status": new_status,
             "schedule": updated
         }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/schedules/queue/status")
+async def get_queue_status():
+    """Get queue status and consumer information"""
+    try:
+        import pika
+        
+        # Connect to RabbitMQ
+        credentials = pika.PlainCredentials(
+            os.getenv('RABBITMQ_USER'),
+            os.getenv('RABBITMQ_PASS')
+        )
+        parameters = pika.ConnectionParameters(
+            host=os.getenv('RABBITMQ_HOST'),
+            port=int(os.getenv('RABBITMQ_PORT')),
+            virtual_host=os.getenv('RABBITMQ_VHOST'),
+            credentials=credentials
+        )
+        
+        connection = pika.BlockingConnection(parameters)
+        channel = connection.channel()
+        
+        # Check main queue
+        main_queue = os.getenv('RABBITMQ_QUEUE', 'linkedin_profiles')
+        main_queue_state = channel.queue_declare(queue=main_queue, durable=True, passive=True)
+        main_queue_size = main_queue_state.method.message_count
+        
+        # Check scoring queue
+        scoring_queue = os.getenv('SCORING_QUEUE', 'scoring_queue')
+        try:
+            scoring_queue_state = channel.queue_declare(queue=scoring_queue, durable=True, passive=True)
+            scoring_queue_size = scoring_queue_state.method.message_count
+        except:
+            scoring_queue_size = 0
+        
+        connection.close()
+        
+        # Check if consumer is running (simplified check)
+        consumer_running = False
+        try:
+            import psutil
+            for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                try:
+                    cmdline = proc.info['cmdline']
+                    if cmdline and 'python' in cmdline[0] and 'crawler_consumer.py' in ' '.join(cmdline):
+                        consumer_running = True
+                        break
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                    pass
+        except ImportError:
+            consumer_running = None  # Can't determine
+        
+        return {
+            "success": True,
+            "queue_status": {
+                "main_queue": {
+                    "name": main_queue,
+                    "messages": main_queue_size
+                },
+                "scoring_queue": {
+                    "name": scoring_queue,
+                    "messages": scoring_queue_size
+                }
+            },
+            "consumer_status": {
+                "crawler_consumer_running": consumer_running,
+                "can_check_consumer": consumer_running is not None
+            },
+            "total_pending": main_queue_size + scoring_queue_size
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get queue status: {str(e)}")
+
+
+@app.post("/api/schedules/consumer/start")
+async def start_consumer():
+    """Manually start crawler consumer (local only)"""
+    try:
+        import subprocess
+        import psutil
+        
+        # Check if already running
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            try:
+                cmdline = proc.info['cmdline']
+                if cmdline and 'python' in cmdline[0] and 'crawler_consumer.py' in ' '.join(cmdline):
+                    return {
+                        "success": False,
+                        "message": f"Crawler consumer is already running (PID: {proc.info['pid']})",
+                        "pid": proc.info['pid']
+                    }
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                pass
+        
+        # Start consumer
+        crawler_dir = os.path.join(os.path.dirname(__file__), '..', 'crawler')
+        consumer_path = os.path.join(crawler_dir, 'crawler_consumer.py')
+        
+        if not os.path.exists(consumer_path):
+            raise HTTPException(status_code=404, detail="Crawler consumer script not found")
+        
+        process = subprocess.Popen(
+            ['python', consumer_path],
+            cwd=crawler_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0
+        )
+        
+        return {
+            "success": True,
+            "message": "Crawler consumer started successfully",
+            "pid": process.pid,
+            "working_directory": crawler_dir
+        }
+        
+    except ImportError:
+        raise HTTPException(status_code=500, detail="psutil not available - cannot manage consumer")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start consumer: {str(e)}")
+
+
+@app.post("/api/schedules/{schedule_id}/execute")
+async def execute_schedule_manually(schedule_id: str):
+    """Manually execute a specific schedule"""
+    try:
+        # Get schedule
+        schedule = ScheduleManager.get_by_id(schedule_id)
+        if not schedule:
+            raise HTTPException(status_code=404, detail="Schedule not found")
+        
+        # Update last_run timestamp
+        ScheduleManager.update(schedule_id, {
+            'last_run': datetime.now().isoformat()
+        })
+        
+        # Get queue status
+        queue_status_response = await get_queue_status()
+        queue_info = queue_status_response["queue_status"]
+        
+        return {
+            "success": True,
+            "message": f"Schedule '{schedule['name']}' executed manually",
+            "schedule_id": schedule_id,
+            "schedule_name": schedule['name'],
+            "last_run_updated": True,
+            "queue_status": queue_info,
+            "note": "Queue status checked and last_run timestamp updated. Consumer should process any pending messages."
+        }
+        
     except HTTPException:
         raise
     except Exception as e:

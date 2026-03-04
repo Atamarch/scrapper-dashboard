@@ -11,11 +11,11 @@ load_dotenv()
 
 # Load delay configuration from environment
 try:
-    MIN_DELAY = float(os.getenv('MIN_DELAY', '2.0'))
-    MAX_DELAY = float(os.getenv('MAX_DELAY', '5.0'))
-    PROFILE_DELAY_MIN = float(os.getenv('PROFILE_DELAY_MIN', '10.0'))
-    PROFILE_DELAY_MAX = float(os.getenv('PROFILE_DELAY_MAX', '20.0'))
-    USE_MOBILE_MODE = os.getenv('USE_MOBILE_MODE', 'false').lower() == 'true'
+    MIN_DELAY = float(os.getenv('MIN_DELAY'))
+    MAX_DELAY = float(os.getenv('MAX_DELAY'))
+    PROFILE_DELAY_MIN = float(os.getenv('PROFILE_DELAY_MIN'))
+    PROFILE_DELAY_MAX = float(os.getenv('PROFILE_DELAY_MAX'))
+    USE_MOBILE_MODE = os.getenv('USE_MOBILE_MODE').lower() == 'true'
 except:
     MIN_DELAY = 2.0
     MAX_DELAY = 5.0

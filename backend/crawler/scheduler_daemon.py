@@ -1,14 +1,17 @@
 """
 Crawler Scheduler Daemon
 Polls Supabase for scheduled crawl jobs and executes them
+Auto-starts crawler consumer when needed
 """
 import os
 import time
 import json
+import subprocess
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from supabase import create_client, Client
 import logging
+import psutil
 
 # Setup logging
 logging.basicConfig(
@@ -94,7 +97,7 @@ def get_unscraped_profiles_from_supabase(limit=100):
 
 
 def execute_schedule(schedule):
-    """Execute a scheduled crawl job - Log that queue is ready to be processed"""
+    """Execute a scheduled crawl job - Start consumer if needed"""
     schedule_id = schedule['id']
     schedule_name = schedule['name']
     
@@ -143,7 +146,13 @@ def execute_schedule(schedule):
         
         if queue_size > 0:
             logger.info(f"✅ Queue has {queue_size} messages ready to be processed")
-            logger.info(f"   Consumer (crawler_consumer.py) should be running 24/7 to process these")
+            
+            # Auto-start crawler consumer if not running
+            if not is_consumer_running():
+                logger.info(f"🚀 Starting crawler consumer automatically...")
+                start_crawler_consumer()
+            else:
+                logger.info(f"✅ Crawler consumer is already running")
         else:
             logger.info(f"ℹ️  Queue is empty - no profiles to process")
         
@@ -153,6 +162,52 @@ def execute_schedule(schedule):
     logger.info(f"\n{'='*60}")
     logger.info(f"SCHEDULE COMPLETED: {schedule_name}")
     logger.info(f"{'='*60}\n")
+
+
+def is_consumer_running():
+    """Check if crawler consumer is already running"""
+    import psutil
+    
+    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+        try:
+            cmdline = proc.info['cmdline']
+            if cmdline and 'python' in cmdline[0] and 'crawler_consumer.py' in ' '.join(cmdline):
+                logger.info(f"✅ Found running consumer: PID {proc.info['pid']}")
+                return True
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            pass
+    
+    return False
+
+
+def start_crawler_consumer():
+    """Start crawler consumer as background process"""
+    import subprocess
+    import os
+    
+    try:
+        # Get current directory (should be backend/crawler)
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        consumer_path = os.path.join(current_dir, 'crawler_consumer.py')
+        
+        # Start consumer as background process
+        process = subprocess.Popen(
+            ['python', consumer_path],
+            cwd=current_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0
+        )
+        
+        logger.info(f"🚀 Crawler consumer started with PID: {process.pid}")
+        logger.info(f"📁 Working directory: {current_dir}")
+        logger.info(f"🐍 Command: python {consumer_path}")
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to start crawler consumer: {e}")
+        return False
 
 
 def main():
