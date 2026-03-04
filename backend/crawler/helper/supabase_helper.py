@@ -256,3 +256,19 @@ class SupabaseManager:
     def get_lead_by_url(self, profile_url):
         """Get lead by profile URL (alias for get_lead)"""
         return self.get_lead(profile_url)
+    
+    def get_template_by_id(self, template_id):
+        """Get template data by ID"""
+        try:
+            result = self.client.table('search_templates')\
+                .select('*')\
+                .eq('id', template_id)\
+                .execute()
+            
+            if result.data:
+                return result.data[0]
+            return None
+            
+        except Exception as e:
+            print(f"  ✗ Failed to get template: {e}")
+            return None

@@ -14,6 +14,11 @@ from helper.supabase_helper import SupabaseManager
 
 load_dotenv()
 
+# Configuration
+SCORING_QUEUE = os.getenv('SCORING_QUEUE', 'scoring_queue')
+REQUIREMENTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'scoring', 'requirements')
+DB_CHECK_INTERVAL = int(os.getenv('DB_CHECK_INTERVAL', '300'))  # 5 minutes default
+
 
 # ============================================================================
 # UTILITY FUNCTIONS
@@ -97,6 +102,7 @@ stats = {
     'sent_to_scoring': 0,
     'saved_to_supabase': 0,
     'supabase_failed': 0,
+    'requeued_from_db': 0,
     'lock': threading.Lock()
 }
 
@@ -113,9 +119,199 @@ def print_stats():
     print(f"Sent to Scoring: {stats['sent_to_scoring']}")
     print(f"Saved to Supabase: {stats['saved_to_supabase']}")
     print(f"Supabase Failed: {stats['supabase_failed']}")
+    print(f"Re-queued from DB: {stats['requeued_from_db']}")
     if stats['completed'] + stats['failed'] > 0:
         success_rate = stats['completed'] / (stats['completed'] + stats['failed']) * 100
         print(f"Success Rate: {success_rate:.1f}%")
+    print("="*60)
+
+
+# ============================================================================
+# SMART QUEUE MANAGEMENT FUNCTIONS
+# ============================================================================
+
+def check_template_has_requirements(template_id):
+    """Check if template has requirements file"""
+    if not template_id:
+        return False
+    
+    # Check if requirements file exists
+    requirements_file = os.path.join(REQUIREMENTS_DIR, f"{template_id}.json")
+    if os.path.exists(requirements_file):
+        return True
+    
+    # Also check by template name (fallback)
+    try:
+        # Get template name from Supabase
+        supabase = SupabaseManager()
+        template = supabase.get_template_by_id(template_id)
+        if template and template.get('name'):
+            template_name = template['name'].lower().replace(' ', '_')
+            requirements_file = os.path.join(REQUIREMENTS_DIR, f"{template_name}.json")
+            return os.path.exists(requirements_file)
+    except Exception as e:
+        print(f"⚠ Error checking template requirements: {e}")
+    
+    return False
+
+
+def get_pending_leads_from_database():
+    """Get leads that need to be re-queued from database"""
+    try:
+        supabase = SupabaseManager()
+        
+        print("\n🔍 Checking database for pending leads...")
+        
+        # Query leads that need processing
+        # Criteria: missing profile_data OR missing scoring_data
+        response = supabase.supabase.table('leads_list').select(
+            'id, profile_url, template_id, profile_data, scoring_data'
+        ).execute()
+        
+        if not response.data:
+            print("   No leads found in database")
+            return []
+        
+        pending_leads = []
+        total_leads = len(response.data)
+        
+        for lead in response.data:
+            profile_url = lead.get('profile_url')
+            template_id = lead.get('template_id')
+            profile_data = lead.get('profile_data')
+            scoring_data = lead.get('scoring_data')
+            
+            if not profile_url or not template_id:
+                continue
+            
+            # Check if template has requirements
+            if not check_template_has_requirements(template_id):
+                continue
+            
+            # Check if needs processing
+            needs_scraping = not profile_data or profile_data in [None, '', '{}', {}]
+            needs_scoring = not scoring_data or scoring_data in [None, '', '{}', {}]
+            
+            if needs_scraping or needs_scoring:
+                pending_leads.append({
+                    'id': lead['id'],
+                    'profile_url': profile_url,
+                    'template_id': template_id,
+                    'needs_scraping': needs_scraping,
+                    'needs_scoring': needs_scoring
+                })
+        
+        print(f"   📊 Database scan results:")
+        print(f"      Total leads: {total_leads}")
+        print(f"      Pending leads: {len(pending_leads)}")
+        print(f"      Need scraping: {sum(1 for l in pending_leads if l['needs_scraping'])}")
+        print(f"      Need scoring: {sum(1 for l in pending_leads if l['needs_scoring'])}")
+        
+        return pending_leads
+        
+    except Exception as e:
+        print(f"❌ Error getting pending leads: {e}")
+        return []
+
+
+def requeue_pending_leads(pending_leads, mq_config):
+    """Re-queue pending leads to processing queue"""
+    if not pending_leads:
+        return 0
+    
+    print(f"\n📤 Re-queueing {len(pending_leads)} pending leads...")
+    
+    # Connect to RabbitMQ
+    mq = RabbitMQManager()
+    mq.host = mq_config['host']
+    mq.port = mq_config['port']
+    mq.username = mq_config['username']
+    mq.password = mq_config['password']
+    mq.queue_name = mq_config['queue_name']
+    
+    if not mq.connect():
+        print("❌ Failed to connect to RabbitMQ for re-queueing")
+        return 0
+    
+    requeued_count = 0
+    
+    try:
+        for lead in pending_leads:
+            message = {
+                'url': lead['profile_url'],
+                'template_id': lead['template_id'],
+                'timestamp': datetime.now().isoformat(),
+                'trigger': 'database_validation',
+                'lead_id': lead['id']
+            }
+            
+            try:
+                mq.channel.basic_publish(
+                    exchange='',
+                    routing_key=mq.queue_name,
+                    body=json.dumps(message),
+                    properties=pika.BasicProperties(
+                        delivery_mode=2,  # Persistent
+                        content_type='application/json'
+                    )
+                )
+                requeued_count += 1
+                
+            except Exception as e:
+                print(f"   ❌ Failed to queue {lead['profile_url']}: {e}")
+        
+        print(f"   ✅ Successfully re-queued {requeued_count}/{len(pending_leads)} leads")
+        
+        with stats['lock']:
+            stats['requeued_from_db'] += requeued_count
+        
+    finally:
+        mq.close()
+    
+    return requeued_count
+
+
+def smart_queue_check(mq_config):
+    """Smart queue management - check queue then database"""
+    print("\n" + "="*60)
+    print("🧠 SMART QUEUE MANAGEMENT")
+    print("="*60)
+    
+    # Step 1: Check current queue size
+    mq = RabbitMQManager()
+    mq.host = mq_config['host']
+    mq.port = mq_config['port']
+    mq.username = mq_config['username']
+    mq.password = mq_config['password']
+    mq.queue_name = mq_config['queue_name']
+    
+    if not mq.connect():
+        print("❌ Failed to connect to RabbitMQ for queue check")
+        return
+    
+    queue_size = mq.get_queue_size()
+    mq.close()
+    
+    print(f"📊 Current queue status:")
+    print(f"   Queue: {mq_config['queue_name']}")
+    print(f"   Messages waiting: {queue_size}")
+    
+    # Step 2: If queue is empty or low, check database
+    if queue_size <= 5:  # Threshold for "low queue"
+        print(f"\n🔄 Queue is {'empty' if queue_size == 0 else 'low'} - checking database for pending leads...")
+        
+        # Get pending leads from database
+        pending_leads = get_pending_leads_from_database()
+        
+        if pending_leads:
+            # Re-queue pending leads
+            requeued = requeue_pending_leads(pending_leads, mq_config)
+            print(f"✅ Database validation complete - {requeued} leads re-queued")
+        else:
+            print("✅ Database validation complete - no pending leads found")
+    else:
+        print(f"✅ Queue has sufficient messages ({queue_size}) - skipping database check")
+    
     print("="*60)
 
 
@@ -470,10 +666,23 @@ def main():
     print("  4. Scoring (Railway) → Calculates score")
     print("  5. Supabase → Updated with score")
     
+    # Initial smart queue check
+    smart_queue_check(mq_config)
+    
+    # Setup periodic database validation
+    last_db_check = time.time()
+    
     try:
-        # Keep main thread alive
+        # Keep main thread alive with periodic database checks
         while True:
-            time.sleep(1)
+            time.sleep(30)  # Check every 30 seconds
+            
+            # Periodic database validation
+            current_time = time.time()
+            if current_time - last_db_check >= DB_CHECK_INTERVAL:
+                print(f"\n⏰ Periodic database check (every {DB_CHECK_INTERVAL//60} minutes)")
+                smart_queue_check(mq_config)
+                last_db_check = current_time
     
     except KeyboardInterrupt:
         print("\n\n⚠ Interrupted by user. Stopping all workers...")
@@ -493,6 +702,7 @@ def main():
         print(f"📤 Sent to Scoring: {stats['sent_to_scoring']}")
         print(f"💾 Updated Supabase: {stats['saved_to_supabase']}")
         print(f"⚠ Supabase Failed: {stats['supabase_failed']}")
+        print(f"🔄 Re-queued from DB: {stats['requeued_from_db']}")
         if stats['completed'] + stats['failed'] > 0:
             success_rate = stats['completed'] / (stats['completed'] + stats['failed']) * 100
             print(f"📊 Success Rate: {success_rate:.1f}%")
