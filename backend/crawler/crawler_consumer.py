@@ -173,7 +173,7 @@ def get_pending_leads_from_database():
         # Query leads that need processing with timeout
         print("   → Querying leads_list table...")
         response = supabase.client.table('leads_list').select(
-            'id, profile_url, template_id, profile_data, scoring_data'
+            'id, profile_url, template_id, profile_data, scoring_data, status'
         ).limit(100).execute()  # Limit to prevent huge queries
         
         if not response.data:
@@ -189,6 +189,7 @@ def get_pending_leads_from_database():
             template_id = lead.get('template_id')
             profile_data = lead.get('profile_data')
             scoring_data = lead.get('scoring_data')
+            status = lead.get('status', '')
             
             if not profile_url or not template_id:
                 continue
@@ -207,6 +208,11 @@ def get_pending_leads_from_database():
             
             # Check if needs processing
             needs_scraping = not profile_data or profile_data in [None, '', '{}', {}]
+            
+            # Special case: If status is "scraped" but profile_data is empty, force scraping
+            if status == 'scraped' and (not profile_data or profile_data in [None, '', '{}', {}]):
+                needs_scraping = True
+                print(f"   ⚠️  Found 'scraped' status but empty profile data: {profile_url}")
             
             # Check if scoring data is missing or has 0 score
             needs_scoring = False
@@ -232,6 +238,12 @@ def get_pending_leads_from_database():
                 # Profile exists but score is 0, only need re-scoring
                 needs_scraping = False
             
+            # Override: If status is "scraped" but both profile and scoring are empty, need both
+            if status == 'scraped' and (not profile_data or profile_data in [None, '', '{}', {}]) and (not scoring_data or scoring_data in [None, '', '{}', {}]):
+                needs_scraping = True
+                needs_scoring = True
+                print(f"   ⚠️  Found 'scraped' status but both profile and scoring empty: {profile_url}")
+            
             if needs_scraping or needs_scoring:
                 pending_leads.append({
                     'id': lead['id'],
@@ -247,6 +259,13 @@ def get_pending_leads_from_database():
         print(f"      Need scraping: {sum(1 for l in pending_leads if l['needs_scraping'])}")
         print(f"      Need scoring only: {sum(1 for l in pending_leads if l['needs_scoring'] and not l['needs_scraping'])}")
         print(f"      Need both scraping & scoring: {sum(1 for l in pending_leads if l['needs_scraping'] and l['needs_scoring'])}")
+        
+        # Count scraped status issues
+        scraped_empty = sum(1 for lead in response.data 
+                           if lead.get('status') == 'scraped' and 
+                           (not lead.get('profile_data') or lead.get('profile_data') in [None, '', '{}', {}]))
+        if scraped_empty > 0:
+            print(f"      ⚠️  'Scraped' status but empty data: {scraped_empty}")
         
         return pending_leads
         
