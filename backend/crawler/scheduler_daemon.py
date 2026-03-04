@@ -8,7 +8,6 @@ import json
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from supabase import create_client, Client
-from crawler import LinkedInCrawler
 import logging
 
 # Setup logging
@@ -95,38 +94,13 @@ def get_unscraped_profiles_from_supabase(limit=100):
 
 
 def execute_schedule(schedule):
-    """Execute a scheduled crawl job"""
+    """Execute a scheduled crawl job by starting consumer to process queue"""
     schedule_id = schedule['id']
     schedule_name = schedule['name']
-    file_id = schedule.get('file_id')
-    profile_urls = schedule.get('profile_urls', [])
-    
-    # Priority 1: If JSON file is linked, get URLs from there
-    if file_id:
-        try:
-            json_response = supabase.table('crawler_jobs').select('*').eq('id', file_id).execute()
-            if json_response.data and len(json_response.data) > 0:
-                json_data = json_response.data[0].get('value', [])
-                profile_urls = [item.get('profile_url') or item.get('url') for item in json_data if item.get('profile_url') or item.get('url')]
-                logger.info(f"Loaded {len(profile_urls)} URLs from JSON file: {schedule.get('file_name')}")
-        except Exception as e:
-            logger.error(f"Error loading JSON file: {e}")
-    
-    # Priority 2: If no file_id and no profile_urls, get from Supabase unscraped profiles
-    if not profile_urls:
-        logger.info(f"No JSON file linked, checking for unscraped profiles in Supabase...")
-        profile_urls = get_unscraped_profiles_from_supabase(limit=100)
-        
-        if profile_urls:
-            logger.info(f"Found {len(profile_urls)} unscraped profiles to process")
-        else:
-            logger.warning(f"Schedule {schedule_name} has no profile URLs to process")
-            return
     
     logger.info(f"\n{'='*60}")
     logger.info(f"EXECUTING SCHEDULE: {schedule_name}")
     logger.info(f"Schedule ID: {schedule_id}")
-    logger.info(f"Profile URLs: {len(profile_urls)}")
     logger.info(f"{'='*60}\n")
     
     # Update last_run
@@ -137,74 +111,43 @@ def execute_schedule(schedule):
     except Exception as e:
         logger.error(f"Error updating last_run: {e}")
     
-    # Initialize crawler
-    crawler = None
-    success_count = 0
-    failed_count = 0
-    skipped_count = 0
+    # Start consumer to process queue
+    logger.info(f"🚀 Starting consumer to process queue...")
+    logger.info(f"   Consumer will process all messages in queue, then exit")
     
     try:
-        crawler = LinkedInCrawler()
-        crawler.login()
+        import subprocess
         
-        for idx, url in enumerate(profile_urls, 1):
-            logger.info(f"[{idx}/{len(profile_urls)}] Processing: {url}")
-            
-            try:
-                # Check if already scraped (has profile_data)
-                existing = supabase.table('leads_list')\
-                    .select('profile_data')\
-                    .eq('profile_url', url)\
-                    .execute()
-                
-                if existing.data and len(existing.data) > 0:
-                    existing_profile_data = existing.data[0].get('profile_data')
-                    if existing_profile_data and existing_profile_data != {}:
-                        logger.info(f"⊘ Skipped (already scraped): {url}")
-                        skipped_count += 1
-                        continue
-                
-                # Scrape profile
-                profile_data = crawler.get_profile(url)
-                
-                # Extract name from profile data
-                name = profile_data.get('name', 'Unknown')
-                
-                # Check if lead exists
-                if existing.data and len(existing.data) > 0:
-                    # Update existing lead
-                    supabase.table('leads_list').update({
-                        'name': name,
-                        'profile_data': profile_data,
-                        'connection_status': 'scraped'
-                    }).eq('profile_url', url).execute()
-                    logger.info(f"✓ Updated: {name} - {url}")
-                else:
-                    # Insert new lead
-                    supabase.table('leads_list').insert({
-                        'profile_url': url,
-                        'name': name,
-                        'profile_data': profile_data,
-                        'connection_status': 'scraped',
-                        'date': datetime.now().date().isoformat()
-                    }).execute()
-                    logger.info(f"✓ Inserted: {name} - {url}")
-                
-                success_count += 1
-                
-            except Exception as e:
-                failed_count += 1
-                logger.error(f"✗ Failed: {url} - {e}")
+        # Run scheduled_consumer.py
+        result = subprocess.run(
+            ['python', 'scheduled_consumer.py'],
+            cwd=os.path.dirname(os.path.abspath(__file__)),
+            capture_output=True,
+            text=True,
+            timeout=3600  # 1 hour timeout
+        )
+        
+        # Print consumer output
+        if result.stdout:
+            logger.info(f"\n{result.stdout}")
+        
+        if result.stderr:
+            logger.error(f"\n{result.stderr}")
+        
+        if result.returncode == 0:
+            logger.info(f"✓ Consumer finished successfully")
+        else:
+            logger.error(f"✗ Consumer exited with code: {result.returncode}")
     
-    finally:
-        if crawler:
-            crawler.close()
+    except subprocess.TimeoutExpired:
+        logger.error(f"✗ Consumer timeout (exceeded 1 hour)")
+    except Exception as e:
+        logger.error(f"✗ Failed to start consumer: {e}")
+        import traceback
+        traceback.print_exc()
     
     logger.info(f"\n{'='*60}")
     logger.info(f"SCHEDULE COMPLETED: {schedule_name}")
-    logger.info(f"✓ Success: {success_count}")
-    logger.info(f"⊘ Skipped: {skipped_count}")
-    logger.info(f"✗ Failed: {failed_count}")
     logger.info(f"{'='*60}\n")
 
 
