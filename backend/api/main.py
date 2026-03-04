@@ -3,7 +3,7 @@ FastAPI Backend for LinkedIn Crawler Scheduler
 """
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List, Dict
 from datetime import datetime
 import os
@@ -85,35 +85,126 @@ class ScheduleUpdate(BaseModel):
     max_workers: Optional[int] = None
 
 class RequirementsGenerateRequest(BaseModel):
-    url: Optional[str] = None
-    job_description: Optional[str] = None
-    position: str
-    min_experience_years: Optional[int] = 1
-    required_gender: Optional[str] = None
-    required_location: Optional[str] = None
-    required_age_range: Optional[Dict[str, int]] = None
+    url: Optional[str] = Field(
+        None,
+        example="https://example.com/job-posting",
+        description="URL of job posting to scrape"
+    )
+    job_description: Optional[str] = Field(
+        None,
+        example="We are looking for a debt collector with 2+ years experience...",
+        description="Job description text"
+    )
+    position: str = Field(
+        ...,
+        example="Debt Collector",
+        description="Job position title"
+    )
+    min_experience_years: Optional[int] = Field(
+        1,
+        example=2,
+        description="Minimum years of experience required"
+    )
+    required_gender: Optional[str] = Field(
+        None,
+        example="any",
+        description="Required gender: 'male', 'female', or 'any'"
+    )
+    required_location: Optional[str] = Field(
+        None,
+        example="Jakarta",
+        description="Required location"
+    )
+    required_age_range: Optional[Dict[str, int]] = Field(
+        None,
+        example={"min": 25, "max": 35},
+        description="Required age range"
+    )
 
 class RequirementsSaveRequest(BaseModel):
-    requirements: Dict
-    filename: str
+    requirements: Dict = Field(
+        ...,
+        example={
+            "position": "Debt Collector",
+            "requirements": [
+                {"id": "req_1", "label": "2+ years experience", "type": "experience", "value": 2}
+            ]
+        },
+        description="Requirements data to save"
+    )
+    filename: str = Field(
+        ...,
+        example="debt_collector_requirements",
+        description="Filename to save (without .json extension)"
+    )
 
 class OutreachRequest(BaseModel):
-    leads: List[Dict[str, str]]  # [{"id": "...", "name": "...", "profile_url": "..."}]
-    message: str
-    dry_run: bool = True
+    leads: List[Dict[str, str]] = Field(
+        ...,
+        example=[
+            {
+                "id": "lead-123",
+                "name": "John Doe",
+                "profile_url": "https://linkedin.com/in/johndoe"
+            }
+        ],
+        description="List of leads to send outreach messages"
+    )
+    message: str = Field(
+        ...,
+        example="Hi {name}, we have an exciting opportunity for you...",
+        description="Outreach message template (use {name} for personalization)"
+    )
+    dry_run: bool = Field(
+        True,
+        example=False,
+        description="If true, only simulate sending (for testing)"
+    )
 
 class WebhookLeadInsert(BaseModel):
     """Webhook payload from Supabase trigger"""
-    type: str  # 'INSERT', 'UPDATE', 'DELETE'
-    table: str
-    record: Dict  # New lead data
-    old_record: Optional[Dict] = None
+    type: str = Field(
+        ...,
+        example="INSERT",
+        description="Database operation type"
+    )
+    table: str = Field(
+        ...,
+        example="leads_list",
+        description="Table name"
+    )
+    record: Dict = Field(
+        ...,
+        example={
+            "id": "lead-123",
+            "name": "John Doe",
+            "profile_url": "https://linkedin.com/in/johndoe",
+            "template_id": "38a1699d-ad54-4f05-9483-e3d35142d35f"
+        },
+        description="New lead data"
+    )
+    old_record: Optional[Dict] = Field(
+        None,
+        description="Previous record data (for UPDATE operations)"
+    )
 
 class InstantCrawlRequest(BaseModel):
     """Request to crawl single profile immediately"""
-    profile_url: str
-    template_id: Optional[str] = None
-    requirements_id: Optional[str] = 'default'
+    profile_url: str = Field(
+        ...,
+        example="https://linkedin.com/in/johndoe",
+        description="LinkedIn profile URL to crawl"
+    )
+    template_id: Optional[str] = Field(
+        None,
+        example="38a1699d-ad54-4f05-9483-e3d35142d35f",
+        description="Template ID for scoring"
+    )
+    requirements_id: Optional[str] = Field(
+        'default',
+        example="desk_collection",
+        description="Requirements ID for scoring"
+    )
 
 
 @app.on_event("startup")
@@ -159,16 +250,48 @@ async def health_check():
 # ============================================================================
 
 class CrawlerScheduleCreate(BaseModel):
-    name: str
-    start_schedule: str  # cron expression
-    template_id: str  # UUID of search_template
-    status: Optional[str] = 'active'  # 'active' or 'inactive'
+    name: str = Field(
+        ..., 
+        example="Daily Morning Crawl",
+        description="Name of the schedule"
+    )
+    start_schedule: str = Field(
+        ..., 
+        example="0 9 * * *",
+        description="Cron expression (e.g., '0 9 * * *' for daily at 9 AM)"
+    )
+    template_id: str = Field(
+        ..., 
+        example="38a1699d-ad54-4f05-9483-e3d35142d35f",
+        description="UUID of the search template"
+    )
+    status: Optional[str] = Field(
+        default='active',
+        example="active",
+        description="Schedule status: 'active' or 'inactive'"
+    )
 
 class CrawlerScheduleUpdate(BaseModel):
-    name: Optional[str] = None
-    start_schedule: Optional[str] = None
-    template_id: Optional[str] = None
-    status: Optional[str] = None
+    name: Optional[str] = Field(
+        None, 
+        example="Updated Schedule Name",
+        description="Name of the schedule"
+    )
+    start_schedule: Optional[str] = Field(
+        None, 
+        example="0 10 * * *",
+        description="Cron expression (e.g., '0 10 * * *' for daily at 10 AM)"
+    )
+    template_id: Optional[str] = Field(
+        None, 
+        example="38a1699d-ad54-4f05-9483-e3d35142d35f",
+        description="UUID of the search template"
+    )
+    status: Optional[str] = Field(
+        None,
+        example="inactive",
+        description="Schedule status: 'active' or 'inactive'"
+    )
 
 @app.get("/api/schedules")
 async def get_schedules():
