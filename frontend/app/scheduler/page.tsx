@@ -11,55 +11,21 @@ export default function SchedulerPage() {
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
-  const [templates, setTemplates] = useState<any[]>([])
   const [editingJob, setEditingJob] = useState<Schedule | null>(null)
   const [formData, setFormData] = useState({
     name: '',
     start_schedule: '',
-    template_id: '',
     status: 'active'
   })
 
   useEffect(() => {
     loadScheduledJobs()
-    loadTemplates()
   }, [])
-
-  async function loadTemplates() {
-    try {
-      const { data, error } = await supabase
-        .from('search_templates')
-        .select('id, name')
-        .order('name')
-
-      if (!error && data) {
-        setTemplates(data)
-        // Set default template if available
-        if (data.length > 0 && !formData.template_id) {
-          setFormData(prev => ({ ...prev, template_id: data[0].id }))
-        }
-      }
-    } catch (error) {
-      console.error('Failed to load templates:', error)
-    }
-  }
 
   async function loadScheduledJobs() {
     try {
-      const { data, error } = await supabase
-        .from('crawler_schedules')
-        .select(`
-          *,
-          search_templates (
-            id,
-            name
-          )
-        `)
-        .order('created_at', { ascending: false })
-
-      if (!error && data) {
-        setJobs(data)
-      }
+      const response = await crawlerAPI.getSchedules()
+      setJobs(response.schedules)
     } catch (error) {
       console.error('Failed to load schedules:', error)
     } finally {
@@ -71,23 +37,16 @@ export default function SchedulerPage() {
     e.preventDefault()
     
     try {
-      const { error } = await supabase
-        .from('crawler_schedules')
-        .insert([{
-          name: formData.name,
-          start_schedule: formData.start_schedule,
-          template_id: formData.template_id,
-          status: formData.status,
-          created_at: new Date().toISOString()
-        }])
-
-      if (error) throw error
+      await crawlerAPI.createSchedule({
+        name: formData.name,
+        start_schedule: formData.start_schedule,
+        status: formData.status as 'active' | 'inactive'
+      })
 
       // Reset form and close modal
       setFormData({
         name: '',
         start_schedule: '',
-        template_id: templates[0]?.id || '',
         status: 'active'
       })
       setShowModal(false)
@@ -107,7 +66,6 @@ export default function SchedulerPage() {
     setFormData({
       name: job.name,
       start_schedule: job.start_schedule,
-      template_id: job.template_id,
       status: job.status
     })
     setShowEditModal(true)
@@ -119,24 +77,17 @@ export default function SchedulerPage() {
     if (!editingJob) return
 
     try {
-      const { error } = await supabase
-        .from('crawler_schedules')
-        .update({
-          name: formData.name,
-          start_schedule: formData.start_schedule,
-          template_id: formData.template_id,
-          status: formData.status
-        })
-        .eq('id', editingJob.id)
-
-      if (error) throw error
+      await crawlerAPI.updateSchedule(editingJob.id, {
+        name: formData.name,
+        start_schedule: formData.start_schedule,
+        status: formData.status as 'active' | 'inactive'
+      })
 
       // Reset and close
       setEditingJob(null)
       setFormData({
         name: '',
         start_schedule: '',
-        template_id: templates[0]?.id || '',
         status: 'active'
       })
       setShowEditModal(false)
@@ -262,9 +213,6 @@ export default function SchedulerPage() {
                       Name
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">
-                      Template
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">
                       Cron Schedule
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">
@@ -281,13 +229,13 @@ export default function SchedulerPage() {
                 <tbody className="divide-y divide-gray-700">
                   {loading ? (
                     <tr>
-                      <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
+                      <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
                         Loading...
                       </td>
                     </tr>
                   ) : jobs.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
+                      <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
                         No scheduled jobs yet. Click "Add Schedule" to create one.
                       </td>
                     </tr>
@@ -296,11 +244,6 @@ export default function SchedulerPage() {
                       <tr key={job.id} className="transition-colors hover:bg-gray-700/30">
                         <td className="px-6 py-4">
                           <div className="font-medium text-white">{job.name}</div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="text-sm text-gray-300">
-                            {job.search_templates?.name || 'N/A'}
-                          </div>
                         </td>
                         <td className="px-6 py-4">
                           <code className="rounded bg-[#141C33] px-2 py-1 text-sm text-gray-300">
@@ -320,7 +263,7 @@ export default function SchedulerPage() {
                                 job.status === 'active' ? 'bg-green-500' : 'bg-yellow-500'
                               }`}
                             />
-                            {job.status === 'active' ? 'Active' : 'Paused'}
+                            {job.status === 'active' ? 'Active' : 'Inactive'}
                           </span>
                         </td>
                         <td className="px-6 py-4 text-sm text-gray-400">
@@ -414,24 +357,6 @@ export default function SchedulerPage() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Template
-                </label>
-                <select
-                  required
-                  value={formData.template_id}
-                  onChange={(e) => setFormData({ ...formData, template_id: e.target.value })}
-                  className="w-full rounded-md border border-gray-700 bg-[#141C33] px-3 py-2 text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                >
-                  {templates.map((template) => (
-                    <option key={template.id} value={template.id}>
-                      {template.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
                   Status
                 </label>
                 <select
@@ -512,24 +437,6 @@ export default function SchedulerPage() {
                   Examples: <code className="text-gray-400">0 9 * * *</code> (daily at 9 AM), 
                   <code className="text-gray-400 ml-2">0 */6 * * *</code> (every 6 hours)
                 </p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Template
-                </label>
-                <select
-                  required
-                  value={formData.template_id}
-                  onChange={(e) => setFormData({ ...formData, template_id: e.target.value })}
-                  className="w-full rounded-md border border-gray-700 bg-[#141C33] px-3 py-2 text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                >
-                  {templates.map((template) => (
-                    <option key={template.id} value={template.id}>
-                      {template.name}
-                    </option>
-                  ))}
-                </select>
               </div>
 
               <div>

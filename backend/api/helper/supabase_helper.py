@@ -208,7 +208,7 @@ class ReQueueManager:
         response = query.execute()
         leads = response.data or []
         
-        # Filter leads with missing data
+        # Filter leads with missing data or 0 score
         failed_leads = []
         for lead in leads:
             should_requeue = False
@@ -216,8 +216,24 @@ class ReQueueManager:
             if check_profile_data and (not lead.get('profile_data') or lead.get('profile_data') in [None, '', {}]):
                 should_requeue = True
             
-            if check_scoring_data and (not lead.get('scoring_data') or lead.get('scoring_data') in [None, '', {}]):
-                should_requeue = True
+            if check_scoring_data:
+                scoring_data = lead.get('scoring_data')
+                if not scoring_data or scoring_data in [None, '', {}]:
+                    should_requeue = True
+                elif isinstance(scoring_data, dict):
+                    # Check if score percentage is 0
+                    score_data = scoring_data.get('score', {}) if isinstance(scoring_data, dict) else {}
+                    if isinstance(score_data, dict) and score_data.get('percentage', -1) == 0:
+                        should_requeue = True
+                elif isinstance(scoring_data, str):
+                    try:
+                        import json
+                        parsed_data = json.loads(scoring_data)
+                        score_data = parsed_data.get('score', {}) if isinstance(parsed_data, dict) else {}
+                        if isinstance(score_data, dict) and score_data.get('percentage', -1) == 0:
+                            should_requeue = True
+                    except:
+                        should_requeue = True  # Invalid JSON, needs reprocessing
             
             if should_requeue:
                 failed_leads.append(lead)

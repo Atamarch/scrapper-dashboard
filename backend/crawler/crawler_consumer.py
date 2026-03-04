@@ -207,7 +207,25 @@ def get_pending_leads_from_database():
             
             # Check if needs processing
             needs_scraping = not profile_data or profile_data in [None, '', '{}', {}]
-            needs_scoring = not scoring_data or scoring_data in [None, '', '{}', {}]
+            
+            # Check if scoring data is missing or has 0 score
+            needs_scoring = False
+            if not scoring_data or scoring_data in [None, '', '{}', {}]:
+                needs_scoring = True
+            elif isinstance(scoring_data, dict):
+                # Check if score percentage is 0
+                score_data = scoring_data.get('score', {}) if isinstance(scoring_data, dict) else {}
+                if isinstance(score_data, dict) and score_data.get('percentage', -1) == 0:
+                    needs_scoring = True
+            elif isinstance(scoring_data, str):
+                try:
+                    import json
+                    parsed_data = json.loads(scoring_data)
+                    score_data = parsed_data.get('score', {}) if isinstance(parsed_data, dict) else {}
+                    if isinstance(score_data, dict) and score_data.get('percentage', -1) == 0:
+                        needs_scoring = True
+                except:
+                    needs_scoring = True  # Invalid JSON, needs reprocessing
             
             if needs_scraping or needs_scoring:
                 pending_leads.append({
@@ -222,7 +240,7 @@ def get_pending_leads_from_database():
         print(f"      Total leads: {total_leads}")
         print(f"      Pending leads: {len(pending_leads)}")
         print(f"      Need scraping: {sum(1 for l in pending_leads if l['needs_scraping'])}")
-        print(f"      Need scoring: {sum(1 for l in pending_leads if l['needs_scoring'])}")
+        print(f"      Need scoring (empty/0%): {sum(1 for l in pending_leads if l['needs_scoring'])}")
         
         return pending_leads
         

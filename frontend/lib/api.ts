@@ -9,26 +9,19 @@ export type Schedule = {
   name: string;
   start_schedule: string;
   status: 'active' | 'inactive';
-  template_id: string;
   last_run: string | null;
   created_at: string;
-  search_templates?: {
-    id: string;
-    name: string;
-  };
 };
 
 export type ScheduleCreate = {
   name: string;
   start_schedule: string;
-  template_id: string;
   status?: 'active' | 'inactive';
 };
 
 export type ScheduleUpdate = {
   name?: string;
   start_schedule?: string;
-  template_id?: string;
   status?: 'active' | 'inactive';
 };
 

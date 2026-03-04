@@ -276,11 +276,6 @@ class CrawlerScheduleCreate(BaseModel):
         example="0 9 * * *",
         description="Cron expression (e.g., '0 9 * * *' for daily at 9 AM)"
     )
-    template_id: str = Field(
-        ..., 
-        example="38a1699d-ad54-4f05-9483-e3d35142d35f",
-        description="UUID of the search template"
-    )
     status: Optional[str] = Field(
         default='active',
         example="active",
@@ -297,11 +292,6 @@ class CrawlerScheduleUpdate(BaseModel):
         None, 
         example="0 10 * * *",
         description="Cron expression (e.g., '0 10 * * *' for daily at 10 AM)"
-    )
-    template_id: Optional[str] = Field(
-        None, 
-        example="38a1699d-ad54-4f05-9483-e3d35142d35f",
-        description="UUID of the search template"
     )
     status: Optional[str] = Field(
         None,
@@ -339,15 +329,10 @@ async def get_schedule(schedule_id: str):
 async def create_schedule(schedule: CrawlerScheduleCreate):
     """Create new schedule"""
     try:
-        # Validate template exists
-        if not ScheduleManager.template_exists(schedule.template_id):
-            raise HTTPException(status_code=400, detail="Template not found")
-        
-        # Create schedule
+        # Create schedule (no template validation needed)
         data = {
             'name': schedule.name,
             'start_schedule': schedule.start_schedule,
-            'template_id': schedule.template_id,
             'status': schedule.status,
             'created_at': datetime.now().isoformat()
         }
