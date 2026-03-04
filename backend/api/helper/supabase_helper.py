@@ -18,7 +18,7 @@ class ScheduleManager:
     
     @staticmethod
     def get_all(status: Optional[str] = None, template_id: Optional[str] = None, 
-                limit: int = 100, offset: int = 0) -> Dict:
+                limit: Optional[int] = None, offset: int = 0) -> Dict:
         """Get all schedules with filters"""
         query = supabase.table('crawler_schedules').select('''
             *,
@@ -33,7 +33,12 @@ class ScheduleManager:
         if template_id:
             query = query.eq('template_id', template_id)
         
-        query = query.order('created_at', desc=True).range(offset, offset + limit - 1)
+        query = query.order('created_at', desc=True)
+        
+        # Apply pagination only if limit is specified
+        if limit is not None:
+            query = query.range(offset, offset + limit - 1)
+        
         response = query.execute()
         
         # Get total count

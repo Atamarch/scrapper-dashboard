@@ -19,8 +19,8 @@ sys.path.append(str(Path(__file__).parent.parent / "crawler"))
 
 from scheduler_service import SchedulerService
 from database import Database
-from rabbitmq_helper import queue_publisher
-from supabase_helper import ScheduleManager, CompanyManager, LeadsManager
+from helper.rabbitmq_helper import queue_publisher
+from helper.supabase_helper import ScheduleManager, CompanyManager, LeadsManager
 
 app = FastAPI(title="LinkedIn Crawler API", version="1.0.0")
 
@@ -174,20 +174,39 @@ class CrawlerScheduleUpdate(BaseModel):
 async def get_crawler_schedules(
     status: Optional[str] = None,
     template_id: Optional[str] = None,
-    limit: Optional[int] = 100,
+    limit: Optional[int] = None,
     offset: Optional[int] = 0
 ):
-    """Get all crawler schedules with optional filters"""
+    """Get all crawler schedules with optional filters
+    
+    Query params:
+    - status: Filter by status ('active' or 'inactive')
+    - template_id: Filter by template ID
+    - limit: Number of results (optional, no limit by default)
+    - offset: Pagination offset (default: 0)
+    
+    Examples:
+    - GET /api/crawler-schedules                    → Get ALL schedules
+    - GET /api/crawler-schedules?status=active      → Get all active schedules
+    - GET /api/crawler-schedules?limit=10&offset=0  → Get first 10 schedules
+    """
     try:
         result = ScheduleManager.get_all(status, template_id, limit, offset)
-        return {
+        
+        response_data = {
             "success": True,
             "count": result['total'],
             "returned": len(result['schedules']),
-            "limit": limit,
-            "offset": offset,
             "schedules": result['schedules']
         }
+        
+        # Only include pagination info if limit was specified
+        if limit is not None:
+            response_data["limit"] = limit
+            response_data["offset"] = offset
+            response_data["has_more"] = (offset + len(result['schedules'])) < result['total']
+        
+        return response_data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
