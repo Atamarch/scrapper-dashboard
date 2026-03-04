@@ -8,35 +8,28 @@ export type Schedule = {
   id: string;
   name: string;
   start_schedule: string;
-  stop_schedule: string | null;
-  status: 'active' | 'paused';
-  profile_urls: string[];
-  max_workers: number;
+  status: 'active' | 'inactive';
+  template_id: string;
   last_run: string | null;
-  next_run: string | null;
-  file_id?: string | null;
-  file_name?: string | null;
   created_at: string;
-  updated_at: string;
+  search_templates?: {
+    id: string;
+    name: string;
+  };
 };
 
 export type ScheduleCreate = {
   name: string;
   start_schedule: string;
-  stop_schedule?: string;
-  profile_urls?: string[];
-  max_workers?: number;
-  file_id?: string;
-  file_name?: string;
+  template_id: string;
+  status?: 'active' | 'inactive';
 };
 
 export type ScheduleUpdate = {
   name?: string;
   start_schedule?: string;
-  stop_schedule?: string;
-  status?: 'active' | 'paused';
-  profile_urls?: string[];
-  max_workers?: number;
+  template_id?: string;
+  status?: 'active' | 'inactive';
 };
 
 class CrawlerAPI {

@@ -10,7 +10,9 @@ export default function SchedulerPage() {
   const [jobs, setJobs] = useState<Schedule[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
   const [templates, setTemplates] = useState<any[]>([])
+  const [editingJob, setEditingJob] = useState<Schedule | null>(null)
   const [formData, setFormData] = useState({
     name: '',
     start_schedule: '',
@@ -46,7 +48,13 @@ export default function SchedulerPage() {
     try {
       const { data, error } = await supabase
         .from('crawler_schedules')
-        .select('*')
+        .select(`
+          *,
+          search_templates (
+            id,
+            name
+          )
+        `)
         .order('created_at', { ascending: false })
 
       if (!error && data) {
@@ -91,6 +99,55 @@ export default function SchedulerPage() {
     } catch (error) {
       console.error('Failed to create schedule:', error)
       alert('Failed to create schedule')
+    }
+  }
+
+  function handleEdit(job: Schedule) {
+    setEditingJob(job)
+    setFormData({
+      name: job.name,
+      start_schedule: job.start_schedule,
+      template_id: job.template_id,
+      status: job.status
+    })
+    setShowEditModal(true)
+  }
+
+  async function handleUpdate(e: React.FormEvent) {
+    e.preventDefault()
+    
+    if (!editingJob) return
+
+    try {
+      const { error } = await supabase
+        .from('crawler_schedules')
+        .update({
+          name: formData.name,
+          start_schedule: formData.start_schedule,
+          template_id: formData.template_id,
+          status: formData.status
+        })
+        .eq('id', editingJob.id)
+
+      if (error) throw error
+
+      // Reset and close
+      setEditingJob(null)
+      setFormData({
+        name: '',
+        start_schedule: '',
+        template_id: templates[0]?.id || '',
+        status: 'active'
+      })
+      setShowEditModal(false)
+      
+      // Reload schedules
+      await loadScheduledJobs()
+      
+      alert('Schedule updated successfully!')
+    } catch (error) {
+      console.error('Failed to update schedule:', error)
+      alert('Failed to update schedule')
     }
   }
 
@@ -205,6 +262,9 @@ export default function SchedulerPage() {
                       Name
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">
+                      Template
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">
                       Cron Schedule
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">
@@ -221,13 +281,13 @@ export default function SchedulerPage() {
                 <tbody className="divide-y divide-gray-700">
                   {loading ? (
                     <tr>
-                      <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
+                      <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
                         Loading...
                       </td>
                     </tr>
                   ) : jobs.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
+                      <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
                         No scheduled jobs yet. Click "Add Schedule" to create one.
                       </td>
                     </tr>
@@ -236,6 +296,11 @@ export default function SchedulerPage() {
                       <tr key={job.id} className="transition-colors hover:bg-gray-700/30">
                         <td className="px-6 py-4">
                           <div className="font-medium text-white">{job.name}</div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="text-sm text-gray-300">
+                            {job.search_templates?.name || 'N/A'}
+                          </div>
                         </td>
                         <td className="px-6 py-4">
                           <code className="rounded bg-[#141C33] px-2 py-1 text-sm text-gray-300">
@@ -263,6 +328,13 @@ export default function SchedulerPage() {
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => handleEdit(job)}
+                              className="rounded-md border border-gray-700 p-2 transition-colors hover:bg-gray-700 text-white"
+                              title="Edit"
+                            >
+                              <Edit className="h-4 w-4" />
+                            </button>
                             <button
                               onClick={() => handleToggleStatus(job.id)}
                               className="rounded-md border border-gray-700 p-2 transition-colors hover:bg-gray-700 text-white"
@@ -385,6 +457,111 @@ export default function SchedulerPage() {
                   className="rounded-md bg-white px-4 py-2 text-sm font-medium text-black transition-colors hover:bg-gray-200"
                 >
                   Create Schedule
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Schedule Modal */}
+      {showEditModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-2xl rounded-lg border border-gray-700 bg-[#1a1f2e] shadow-xl">
+            <div className="flex items-center justify-between border-b border-gray-700 p-6">
+              <h2 className="text-xl font-semibold text-white">Edit Schedule</h2>
+              <button
+                onClick={() => {
+                  setShowEditModal(false)
+                  setEditingJob(null)
+                }}
+                className="rounded-md p-1 transition-colors hover:bg-gray-700 text-gray-400 hover:text-white"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdate} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Schedule Name
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  className="w-full rounded-md border border-gray-700 bg-[#141C33] px-3 py-2 text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  placeholder="e.g., Daily Morning Scraping"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Cron Schedule
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formData.start_schedule}
+                  onChange={(e) => setFormData({ ...formData, start_schedule: e.target.value })}
+                  className="w-full rounded-md border border-gray-700 bg-[#141C33] px-3 py-2 text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
+                  placeholder="0 9 * * *"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Examples: <code className="text-gray-400">0 9 * * *</code> (daily at 9 AM), 
+                  <code className="text-gray-400 ml-2">0 */6 * * *</code> (every 6 hours)
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Template
+                </label>
+                <select
+                  required
+                  value={formData.template_id}
+                  onChange={(e) => setFormData({ ...formData, template_id: e.target.value })}
+                  className="w-full rounded-md border border-gray-700 bg-[#141C33] px-3 py-2 text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  {templates.map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Status
+                </label>
+                <select
+                  value={formData.status}
+                  onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                  className="w-full rounded-md border border-gray-700 bg-[#141C33] px-3 py-2 text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditModal(false)
+                    setEditingJob(null)
+                  }}
+                  className="rounded-md border border-gray-700 px-4 py-2 text-sm font-medium text-gray-300 transition-colors hover:bg-gray-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="rounded-md bg-white px-4 py-2 text-sm font-medium text-black transition-colors hover:bg-gray-200"
+                >
+                  Update Schedule
                 </button>
               </div>
             </form>

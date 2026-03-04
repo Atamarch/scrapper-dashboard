@@ -13,13 +13,14 @@ import re
 from pathlib import Path
 import requests
 from bs4 import BeautifulSoup
-import pika
 
 # Add crawler to path
 sys.path.append(str(Path(__file__).parent.parent / "crawler"))
 
 from scheduler_service import SchedulerService
 from database import Database
+from rabbitmq_helper import queue_publisher
+from supabase_helper import ScheduleManager, CompanyManager, LeadsManager
 
 app = FastAPI(title="LinkedIn Crawler API", version="1.0.0")
 
@@ -51,15 +52,6 @@ app.add_middleware(
 # Initialize services
 db = None
 scheduler = None
-
-# RabbitMQ configuration (from environment variables)
-RABBITMQ_HOST = os.getenv('RABBITMQ_HOST')
-RABBITMQ_PORT = int(os.getenv('RABBITMQ_PORT', '5672'))
-RABBITMQ_USER = os.getenv('RABBITMQ_USER')
-RABBITMQ_PASS = os.getenv('RABBITMQ_PASS')
-RABBITMQ_VHOST = os.getenv('RABBITMQ_VHOST', '/')
-RABBITMQ_QUEUE = os.getenv('RABBITMQ_QUEUE', 'linkedin_profiles')
-OUTREACH_QUEUE = os.getenv('OUTREACH_QUEUE', 'outreach_queue')
 
 # Try to initialize database and scheduler, but continue without them if it fails
 def init_services():
@@ -162,10 +154,183 @@ async def health_check():
     }
 
 
-# Schedule endpoints
+# ============================================================================
+# CRAWLER SCHEDULE ENDPOINTS (Direct Supabase Access)
+# ============================================================================
+
+class CrawlerScheduleCreate(BaseModel):
+    name: str
+    start_schedule: str  # cron expression
+    template_id: str  # UUID of search_template
+    status: Optional[str] = 'active'  # 'active' or 'inactive'
+
+class CrawlerScheduleUpdate(BaseModel):
+    name: Optional[str] = None
+    start_schedule: Optional[str] = None
+    template_id: Optional[str] = None
+    status: Optional[str] = None
+
+@app.get("/api/crawler-schedules")
+async def get_crawler_schedules(
+    status: Optional[str] = None,
+    template_id: Optional[str] = None,
+    limit: Optional[int] = 100,
+    offset: Optional[int] = 0
+):
+    """Get all crawler schedules with optional filters"""
+    try:
+        result = ScheduleManager.get_all(status, template_id, limit, offset)
+        return {
+            "success": True,
+            "count": result['total'],
+            "returned": len(result['schedules']),
+            "limit": limit,
+            "offset": offset,
+            "schedules": result['schedules']
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/crawler-schedules/{schedule_id}")
+async def get_crawler_schedule(schedule_id: str):
+    """Get specific crawler schedule by ID"""
+    try:
+        schedule = ScheduleManager.get_by_id(schedule_id)
+        if not schedule:
+            raise HTTPException(status_code=404, detail="Schedule not found")
+        
+        return {"success": True, "schedule": schedule}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/crawler-schedules")
+async def create_crawler_schedule(schedule: CrawlerScheduleCreate):
+    """Create new crawler schedule"""
+    try:
+        # Validate template exists
+        if not ScheduleManager.template_exists(schedule.template_id):
+            raise HTTPException(status_code=400, detail="Template not found")
+        
+        # Create schedule
+        data = {
+            'name': schedule.name,
+            'start_schedule': schedule.start_schedule,
+            'template_id': schedule.template_id,
+            'status': schedule.status,
+            'created_at': datetime.now().isoformat()
+        }
+        
+        created = ScheduleManager.create(data)
+        if not created:
+            raise HTTPException(status_code=500, detail="Failed to create schedule")
+        
+        return {
+            "success": True,
+            "message": "Schedule created successfully",
+            "schedule_id": created['id'],
+            "schedule": created
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/crawler-schedules/{schedule_id}")
+async def update_crawler_schedule(schedule_id: str, schedule: CrawlerScheduleUpdate):
+    """Update existing crawler schedule"""
+    try:
+        # Check if schedule exists
+        if not ScheduleManager.get_by_id(schedule_id):
+            raise HTTPException(status_code=404, detail="Schedule not found")
+        
+        # Build update data
+        update_data = schedule.dict(exclude_unset=True)
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No fields to update")
+        
+        # Validate template if provided
+        if 'template_id' in update_data:
+            if not ScheduleManager.template_exists(update_data['template_id']):
+                raise HTTPException(status_code=400, detail="Template not found")
+        
+        # Update schedule
+        updated = ScheduleManager.update(schedule_id, update_data)
+        if not updated:
+            raise HTTPException(status_code=500, detail="Failed to update schedule")
+        
+        return {
+            "success": True,
+            "message": "Schedule updated successfully",
+            "schedule": updated
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/crawler-schedules/{schedule_id}")
+async def delete_crawler_schedule(schedule_id: str):
+    """Delete crawler schedule"""
+    try:
+        # Check if schedule exists
+        schedule = ScheduleManager.get_by_id(schedule_id)
+        if not schedule:
+            raise HTTPException(status_code=404, detail="Schedule not found")
+        
+        # Delete schedule
+        ScheduleManager.delete(schedule_id)
+        
+        return {
+            "success": True,
+            "message": f"Schedule '{schedule['name']}' deleted successfully",
+            "schedule_id": schedule_id
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.patch("/api/crawler-schedules/{schedule_id}/toggle")
+async def toggle_crawler_schedule(schedule_id: str):
+    """Toggle schedule status between 'active' and 'inactive'"""
+    try:
+        # Get current schedule
+        schedule = ScheduleManager.get_by_id(schedule_id)
+        if not schedule:
+            raise HTTPException(status_code=404, detail="Schedule not found")
+        
+        # Toggle status
+        current_status = schedule['status']
+        new_status = 'inactive' if current_status == 'active' else 'active'
+        
+        # Update status
+        updated = ScheduleManager.update(schedule_id, {'status': new_status})
+        
+        return {
+            "success": True,
+            "message": f"Schedule status changed to '{new_status}'",
+            "schedule_id": schedule_id,
+            "old_status": current_status,
+            "new_status": new_status,
+            "schedule": updated
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Legacy schedule endpoints (kept for backward compatibility)
 @app.get("/api/schedules")
 async def get_schedules():
-    """Get all scheduled jobs"""
+    """Get all scheduled jobs (LEGACY - use /api/crawler-schedules instead)"""
     if not db:
         raise HTTPException(status_code=503, detail="Database not available")
     schedules = db.get_all_schedules()
@@ -173,7 +338,7 @@ async def get_schedules():
 
 @app.get("/api/schedules/{schedule_id}")
 async def get_schedule(schedule_id: str):
-    """Get specific schedule"""
+    """Get specific schedule (LEGACY - use /api/crawler-schedules/{id} instead)"""
     if not db:
         raise HTTPException(status_code=503, detail="Database not available")
     schedule = db.get_schedule(schedule_id)
@@ -183,7 +348,7 @@ async def get_schedule(schedule_id: str):
 
 @app.post("/api/schedules")
 async def create_schedule(schedule: ScheduleCreate):
-    """Create new scheduled job"""
+    """Create new scheduled job (LEGACY - use /api/crawler-schedules instead)"""
     if not db or not scheduler:
         raise HTTPException(status_code=503, detail="Scheduler not available")
     try:
@@ -207,7 +372,7 @@ async def create_schedule(schedule: ScheduleCreate):
 
 @app.put("/api/schedules/{schedule_id}")
 async def update_schedule(schedule_id: str, schedule: ScheduleUpdate):
-    """Update existing schedule"""
+    """Update existing schedule (LEGACY - use /api/crawler-schedules/{id} instead)"""
     if not db or not scheduler:
         raise HTTPException(status_code=503, detail="Scheduler not available")
     try:
@@ -222,7 +387,7 @@ async def update_schedule(schedule_id: str, schedule: ScheduleUpdate):
 
 @app.delete("/api/schedules/{schedule_id}")
 async def delete_schedule(schedule_id: str):
-    """Delete schedule"""
+    """Delete schedule (LEGACY - use /api/crawler-schedules/{id} instead)"""
     if not db or not scheduler:
         raise HTTPException(status_code=503, detail="Scheduler not available")
     try:
@@ -234,7 +399,7 @@ async def delete_schedule(schedule_id: str):
 
 @app.post("/api/schedules/{schedule_id}/toggle")
 async def toggle_schedule(schedule_id: str):
-    """Toggle schedule status (active/paused)"""
+    """Toggle schedule status (LEGACY - use /api/crawler-schedules/{id}/toggle instead)"""
     if not db or not scheduler:
         raise HTTPException(status_code=503, detail="Scheduler not available")
     try:
@@ -738,71 +903,17 @@ async def save_requirements(request: RequirementsSaveRequest):
 # AUTO-CRAWL ENDPOINTS (Webhook & Instant Crawl)
 # ============================================================================
 
-def publish_to_crawler_queue(profile_url: str, template_id: str = None, requirements_id: str = 'default'):
-    """Publish profile URL to crawler queue"""
-    try:
-        # Create RabbitMQ connection
-        credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
-        parameters = pika.ConnectionParameters(
-            host=RABBITMQ_HOST,
-            port=RABBITMQ_PORT,
-            virtual_host=RABBITMQ_VHOST,
-            credentials=credentials,
-            heartbeat=600,
-            blocked_connection_timeout=300
-        )
-        
-        connection = pika.BlockingConnection(parameters)
-        channel = connection.channel()
-        
-        # Declare queue
-        channel.queue_declare(queue=RABBITMQ_QUEUE, durable=True)
-        
-        # Create message
-        message = {
-            'url': profile_url,
-            'template_id': template_id,
-            'requirements_id': requirements_id,
-            'timestamp': datetime.now().isoformat(),
-            'trigger': 'auto'  # Mark as auto-triggered
-        }
-        
-        # Publish message
-        channel.basic_publish(
-            exchange='',
-            routing_key=RABBITMQ_QUEUE,
-            body=json.dumps(message),
-            properties=pika.BasicProperties(
-                delivery_mode=2,  # Persistent
-                content_type='application/json'
-            )
-        )
-        
-        connection.close()
-        return True
-        
-    except Exception as e:
-        print(f"❌ Failed to publish to queue: {e}")
-        return False
-
-
 @app.post("/api/webhook/lead-inserted")
 async def webhook_lead_inserted(payload: WebhookLeadInsert):
-    """
-    Webhook endpoint called by Supabase when new lead is inserted
-    Automatically triggers crawler for the new profile
-    """
+    """Webhook endpoint called by Supabase when new lead is inserted"""
     try:
         print("\n" + "="*60)
         print("🔔 WEBHOOK: New Lead Inserted")
         print("="*60)
         
         # Validate webhook type
-        if payload.type != 'INSERT':
-            return {"message": "Ignored: Not an INSERT event"}
-        
-        if payload.table != 'leads_list':
-            return {"message": "Ignored: Not leads_list table"}
+        if payload.type != 'INSERT' or payload.table != 'leads_list':
+            return {"message": "Ignored: Not a lead insert event"}
         
         # Extract lead data
         lead = payload.record
@@ -818,21 +929,8 @@ async def webhook_lead_inserted(payload: WebhookLeadInsert):
         print(f"🔗 Profile URL: {profile_url}")
         print(f"📁 Template ID: {template_id}")
         
-        # Check if already scraped (optional - comment out to allow re-scrape)
-        # if lead.get('score') is not None:
-        #     print("⊘ Already scraped (has score)")
-        #     return {"message": "Ignored: Already scraped"}
-        
-        # Determine requirements_id from template
-        # TODO: Map template_id to requirements_id
-        requirements_id = 'default'  # For now, use default
-        
         # Publish to crawler queue
-        success = publish_to_crawler_queue(
-            profile_url=profile_url,
-            template_id=template_id,
-            requirements_id=requirements_id
-        )
+        success = queue_publisher.publish_crawler_job(profile_url, template_id)
         
         if success:
             print("✅ Profile queued for crawling")
@@ -853,24 +951,16 @@ async def webhook_lead_inserted(payload: WebhookLeadInsert):
 
 @app.post("/api/leads/crawl-instant")
 async def crawl_instant(request: InstantCrawlRequest):
-    """
-    Manually trigger instant crawl for a single profile
-    Useful for testing or manual re-crawl
-    """
+    """Manually trigger instant crawl for a single profile"""
     try:
         print("\n" + "="*60)
         print("⚡ INSTANT CRAWL REQUEST")
         print("="*60)
         print(f"🔗 Profile URL: {request.profile_url}")
         print(f"📁 Template ID: {request.template_id}")
-        print(f"📋 Requirements ID: {request.requirements_id}")
         
         # Publish to crawler queue
-        success = publish_to_crawler_queue(
-            profile_url=request.profile_url,
-            template_id=request.template_id,
-            requirements_id=request.requirements_id
-        )
+        success = queue_publisher.publish_crawler_job(request.profile_url, request.template_id)
         
         if success:
             print("✅ Profile queued for crawling")
@@ -888,113 +978,47 @@ async def crawl_instant(request: InstantCrawlRequest):
 
 
 # ============================================================================
-# OUTREACH ENDPOINTS (Step 2: Send to RabbitMQ)
+# OUTREACH ENDPOINTS
 # ============================================================================
 
 @app.post("/api/outreach/send")
 async def send_outreach(request: OutreachRequest):
-    """
-    Receive outreach request from frontend and send to RabbitMQ
-    Step 2: Split into 1 message per lead and queue them
-    """
+    """Send outreach request to LavinMQ queue"""
     try:
         print("\n" + "="*60)
         print("📥 OUTREACH REQUEST RECEIVED")
         print("="*60)
         print(f"Total leads: {len(request.leads)}")
-        print(f"Message template: {request.message[:50]}...")
         print(f"Dry run: {request.dry_run}")
         
         # Validate leads
-        valid_leads = []
-        for i, lead in enumerate(request.leads, 1):
-            lead_id = lead.get('id')
-            lead_name = lead.get('name')
-            profile_url = lead.get('profile_url')
-            
-            if not lead_name or not profile_url:
-                print(f"  ❌ [{i}] Invalid lead: missing name or profile_url")
-                continue
-            
-            valid_leads.append({
-                'id': lead_id,
-                'name': lead_name,
-                'profile_url': profile_url
-            })
+        valid_leads = [
+            lead for lead in request.leads
+            if lead.get('name') and lead.get('profile_url')
+        ]
         
-        if len(valid_leads) == 0:
+        if not valid_leads:
             raise HTTPException(status_code=400, detail="No valid leads provided")
         
-        print(f"\n✅ Valid leads: {len(valid_leads)}/{len(request.leads)}")
-        
-        # Connect to RabbitMQ
-        print(f"\n🐰 Connecting to RabbitMQ at {RABBITMQ_HOST}:{RABBITMQ_PORT}...")
-        
-        try:
-            credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
-            parameters = pika.ConnectionParameters(
-                host=RABBITMQ_HOST,
-                port=RABBITMQ_PORT,
-                virtual_host=RABBITMQ_VHOST,
-                credentials=credentials,
-                heartbeat=600,
-                blocked_connection_timeout=300
-            )
-            
-            connection = pika.BlockingConnection(parameters)
-            channel = connection.channel()
-            
-            # Declare queue (create if not exists)
-            channel.queue_declare(queue=OUTREACH_QUEUE, durable=True)
-            
-            print(f"✓ Connected to RabbitMQ")
-            
-        except Exception as e:
-            print(f"✗ Failed to connect to RabbitMQ: {e}")
-            raise HTTPException(
-                status_code=503, 
-                detail=f"RabbitMQ connection failed: {str(e)}"
-            )
+        print(f"✅ Valid leads: {len(valid_leads)}/{len(request.leads)}")
         
         # Send each lead as separate message
-        print(f"\n📤 Sending messages to queue '{OUTREACH_QUEUE}'...")
-        
         batch_id = datetime.now().strftime('%Y%m%d_%H%M%S')
         queued_count = 0
         
-        for i, lead in enumerate(valid_leads, 1):
-            try:
-                # Create message payload (1 message = 1 lead)
-                message = {
-                    'job_id': f"outreach_{batch_id}_{i}",
-                    'lead_id': lead['id'],
-                    'name': lead['name'],
-                    'profile_url': lead['profile_url'],
-                    'message': request.message,
-                    'dry_run': request.dry_run,
-                    'batch_id': batch_id,
-                    'created_at': datetime.now().isoformat()
-                }
-                
-                # Publish to queue
-                channel.basic_publish(
-                    exchange='',
-                    routing_key=OUTREACH_QUEUE,
-                    body=json.dumps(message),
-                    properties=pika.BasicProperties(
-                        delivery_mode=2,  # Make message persistent
-                        content_type='application/json'
-                    )
-                )
-                
+        for lead in valid_leads:
+            success = queue_publisher.publish_outreach_job(
+                lead=lead,
+                message_text=request.message,
+                dry_run=request.dry_run,
+                batch_id=batch_id
+            )
+            
+            if success:
                 queued_count += 1
-                print(f"  ✓ [{i}/{len(valid_leads)}] Queued: {lead['name']}")
-                
-            except Exception as e:
-                print(f"  ✗ [{i}/{len(valid_leads)}] Failed to queue {lead['name']}: {e}")
-        
-        # Close connection
-        connection.close()
+                print(f"  ✓ Queued: {lead['name']}")
+            else:
+                print(f"  ✗ Failed: {lead['name']}")
         
         print(f"\n✅ Successfully queued {queued_count}/{len(valid_leads)} messages")
         print("="*60 + "\n")
@@ -1005,86 +1029,45 @@ async def send_outreach(request: OutreachRequest):
             "total_leads": len(request.leads),
             "valid_leads": len(valid_leads),
             "queued": queued_count,
-            "count": queued_count,
             "batch_id": batch_id,
-            "dry_run": request.dry_run,
-            "queue": OUTREACH_QUEUE
+            "dry_run": request.dry_run
         }
     
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ Error processing outreach request: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"❌ Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============================================================================
-# COMPANIES ENDPOINTS (External API)
+# COMPANIES & LEADS ENDPOINTS
 # ============================================================================
 
 @app.get("/api/companies")
 async def get_companies(platform: Optional[str] = None):
-    """
-    Get companies data, optionally filtered by platform
-    
-    Query params:
-    - platform: Filter by platform (optional)
-    
-    Example:
-    - GET /api/companies - Get all companies
-    - GET /api/companies?platform=mejakita - Get companies for mejakita platform
-    """
+    """Get companies data, optionally filtered by platform"""
     try:
-        if not db:
-            raise HTTPException(status_code=503, detail="Database not available")
-        
-        # Get companies from Supabase
-        query = db.client.table('companies').select('*')
-        
-        # Filter by platform if provided
-        if platform:
-            # Match by platform column (case-insensitive)
-            query = query.ilike('platform', f'%{platform}%')
-        
-        response = query.order('created_at', desc=True).execute()
-        
-        companies = response.data or []
-        
+        companies = CompanyManager.get_all(platform)
         return {
             "success": True,
             "count": len(companies),
             "platform": platform,
             "companies": companies
         }
-    
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/companies/{company_id}")
 async def get_company_by_id(company_id: str):
-    """
-    Get single company by ID
-    
-    Example:
-    - GET /api/companies/123e4567-e89b-12d3-a456-426614174000
-    """
+    """Get single company by ID"""
     try:
-        if not db:
-            raise HTTPException(status_code=503, detail="Database not available")
-        
-        response = db.client.table('companies').select('*').eq('id', company_id).execute()
-        
-        if not response.data or len(response.data) == 0:
+        company = CompanyManager.get_by_id(company_id)
+        if not company:
             raise HTTPException(status_code=404, detail="Company not found")
         
-        return {
-            "success": True,
-            "company": response.data[0]
-        }
-    
+        return {"success": True, "company": company}
     except HTTPException:
         raise
     except Exception as e:
@@ -1097,95 +1080,23 @@ async def get_leads_by_platform(
     limit: Optional[int] = 100,
     offset: Optional[int] = 0
 ):
-    """
-    Get leads filtered by company platform
-    
-    Flow: platform → companies → search_templates → leads_list
-    
-    Query params:
-    - platform: Platform name (required)
-    - limit: Number of results (default: 100)
-    - offset: Pagination offset (default: 0)
-    
-    Example:
-    - GET /api/leads/by-platform?platform=mejakita
-    - GET /api/leads/by-platform?platform=mejakita&limit=50&offset=0
-    """
+    """Get leads filtered by company platform"""
     try:
-        if not db:
-            raise HTTPException(status_code=503, detail="Database not available")
-        
-        # Step 1: Get companies by platform
-        companies_response = db.client.table('companies')\
-            .select('id, name, code, platform')\
-            .ilike('platform', f'%{platform}%')\
-            .execute()
-        
-        if not companies_response.data or len(companies_response.data) == 0:
-            return {
-                "success": True,
-                "platform": platform,
-                "companies_found": 0,
-                "templates_found": 0,
-                "leads_count": 0,
-                "leads": []
-            }
-        
-        companies = companies_response.data
-        company_ids = [c['id'] for c in companies]
-        
-        # Step 2: Get search_templates by company_ids
-        templates_response = db.client.table('search_templates')\
-            .select('id, name, company_id')\
-            .in_('company_id', company_ids)\
-            .execute()
-        
-        if not templates_response.data or len(templates_response.data) == 0:
-            return {
-                "success": True,
-                "platform": platform,
-                "companies_found": len(companies),
-                "companies": companies,
-                "templates_found": 0,
-                "leads_count": 0,
-                "leads": []
-            }
-        
-        templates = templates_response.data
-        template_ids = [t['id'] for t in templates]
-        
-        # Step 3: Get leads by template_ids
-        leads_query = db.client.table('leads_list')\
-            .select('*')\
-            .in_('template_id', template_ids)\
-            .order('date', desc=True)\
-            .range(offset, offset + limit - 1)
-        
-        leads_response = leads_query.execute()
-        leads = leads_response.data or []
-        
-        # Get total count
-        count_response = db.client.table('leads_list')\
-            .select('id', count='exact')\
-            .in_('template_id', template_ids)\
-            .execute()
-        
-        total_count = count_response.count or 0
+        result = LeadsManager.get_by_platform(platform, limit, offset)
         
         return {
             "success": True,
             "platform": platform,
-            "companies_found": len(companies),
-            "companies": companies,
-            "templates_found": len(templates),
-            "templates": templates,
-            "leads_count": total_count,
-            "leads_returned": len(leads),
+            "companies_found": len(result['companies']),
+            "companies": result['companies'],
+            "templates_found": len(result['templates']),
+            "templates": result['templates'],
+            "leads_count": result['total'],
+            "leads_returned": len(result['leads']),
             "limit": limit,
             "offset": offset,
-            "leads": leads
+            "leads": result['leads']
         }
-    
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1196,82 +1107,27 @@ async def get_leads_by_company(
     limit: Optional[int] = 100,
     offset: Optional[int] = 0
 ):
-    """
-    Get leads filtered by company ID
-    
-    Flow: company_id → search_templates → leads_list
-    
-    Query params:
-    - limit: Number of results (default: 100)
-    - offset: Pagination offset (default: 0)
-    
-    Example:
-    - GET /api/leads/by-company/123e4567-e89b-12d3-a456-426614174000
-    - GET /api/leads/by-company/123e4567-e89b-12d3-a456-426614174000?limit=50
-    """
+    """Get leads filtered by company ID"""
     try:
-        if not db:
-            raise HTTPException(status_code=503, detail="Database not available")
-        
-        # Step 1: Get company info
-        company_response = db.client.table('companies')\
-            .select('*')\
-            .eq('id', company_id)\
-            .execute()
-        
-        if not company_response.data or len(company_response.data) == 0:
+        # Get company info
+        company = CompanyManager.get_by_id(company_id)
+        if not company:
             raise HTTPException(status_code=404, detail="Company not found")
         
-        company = company_response.data[0]
-        
-        # Step 2: Get search_templates by company_id
-        templates_response = db.client.table('search_templates')\
-            .select('id, name, company_id')\
-            .eq('company_id', company_id)\
-            .execute()
-        
-        if not templates_response.data or len(templates_response.data) == 0:
-            return {
-                "success": True,
-                "company": company,
-                "templates_found": 0,
-                "leads_count": 0,
-                "leads": []
-            }
-        
-        templates = templates_response.data
-        template_ids = [t['id'] for t in templates]
-        
-        # Step 3: Get leads by template_ids
-        leads_query = db.client.table('leads_list')\
-            .select('*')\
-            .in_('template_id', template_ids)\
-            .order('date', desc=True)\
-            .range(offset, offset + limit - 1)
-        
-        leads_response = leads_query.execute()
-        leads = leads_response.data or []
-        
-        # Get total count
-        count_response = db.client.table('leads_list')\
-            .select('id', count='exact')\
-            .in_('template_id', template_ids)\
-            .execute()
-        
-        total_count = count_response.count or 0
+        # Get leads
+        result = LeadsManager.get_by_company(company_id, limit, offset)
         
         return {
             "success": True,
             "company": company,
-            "templates_found": len(templates),
-            "templates": templates,
-            "leads_count": total_count,
-            "leads_returned": len(leads),
+            "templates_found": len(result['templates']),
+            "templates": result['templates'],
+            "leads_count": result['total'],
+            "leads_returned": len(result['leads']),
             "limit": limit,
             "offset": offset,
-            "leads": leads
+            "leads": result['leads']
         }
-    
     except HTTPException:
         raise
     except Exception as e:

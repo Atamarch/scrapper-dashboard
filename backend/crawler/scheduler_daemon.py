@@ -94,7 +94,7 @@ def get_unscraped_profiles_from_supabase(limit=100):
 
 
 def execute_schedule(schedule):
-    """Execute a scheduled crawl job by starting consumer to process queue"""
+    """Execute a scheduled crawl job - Log that queue is ready to be processed"""
     schedule_id = schedule['id']
     schedule_name = schedule['name']
     
@@ -108,43 +108,47 @@ def execute_schedule(schedule):
         supabase.table('crawler_schedules').update({
             'last_run': datetime.now().isoformat()
         }).eq('id', schedule_id).execute()
+        logger.info(f"✓ Updated last_run timestamp")
     except Exception as e:
         logger.error(f"Error updating last_run: {e}")
     
-    # Start consumer to process queue
-    logger.info(f"🚀 Starting consumer to process queue...")
-    logger.info(f"   Consumer will process all messages in queue, then exit")
-    
+    # Check queue status
     try:
-        import subprocess
+        import pika
         
-        # Run scheduled_consumer.py
-        result = subprocess.run(
-            ['python', 'scheduled_consumer.py'],
-            cwd=os.path.dirname(os.path.abspath(__file__)),
-            capture_output=True,
-            text=True,
-            timeout=3600  # 1 hour timeout
+        credentials = pika.PlainCredentials(
+            os.getenv('RABBITMQ_USER', 'guest'),
+            os.getenv('RABBITMQ_PASS', 'guest')
+        )
+        parameters = pika.ConnectionParameters(
+            host=os.getenv('RABBITMQ_HOST', 'localhost'),
+            port=int(os.getenv('RABBITMQ_PORT', 5672)),
+            virtual_host=os.getenv('RABBITMQ_VHOST', '/'),
+            credentials=credentials
         )
         
-        # Print consumer output
-        if result.stdout:
-            logger.info(f"\n{result.stdout}")
+        connection = pika.BlockingConnection(parameters)
+        channel = connection.channel()
         
-        if result.stderr:
-            logger.error(f"\n{result.stderr}")
+        # Check queue size
+        queue_name = os.getenv('RABBITMQ_QUEUE', 'linkedin_profiles')
+        queue_state = channel.queue_declare(queue=queue_name, durable=True, passive=True)
+        queue_size = queue_state.method.message_count
         
-        if result.returncode == 0:
-            logger.info(f"✓ Consumer finished successfully")
+        connection.close()
+        
+        logger.info(f"📊 Queue Status:")
+        logger.info(f"   - Queue: {queue_name}")
+        logger.info(f"   - Messages waiting: {queue_size}")
+        
+        if queue_size > 0:
+            logger.info(f"✅ Queue has {queue_size} messages ready to be processed")
+            logger.info(f"   Consumer (crawler_consumer.py) should be running 24/7 to process these")
         else:
-            logger.error(f"✗ Consumer exited with code: {result.returncode}")
-    
-    except subprocess.TimeoutExpired:
-        logger.error(f"✗ Consumer timeout (exceeded 1 hour)")
+            logger.info(f"ℹ️  Queue is empty - no profiles to process")
+        
     except Exception as e:
-        logger.error(f"✗ Failed to start consumer: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"✗ Failed to check queue: {e}")
     
     logger.info(f"\n{'='*60}")
     logger.info(f"SCHEDULE COMPLETED: {schedule_name}")
