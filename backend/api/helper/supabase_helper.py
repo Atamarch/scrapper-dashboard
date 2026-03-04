@@ -43,15 +43,26 @@ class ScheduleManager:
     @staticmethod
     def get_by_id(schedule_id: str) -> Optional[Dict]:
         """Get schedule by ID"""
-        response = supabase.table('crawler_schedules').select('''
-            *,
-            search_templates (
-                id,
-                name
-            )
-        ''').eq('id', schedule_id).execute()
-        
-        return response.data[0] if response.data else None
+        try:
+            response = supabase.table('crawler_schedules').select('''
+                *,
+                search_templates (
+                    id,
+                    name
+                )
+            ''').eq('id', schedule_id).execute()
+            
+            return response.data[0] if response.data else None
+            
+        except Exception as e:
+            print(f"Error getting schedule with JOIN: {e}")
+            # Fallback: get without template names if FK not ready yet
+            response = supabase.table('crawler_schedules')\
+                .select('*')\
+                .eq('id', schedule_id)\
+                .execute()
+            
+            return response.data[0] if response.data else None
     
     @staticmethod
     def create(data: Dict) -> Dict:
@@ -68,8 +79,15 @@ class ScheduleManager:
     @staticmethod
     def delete(schedule_id: str) -> bool:
         """Delete schedule"""
-        supabase.table('crawler_schedules').delete().eq('id', schedule_id).execute()
-        return True
+        try:
+            response = supabase.table('crawler_schedules').delete().eq('id', schedule_id).execute()
+            # Check if any rows were affected
+            if not response.data:
+                return False
+            return True
+        except Exception as e:
+            print(f"Error deleting schedule: {e}")
+            raise e
     
     @staticmethod
     def template_exists(template_id: str) -> bool:
@@ -205,47 +223,3 @@ class ReQueueManager:
                 failed_leads.append(lead)
         
         return failed_leads
-
-
-class ReQueueManager:
-    """Manage re-queueing of failed leads"""
-
-    @staticmethod
-    def get_failed_leads(template_id: Optional[str] = None, check_profile_data: bool = True, check_scoring_data: bool = True) -> List[Dict]:
-        """Get leads that failed scraping or scoring"""
-        query = supabase.table('leads_list').select('*')
-
-        # Filter by template if provided
-        if template_id:
-            query = query.eq('template_id', template_id)
-
-        # Build conditions for missing data
-        conditions = []
-        if check_profile_data:
-            conditions.append('profile_data.is.null')
-        if check_scoring_data:
-            conditions.append('scoring_data.is.null')
-
-        # Apply OR condition for missing data
-        if conditions:
-            # For now, we'll get all and filter in Python since Supabase OR with null checks can be tricky
-            response = query.execute()
-            leads = response.data or []
-
-            # Filter leads with missing data
-            failed_leads = []
-            for lead in leads:
-                should_requeue = False
-
-                if check_profile_data and (not lead.get('profile_data') or lead.get('profile_data') in [None, '', {}]):
-                    should_requeue = True
-
-                if check_scoring_data and (not lead.get('scoring_data') or lead.get('scoring_data') in [None, '', {}]):
-                    should_requeue = True
-
-                if should_requeue:
-                    failed_leads.append(lead)
-
-            return failed_leads
-
-        return []

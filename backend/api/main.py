@@ -212,6 +212,20 @@ class ReQueueRequest(BaseModel):
     )
 
 
+class InstantCrawlRequest(BaseModel):
+    """Request for instant crawling of a single profile"""
+    profile_url: str = Field(
+        ...,
+        example="https://linkedin.com/in/johndoe",
+        description="LinkedIn profile URL to crawl"
+    )
+    template_id: Optional[str] = Field(
+        None,
+        example="38a1699d-ad54-4f05-9483-e3d35142d35f",
+        description="Template ID for scoring (optional)"
+    )
+
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize database and start scheduler"""
@@ -405,7 +419,9 @@ async def delete_schedule(schedule_id: str):
             raise HTTPException(status_code=404, detail="Schedule not found")
         
         # Delete schedule
-        ScheduleManager.delete(schedule_id)
+        success = ScheduleManager.delete(schedule_id)
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to delete schedule - no rows affected")
         
         return {
             "success": True,
@@ -415,7 +431,7 @@ async def delete_schedule(schedule_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to delete schedule: {str(e)}")
 
 
 @app.patch("/api/schedules/{schedule_id}/toggle")
