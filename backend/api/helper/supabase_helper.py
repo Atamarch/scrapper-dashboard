@@ -212,18 +212,26 @@ class ReQueueManager:
         failed_leads = []
         for lead in leads:
             should_requeue = False
+            needs_scraping = False
+            needs_scoring = False
             
-            if check_profile_data and (not lead.get('profile_data') or lead.get('profile_data') in [None, '', {}]):
+            # Check profile data
+            profile_data = lead.get('profile_data')
+            if check_profile_data and (not profile_data or profile_data in [None, '', {}]):
+                needs_scraping = True
                 should_requeue = True
             
+            # Check scoring data
             if check_scoring_data:
                 scoring_data = lead.get('scoring_data')
                 if not scoring_data or scoring_data in [None, '', {}]:
+                    needs_scoring = True
                     should_requeue = True
                 elif isinstance(scoring_data, dict):
                     # Check if score percentage is 0
                     score_data = scoring_data.get('score', {}) if isinstance(scoring_data, dict) else {}
                     if isinstance(score_data, dict) and score_data.get('percentage', -1) == 0:
+                        needs_scoring = True
                         should_requeue = True
                 elif isinstance(scoring_data, str):
                     try:
@@ -231,11 +239,22 @@ class ReQueueManager:
                         parsed_data = json.loads(scoring_data)
                         score_data = parsed_data.get('score', {}) if isinstance(parsed_data, dict) else {}
                         if isinstance(score_data, dict) and score_data.get('percentage', -1) == 0:
+                            needs_scoring = True
                             should_requeue = True
                     except:
+                        needs_scoring = True
                         should_requeue = True  # Invalid JSON, needs reprocessing
             
+            # Special case: If profile has score 0 but has profile data, only need scoring (not scraping)
+            if needs_scoring and profile_data and profile_data not in [None, '', {}]:
+                # Profile exists but score is 0, only need re-scoring
+                needs_scraping = False
+            
             if should_requeue:
-                failed_leads.append(lead)
+                # Add metadata about what needs processing
+                lead_info = lead.copy()
+                lead_info['needs_scraping'] = needs_scraping
+                lead_info['needs_scoring'] = needs_scoring
+                failed_leads.append(lead_info)
         
         return failed_leads

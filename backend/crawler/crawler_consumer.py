@@ -227,6 +227,11 @@ def get_pending_leads_from_database():
                 except:
                     needs_scoring = True  # Invalid JSON, needs reprocessing
             
+            # Special case: If profile has score 0 but has profile data, only need scoring (not scraping)
+            if needs_scoring and profile_data and profile_data not in [None, '', '{}', {}]:
+                # Profile exists but score is 0, only need re-scoring
+                needs_scraping = False
+            
             if needs_scraping or needs_scoring:
                 pending_leads.append({
                     'id': lead['id'],
@@ -240,7 +245,8 @@ def get_pending_leads_from_database():
         print(f"      Total leads: {total_leads}")
         print(f"      Pending leads: {len(pending_leads)}")
         print(f"      Need scraping: {sum(1 for l in pending_leads if l['needs_scraping'])}")
-        print(f"      Need scoring (empty/0%): {sum(1 for l in pending_leads if l['needs_scoring'])}")
+        print(f"      Need scoring only: {sum(1 for l in pending_leads if l['needs_scoring'] and not l['needs_scraping'])}")
+        print(f"      Need both scraping & scoring: {sum(1 for l in pending_leads if l['needs_scraping'] and l['needs_scoring'])}")
         
         return pending_leads
         
