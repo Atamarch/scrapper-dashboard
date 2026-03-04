@@ -17,7 +17,8 @@ class SupabaseManager:
             raise ValueError("SUPABASE_URL and SUPABASE_KEY must be set in .env")
         
         self.client: Client = create_client(self.url, self.key)
-        print(f"✓ Supabase client initialized")
+        # Remove the print statement to avoid spam
+        # print(f"✓ Supabase client initialized")
     
     def save_lead(self, profile_url, name, profile_data, connection_status='scraped', template_id=None):
         """

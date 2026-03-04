@@ -135,14 +135,20 @@ def check_template_has_requirements(template_id):
     if not template_id:
         return False
     
-    # Check if requirements file exists
+    # Method 1: Check if requirements file exists by template_id
     requirements_file = os.path.join(REQUIREMENTS_DIR, f"{template_id}.json")
     if os.path.exists(requirements_file):
         return True
     
-    # Also check by template name (fallback)
+    # Method 2: Check common template names
+    common_templates = ['desk_collection', 'backend_dev_senior', 'frontend_dev', 'fullstack_dev', 'data_scientist', 'devops_engineer']
+    for template_name in common_templates:
+        requirements_file = os.path.join(REQUIREMENTS_DIR, f"{template_name}.json")
+        if os.path.exists(requirements_file):
+            return True
+    
+    # Method 3: Try to get template name from database (with error handling)
     try:
-        # Get template name from Supabase
         supabase = SupabaseManager()
         template = supabase.get_template_by_id(template_id)
         if template and template.get('name'):
@@ -150,7 +156,8 @@ def check_template_has_requirements(template_id):
             requirements_file = os.path.join(REQUIREMENTS_DIR, f"{template_name}.json")
             return os.path.exists(requirements_file)
     except Exception as e:
-        print(f"⚠ Error checking template requirements: {e}")
+        print(f"⚠ Warning: Could not check template in database: {e}")
+        # Continue with file-based check only
     
     return False
 
@@ -158,15 +165,16 @@ def check_template_has_requirements(template_id):
 def get_pending_leads_from_database():
     """Get leads that need to be re-queued from database"""
     try:
-        supabase = SupabaseManager()
-        
         print("\n🔍 Checking database for pending leads...")
         
-        # Query leads that need processing
-        # Criteria: missing profile_data OR missing scoring_data
-        response = supabase.supabase.table('leads_list').select(
+        # Use single SupabaseManager instance
+        supabase = SupabaseManager()
+        
+        # Query leads that need processing with timeout
+        print("   → Querying leads_list table...")
+        response = supabase.client.table('leads_list').select(
             'id, profile_url, template_id, profile_data, scoring_data'
-        ).execute()
+        ).limit(100).execute()  # Limit to prevent huge queries
         
         if not response.data:
             print("   No leads found in database")
@@ -174,6 +182,7 @@ def get_pending_leads_from_database():
         
         pending_leads = []
         total_leads = len(response.data)
+        print(f"   → Found {total_leads} leads in database")
         
         for lead in response.data:
             profile_url = lead.get('profile_url')
@@ -184,9 +193,17 @@ def get_pending_leads_from_database():
             if not profile_url or not template_id:
                 continue
             
-            # Check if template has requirements
-            if not check_template_has_requirements(template_id):
-                continue
+            # Check if template has requirements (file-based check only for speed)
+            requirements_file = os.path.join(REQUIREMENTS_DIR, f"{template_id}.json")
+            if not os.path.exists(requirements_file):
+                # Try common template names
+                common_templates = ['desk_collection', 'backend_dev_senior', 'frontend_dev']
+                has_requirements = any(
+                    os.path.exists(os.path.join(REQUIREMENTS_DIR, f"{name}.json"))
+                    for name in common_templates
+                )
+                if not has_requirements:
+                    continue
             
             # Check if needs processing
             needs_scraping = not profile_data or profile_data in [None, '', '{}', {}]
@@ -211,6 +228,7 @@ def get_pending_leads_from_database():
         
     except Exception as e:
         print(f"❌ Error getting pending leads: {e}")
+        print("   → Continuing without database validation...")
         return []
 
 
@@ -300,15 +318,20 @@ def smart_queue_check(mq_config):
     if queue_size <= 5:  # Threshold for "low queue"
         print(f"\n🔄 Queue is {'empty' if queue_size == 0 else 'low'} - checking database for pending leads...")
         
-        # Get pending leads from database
-        pending_leads = get_pending_leads_from_database()
-        
-        if pending_leads:
-            # Re-queue pending leads
-            requeued = requeue_pending_leads(pending_leads, mq_config)
-            print(f"✅ Database validation complete - {requeued} leads re-queued")
-        else:
-            print("✅ Database validation complete - no pending leads found")
+        try:
+            # Get pending leads from database with timeout
+            pending_leads = get_pending_leads_from_database()
+            
+            if pending_leads:
+                # Re-queue pending leads
+                requeued = requeue_pending_leads(pending_leads, mq_config)
+                print(f"✅ Database validation complete - {requeued} leads re-queued")
+            else:
+                print("✅ Database validation complete - no pending leads found")
+                
+        except Exception as e:
+            print(f"⚠ Database validation failed: {e}")
+            print("   Continuing with queue processing only...")
     else:
         print(f"✅ Queue has sufficient messages ({queue_size}) - skipping database check")
     
