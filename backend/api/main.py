@@ -170,14 +170,14 @@ class CrawlerScheduleUpdate(BaseModel):
     template_id: Optional[str] = None
     status: Optional[str] = None
 
-@app.get("/api/crawler-schedules")
-async def get_crawler_schedules(
+@app.get("/api/schedules")
+async def get_schedules(
     status: Optional[str] = None,
     template_id: Optional[str] = None,
     limit: Optional[int] = None,
     offset: Optional[int] = 0
 ):
-    """Get all crawler schedules with optional filters
+    """Get all schedules with optional filters
     
     Query params:
     - status: Filter by status ('active' or 'inactive')
@@ -186,9 +186,9 @@ async def get_crawler_schedules(
     - offset: Pagination offset (default: 0)
     
     Examples:
-    - GET /api/crawler-schedules                    → Get ALL schedules
-    - GET /api/crawler-schedules?status=active      → Get all active schedules
-    - GET /api/crawler-schedules?limit=10&offset=0  → Get first 10 schedules
+    - GET /api/schedules                    → Get ALL schedules
+    - GET /api/schedules?status=active      → Get all active schedules
+    - GET /api/schedules?limit=10&offset=0  → Get first 10 schedules
     """
     try:
         result = ScheduleManager.get_all(status, template_id, limit, offset)
@@ -211,9 +211,9 @@ async def get_crawler_schedules(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/crawler-schedules/{schedule_id}")
-async def get_crawler_schedule(schedule_id: str):
-    """Get specific crawler schedule by ID"""
+@app.get("/api/schedules/{schedule_id}")
+async def get_schedule(schedule_id: str):
+    """Get specific schedule by ID"""
     try:
         schedule = ScheduleManager.get_by_id(schedule_id)
         if not schedule:
@@ -226,9 +226,9 @@ async def get_crawler_schedule(schedule_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/crawler-schedules")
-async def create_crawler_schedule(schedule: CrawlerScheduleCreate):
-    """Create new crawler schedule"""
+@app.post("/api/schedules")
+async def create_schedule(schedule: CrawlerScheduleCreate):
+    """Create new schedule"""
     try:
         # Validate template exists
         if not ScheduleManager.template_exists(schedule.template_id):
@@ -259,9 +259,9 @@ async def create_crawler_schedule(schedule: CrawlerScheduleCreate):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.put("/api/crawler-schedules/{schedule_id}")
-async def update_crawler_schedule(schedule_id: str, schedule: CrawlerScheduleUpdate):
-    """Update existing crawler schedule"""
+@app.put("/api/schedules/{schedule_id}")
+async def update_schedule(schedule_id: str, schedule: CrawlerScheduleUpdate):
+    """Update existing schedule"""
     try:
         # Check if schedule exists
         if not ScheduleManager.get_by_id(schedule_id):
@@ -293,9 +293,9 @@ async def update_crawler_schedule(schedule_id: str, schedule: CrawlerScheduleUpd
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.delete("/api/crawler-schedules/{schedule_id}")
-async def delete_crawler_schedule(schedule_id: str):
-    """Delete crawler schedule"""
+@app.delete("/api/schedules/{schedule_id}")
+async def delete_schedule(schedule_id: str):
+    """Delete schedule"""
     try:
         # Check if schedule exists
         schedule = ScheduleManager.get_by_id(schedule_id)
@@ -316,8 +316,8 @@ async def delete_crawler_schedule(schedule_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.patch("/api/crawler-schedules/{schedule_id}/toggle")
-async def toggle_crawler_schedule(schedule_id: str):
+@app.patch("/api/schedules/{schedule_id}/toggle")
+async def toggle_schedule(schedule_id: str):
     """Toggle schedule status between 'active' and 'inactive'"""
     try:
         # Get current schedule
@@ -344,102 +344,6 @@ async def toggle_crawler_schedule(schedule_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# Legacy schedule endpoints (kept for backward compatibility)
-@app.get("/api/schedules")
-async def get_schedules():
-    """Get all scheduled jobs (LEGACY - use /api/crawler-schedules instead)"""
-    if not db:
-        raise HTTPException(status_code=503, detail="Database not available")
-    schedules = db.get_all_schedules()
-    return {"schedules": schedules}
-
-@app.get("/api/schedules/{schedule_id}")
-async def get_schedule(schedule_id: str):
-    """Get specific schedule (LEGACY - use /api/crawler-schedules/{id} instead)"""
-    if not db:
-        raise HTTPException(status_code=503, detail="Database not available")
-    schedule = db.get_schedule(schedule_id)
-    if not schedule:
-        raise HTTPException(status_code=404, detail="Schedule not found")
-    return schedule
-
-@app.post("/api/schedules")
-async def create_schedule(schedule: ScheduleCreate):
-    """Create new scheduled job (LEGACY - use /api/crawler-schedules instead)"""
-    if not db or not scheduler:
-        raise HTTPException(status_code=503, detail="Scheduler not available")
-    try:
-        schedule_id = db.create_schedule(
-            name=schedule.name,
-            start_schedule=schedule.start_schedule,
-            stop_schedule=schedule.stop_schedule,
-            profile_urls=schedule.profile_urls,
-            max_workers=schedule.max_workers
-        )
-        
-        # Add to scheduler
-        scheduler.add_job(schedule_id)
-        
-        return {
-            "message": "Schedule created successfully",
-            "schedule_id": schedule_id
-        }
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@app.put("/api/schedules/{schedule_id}")
-async def update_schedule(schedule_id: str, schedule: ScheduleUpdate):
-    """Update existing schedule (LEGACY - use /api/crawler-schedules/{id} instead)"""
-    if not db or not scheduler:
-        raise HTTPException(status_code=503, detail="Scheduler not available")
-    try:
-        db.update_schedule(schedule_id, schedule.dict(exclude_unset=True))
-        
-        # Reschedule job
-        scheduler.reschedule_job(schedule_id)
-        
-        return {"message": "Schedule updated successfully"}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@app.delete("/api/schedules/{schedule_id}")
-async def delete_schedule(schedule_id: str):
-    """Delete schedule (LEGACY - use /api/crawler-schedules/{id} instead)"""
-    if not db or not scheduler:
-        raise HTTPException(status_code=503, detail="Scheduler not available")
-    try:
-        scheduler.remove_job(schedule_id)
-        db.delete_schedule(schedule_id)
-        return {"message": "Schedule deleted successfully"}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@app.post("/api/schedules/{schedule_id}/toggle")
-async def toggle_schedule(schedule_id: str):
-    """Toggle schedule status (LEGACY - use /api/crawler-schedules/{id}/toggle instead)"""
-    if not db or not scheduler:
-        raise HTTPException(status_code=503, detail="Scheduler not available")
-    try:
-        schedule = db.get_schedule(schedule_id)
-        if not schedule:
-            raise HTTPException(status_code=404, detail="Schedule not found")
-        
-        new_status = "paused" if schedule["status"] == "active" else "active"
-        db.update_schedule(schedule_id, {"status": new_status})
-        
-        if new_status == "active":
-            scheduler.resume_job(schedule_id)
-        else:
-            scheduler.pause_job(schedule_id)
-        
-        return {
-            "message": f"Schedule {new_status}",
-            "status": new_status
-        }
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
 
 
 # ============================================================================
