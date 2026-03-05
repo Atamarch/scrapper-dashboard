@@ -76,28 +76,53 @@ export default function DashboardPage() {
         // Fetch all leads data
         const { data: leadsData } = await supabase
           .from('leads_list')
-          .select('processed_at, connection_status, profile_data, score')
-          .order('processed_at', { ascending: false });
+          .select('date, connection_status, profile_data, score')
+          .order('date', { ascending: false });
 
         if (!leadsData || leadsData.length === 0) {
           setChartsLoading(false);
           return;
         }
 
-        // Leads by date (last 7 days)
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-        
-        const recentLeads = leadsData.filter(lead => 
-          lead.processed_at && new Date(lead.processed_at) >= sevenDaysAgo
-        );
-
+        // Leads by date (last 7 days) - Generate all 7 days
+        const today = new Date();
+        today.setHours(23, 59, 59, 999); // End of today
         const dateMap = new Map<string, number>();
-        recentLeads.forEach(lead => {
-          const date = new Date(lead.processed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-          dateMap.set(date, (dateMap.get(date) || 0) + 1);
+        
+        // Generate last 7 days (including today)
+        for (let i = 6; i >= 0; i--) {
+          const date = new Date(today);
+          date.setDate(today.getDate() - i);
+          date.setHours(0, 0, 0, 0);
+          const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          dateMap.set(dateStr, 0); // Initialize with 0
+        }
+        
+        // Count actual leads for each date (using 'date' field for when lead was crawled)
+        const sevenDaysAgo = new Date(today);
+        sevenDaysAgo.setDate(today.getDate() - 6); // 7 days including today
+        sevenDaysAgo.setHours(0, 0, 0, 0);
+        
+        console.log('=== LEADS TREND DEBUG ===');
+        console.log('Today:', today.toISOString());
+        console.log('Seven days ago:', sevenDaysAgo.toISOString());
+        console.log('Total leads data:', leadsData.length);
+        
+        leadsData.forEach(lead => {
+          if (lead.date) {
+            const leadDate = new Date(lead.date);
+            if (leadDate >= sevenDaysAgo && leadDate <= today) {
+              const dateStr = leadDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+              const currentCount = dateMap.get(dateStr) || 0;
+              dateMap.set(dateStr, currentCount + 1);
+              console.log(`Lead crawled on ${dateStr}:`, lead.date);
+            }
+          }
         });
-        setLeadsByDate(Array.from(dateMap, ([date, count]) => ({ date, count })));
+        
+        const leadsByDateArray = Array.from(dateMap, ([date, count]) => ({ date, count }));
+        console.log('Final leads by date:', leadsByDateArray);
+        setLeadsByDate(leadsByDateArray);
 
         // Connection status distribution (pending, scraped, success)
         const statusMap = new Map<string, number>();

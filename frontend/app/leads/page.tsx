@@ -24,7 +24,7 @@ function LeadsPageContent() {
   const [exporting, setExporting] = useState(false);
   const [showTemplateDropdown, setShowTemplateDropdown] = useState(false);
   const [showSortDropdown, setShowSortDropdown] = useState(false);
-  const [sortBy, setSortBy] = useState<'date' | 'score'>('date');
+  const [sortBy, setSortBy] = useState<'processed_at' | 'score'>('processed_at');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [selectedLeads, setSelectedLeads] = useState<string[]>([]);
   const [selectedLead, setSelectedLead] = useState<any>(null);
@@ -675,8 +675,8 @@ function LeadsPageContent() {
                 className="flex items-center gap-2 rounded-lg border border-gray-700 bg-[#1a1f2e] px-4 py-3 text-white hover:border-gray-600 focus:border-blue-500 focus:outline-none min-w-[200px] justify-between"
               >
                 <span className="truncate text-sm">
-                  {sortBy === 'date' && sortOrder === 'desc' && 'Date (Newest)'}
-                  {sortBy === 'date' && sortOrder === 'asc' && 'Date (Oldest)'}
+                  {sortBy === 'processed_at' && sortOrder === 'desc' && 'Processed At (Newest)'}
+                  {sortBy === 'processed_at' && sortOrder === 'asc' && 'Processed At (Oldest)'}
                   {sortBy === 'score' && sortOrder === 'desc' && 'Score (High to Low)'}
                   {sortBy === 'score' && sortOrder === 'asc' && 'Score (Low to High)'}
                 </span>
@@ -691,29 +691,29 @@ function LeadsPageContent() {
                 <div className="absolute top-full left-0 mt-2 w-[200px] rounded-lg border border-gray-700 bg-[#1a1f2e] shadow-xl z-10">
                   <button
                     onClick={() => {
-                      setSortBy('date');
+                      setSortBy('processed_at');
                       setSortOrder('desc');
                       setCurrentPage(1);
                       setShowSortDropdown(false);
                     }}
                     className={`w-full px-4 py-2.5 text-left text-sm transition-colors hover:bg-gray-700 ${
-                      sortBy === 'date' && sortOrder === 'desc' ? 'bg-gray-700 text-white' : 'text-gray-400'
+                      sortBy === 'processed_at' && sortOrder === 'desc' ? 'bg-gray-700 text-white' : 'text-gray-400'
                     }`}
                   >
-                    Date (Newest)
+                    Processed At (Newest)
                   </button>
                   <button
                     onClick={() => {
-                      setSortBy('date');
+                      setSortBy('processed_at');
                       setSortOrder('asc');
                       setCurrentPage(1);
                       setShowSortDropdown(false);
                     }}
                     className={`w-full px-4 py-2.5 text-left text-sm transition-colors hover:bg-gray-700 ${
-                      sortBy === 'date' && sortOrder === 'asc' ? 'bg-gray-700 text-white' : 'text-gray-400'
+                      sortBy === 'processed_at' && sortOrder === 'asc' ? 'bg-gray-700 text-white' : 'text-gray-400'
                     }`}
                   >
-                    Date (Oldest)
+                    Processed At (Oldest)
                   </button>
                   <button
                     onClick={() => {
