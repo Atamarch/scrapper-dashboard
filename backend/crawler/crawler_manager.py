@@ -7,7 +7,7 @@ import sys
 import time
 import signal
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 from supabase import create_client, Client
 import logging
@@ -52,7 +52,7 @@ class CrawlerManager:
             schedules = response.data or []
             
             # Check which schedules should be running now
-            now = datetime.now()
+            now = datetime.now(timezone.utc)  # Use UTC timezone
             current_hour = now.hour
             current_minute = now.minute
             current_day = now.weekday()  # 0=Monday, 6=Sunday
@@ -84,7 +84,7 @@ class CrawlerManager:
     def _should_run_now(self, start_cron, stop_cron, hour, minute, day):
         """
         Check if crawler should be running based on cron expressions
-        Simplified cron parser for common patterns
+        Improved cron parser with proper time range checking
         """
         try:
             # Parse start cron: "minute hour day month weekday"
@@ -104,44 +104,61 @@ class CrawlerManager:
             # month = parts[3]  # Not used for now
             weekday = parts[4]
             
-            # Check weekday
+            # Check weekday first
             if weekday != '*':
                 # Parse weekday range (e.g., "1-5" for Mon-Fri)
                 if '-' in weekday:
                     start_day, end_day = map(int, weekday.split('-'))
                     if not (start_day <= day <= end_day):
+                        logger.debug(f"Not running - wrong weekday: {day} not in {start_day}-{end_day}")
                         return False
                 elif weekday.isdigit():
                     if int(weekday) != day:
+                        logger.debug(f"Not running - wrong weekday: {day} != {weekday}")
                         return False
             
-            # Check if we're past start time
-            if start_hour != '*':
+            # Parse start time
+            if start_hour == '*':
+                start_h = 0
+            else:
                 start_h = int(start_hour)
-                if hour < start_h:
-                    return False
-                if hour == start_h and start_minute != '*':
-                    start_m = int(start_minute)
-                    if minute < start_m:
-                        return False
             
-            # Check if we're before stop time (if exists)
+            if start_minute == '*':
+                start_m = 0
+            else:
+                start_m = int(start_minute)
+            
+            # Parse stop time (if exists)
+            stop_h = 23
+            stop_m = 59
+            
             if stop_cron:
                 stop_parts = stop_cron.split()
                 if len(stop_parts) >= 2:
-                    stop_minute = stop_parts[0]
-                    stop_hour = stop_parts[1]
-                    
-                    if stop_hour != '*':
-                        stop_h = int(stop_hour)
-                        if hour > stop_h:
-                            return False
-                        if hour == stop_h and stop_minute != '*':
-                            stop_m = int(stop_minute)
-                            if minute >= stop_m:
-                                return False
+                    if stop_parts[1] != '*':
+                        stop_h = int(stop_parts[1])
+                    if stop_parts[0] != '*':
+                        stop_m = int(stop_parts[0])
             
-            return True
+            # Convert current time and schedule times to minutes for easier comparison
+            current_minutes = hour * 60 + minute
+            start_minutes = start_h * 60 + start_m
+            stop_minutes = stop_h * 60 + stop_m
+            
+            # Check if current time is within the scheduled range
+            if start_minutes <= stop_minutes:
+                # Normal case: start and stop on same day (e.g., 9:00 to 17:00)
+                is_in_range = start_minutes <= current_minutes <= stop_minutes
+            else:
+                # Overnight case: start late, stop early next day (e.g., 22:00 to 06:00)
+                is_in_range = current_minutes >= start_minutes or current_minutes <= stop_minutes
+            
+            if is_in_range:
+                logger.debug(f"Should run - time {hour:02d}:{minute:02d} is within {start_h:02d}:{start_m:02d} to {stop_h:02d}:{stop_m:02d}")
+                return True
+            else:
+                logger.debug(f"Not running - time {hour:02d}:{minute:02d} is outside {start_h:02d}:{start_m:02d} to {stop_h:02d}:{stop_m:02d}")
+                return False
         
         except Exception as e:
             logger.error(f"Error parsing cron: {e}")
@@ -238,6 +255,8 @@ class CrawlerManager:
                         # Start crawler
                         schedule = running_schedules[0]  # Use first schedule
                         logger.info(f"Schedule active: {schedule['name']}")
+                        logger.info(f"  Start: {schedule.get('start_schedule', 'N/A')}")
+                        logger.info(f"  Stop: {schedule.get('stop_schedule', 'N/A')}")
                         self.start_crawler(schedule['id'])
                     else:
                         logger.debug(f"Crawler running (Schedule: {self.current_schedule_id})")
@@ -247,7 +266,22 @@ class CrawlerManager:
                         logger.info("No active schedules, stopping crawler")
                         self.stop_crawler()
                     else:
-                        logger.debug("Crawler idle (no active schedules)")
+                        # Show debug info about why no schedules are active
+                        now = datetime.now(timezone.utc)
+                        logger.debug(f"Crawler idle - no active schedules at {now.strftime('%H:%M')} UTC (weekday: {now.weekday()})")
+                        
+                        # Show active schedules for debugging (less frequent)
+                        if time.time() % 300 < POLL_INTERVAL:  # Every 5 minutes
+                            try:
+                                response = supabase.table('crawler_schedules').select('name, start_schedule, stop_schedule, status').eq('status', 'active').execute()
+                                if response.data:
+                                    logger.info("Active schedules:")
+                                    for schedule in response.data:
+                                        logger.info(f"  - {schedule['name']}: {schedule.get('start_schedule', 'N/A')} to {schedule.get('stop_schedule', 'N/A')}")
+                                else:
+                                    logger.info("No active schedules found in database")
+                            except Exception as e:
+                                logger.error(f"Error fetching schedules for debug: {e}")
                 
                 # Sleep
                 time.sleep(POLL_INTERVAL)

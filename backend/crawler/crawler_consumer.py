@@ -127,7 +127,7 @@ def print_stats():
 
 
 # ============================================================================
-# SMART QUEUE MANAGEMENT FUNCTIONS
+# TEMPLATE-BASED QUEUE MANAGEMENT FUNCTIONS
 # ============================================================================
 
 def check_template_has_requirements(template_id):
@@ -162,226 +162,142 @@ def check_template_has_requirements(template_id):
     return False
 
 
-def get_pending_leads_from_database():
-    """Get leads that need to be re-queued from database"""
+def select_template_interactive():
+    """Interactive template selection for crawler"""
     try:
-        print("\n🔍 Checking database for pending leads...")
-        
-        # Use single SupabaseManager instance
         supabase = SupabaseManager()
+        templates = supabase.get_all_templates()
         
-        # Query leads that need processing with timeout
-        print("   → Querying leads_list table...")
-        response = supabase.client.table('leads_list').select(
-            'id, profile_url, template_id, profile_data, scoring_data, connection_status'
-        ).limit(100).execute()  # Limit to prevent huge queries
+        if not templates:
+            print("❌ No templates found in database")
+            return None
         
-        if not response.data:
-            print("   No leads found in database")
-            return []
+        print("\n" + "="*60)
+        print("📋 TEMPLATE SELECTION")
+        print("="*60)
+        print("Available templates:")
         
-        pending_leads = []
-        total_leads = len(response.data)
-        print(f"   → Found {total_leads} leads in database")
+        for i, template in enumerate(templates, 1):
+            print(f"  {i}. {template['name']} (ID: {template['id']})")
         
-        for lead in response.data:
-            profile_url = lead.get('profile_url')
-            template_id = lead.get('template_id')
-            profile_data = lead.get('profile_data')
-            scoring_data = lead.get('scoring_data')
-            connection_status = lead.get('connection_status', '')
-            
-            if not profile_url or not template_id:
-                continue
-            
-            # Check if template has requirements (file-based check only for speed)
-            requirements_file = os.path.join(REQUIREMENTS_DIR, f"{template_id}.json")
-            if not os.path.exists(requirements_file):
-                # Try common template names
-                common_templates = ['desk_collection', 'backend_dev_senior', 'frontend_dev']
-                has_requirements = any(
-                    os.path.exists(os.path.join(REQUIREMENTS_DIR, f"{name}.json"))
-                    for name in common_templates
-                )
-                if not has_requirements:
-                    continue
-            
-            # SIMPLE VALIDATION LOGIC:
-            # 1. Profile data kosong = perlu scraping
-            # 2. Scoring data kosong ATAU score 0% = perlu scoring
-            # 3. connection_status "scraped" tapi data kosong = override, tetap perlu scraping
-            
-            needs_scraping = False
-            needs_scoring = False
-            
-            # Check if profile data is missing or empty
-            if not profile_data or profile_data in [None, '', '{}', {}]:
-                needs_scraping = True
-            
-            # Check if scoring data is missing, empty, or has 0% score
-            if not scoring_data or scoring_data in [None, '', '{}', {}]:
-                needs_scoring = True
-            else:
-                # Check for 0% score in existing scoring data
-                try:
-                    if isinstance(scoring_data, dict):
-                        score_data = scoring_data.get('score', {})
-                        if isinstance(score_data, dict) and score_data.get('percentage', -1) == 0:
-                            needs_scoring = True
-                    elif isinstance(scoring_data, str):
-                        parsed_data = json.loads(scoring_data)
-                        score_data = parsed_data.get('score', {})
-                        if isinstance(score_data, dict) and score_data.get('percentage', -1) == 0:
-                            needs_scoring = True
-                except:
-                    # Invalid JSON = needs reprocessing
-                    needs_scoring = True
-            
-            # OVERRIDE: If connection_status is "scraped" but data is actually empty, force scraping
-            if connection_status == 'scraped':
-                if not profile_data or profile_data in [None, '', '{}', {}]:
-                    needs_scraping = True
-                    print(f"   ⚠️  Status 'scraped' but profile empty: {profile_url}")
-                if not scoring_data or scoring_data in [None, '', '{}', {}]:
-                    needs_scoring = True
-                    print(f"   ⚠️  Status 'scraped' but scoring empty: {profile_url}")
-            
-            if needs_scraping or needs_scoring:
-                pending_leads.append({
-                    'id': lead['id'],
-                    'profile_url': profile_url,
-                    'template_id': template_id,
-                    'needs_scraping': needs_scraping,
-                    'needs_scoring': needs_scoring
-                })
+        print(f"  0. Exit")
+        print("="*60)
         
-        print(f"   📊 Database scan results:")
-        print(f"      Total leads: {total_leads}")
-        print(f"      Pending leads: {len(pending_leads)}")
-        print(f"      Need scraping: {sum(1 for l in pending_leads if l['needs_scraping'])}")
-        print(f"      Need scoring: {sum(1 for l in pending_leads if l['needs_scoring'])}")
-        print(f"      Need both: {sum(1 for l in pending_leads if l['needs_scraping'] and l['needs_scoring'])}")
-        
-        # Count specific issues
-        scraped_issues = sum(1 for lead in response.data 
-                           if lead.get('connection_status') == 'scraped' and 
-                           ((not lead.get('profile_data') or lead.get('profile_data') in [None, '', '{}', {}]) or
-                            (not lead.get('scoring_data') or lead.get('scoring_data') in [None, '', '{}', {}])))
-        if scraped_issues > 0:
-            print(f"      ⚠️  'Scraped' status with empty data: {scraped_issues}")
-        
-        return pending_leads
-        
-    except Exception as e:
-        print(f"❌ Error getting pending leads: {e}")
-        print("   → Continuing without database validation...")
-        return []
-
-
-def requeue_pending_leads(pending_leads, mq_config):
-    """Re-queue pending leads to processing queue"""
-    if not pending_leads:
-        return 0
-    
-    print(f"\n📤 Re-queueing {len(pending_leads)} pending leads...")
-    
-    # Connect to RabbitMQ
-    mq = RabbitMQManager()
-    mq.host = mq_config['host']
-    mq.port = mq_config['port']
-    mq.username = mq_config['username']
-    mq.password = mq_config['password']
-    mq.queue_name = mq_config['queue_name']
-    
-    if not mq.connect():
-        print("❌ Failed to connect to RabbitMQ for re-queueing")
-        return 0
-    
-    requeued_count = 0
-    
-    try:
-        for lead in pending_leads:
-            message = {
-                'url': lead['profile_url'],
-                'template_id': lead['template_id'],
-                'timestamp': datetime.now().isoformat(),
-                'trigger': 'database_validation',
-                'lead_id': lead['id']
-            }
-            
+        while True:
             try:
-                mq.channel.basic_publish(
-                    exchange='',
-                    routing_key=mq.queue_name,
-                    body=json.dumps(message),
-                    properties=pika.BasicProperties(
-                        delivery_mode=2,  # Persistent
-                        content_type='application/json'
-                    )
-                )
-                requeued_count += 1
+                choice = input("\nSelect template number: ").strip()
                 
-            except Exception as e:
-                print(f"   ❌ Failed to queue {lead['profile_url']}: {e}")
-        
-        print(f"   ✅ Successfully re-queued {requeued_count}/{len(pending_leads)} leads")
-        
-        with stats['lock']:
-            stats['requeued_from_db'] += requeued_count
-        
-    finally:
-        mq.close()
+                if choice == '0':
+                    print("Exiting...")
+                    return None
+                
+                choice_num = int(choice)
+                if 1 <= choice_num <= len(templates):
+                    selected_template = templates[choice_num - 1]
+                    print(f"\n✓ Selected: {selected_template['name']}")
+                    return selected_template['id']
+                else:
+                    print(f"❌ Invalid choice. Please select 1-{len(templates)} or 0 to exit")
+            
+            except ValueError:
+                print("❌ Please enter a valid number")
+            except KeyboardInterrupt:
+                print("\n\nExiting...")
+                return None
     
-    return requeued_count
+    except Exception as e:
+        print(f"❌ Error selecting template: {e}")
+        return None
 
 
-def smart_queue_check(mq_config):
-    """Smart queue management - check queue then database"""
-    print("\n" + "="*60)
-    print("🧠 SMART QUEUE MANAGEMENT")
-    print("="*60)
-    
-    # Step 1: Check current queue size
-    mq = RabbitMQManager()
-    mq.host = mq_config['host']
-    mq.port = mq_config['port']
-    mq.username = mq_config['username']
-    mq.password = mq_config['password']
-    mq.queue_name = mq_config['queue_name']
-    
-    if not mq.connect():
-        print("❌ Failed to connect to RabbitMQ for queue check")
-        return
-    
-    queue_size = mq.get_queue_size()
-    mq.close()
-    
-    print(f"📊 Current queue status:")
-    print(f"   Queue: {mq_config['queue_name']}")
-    print(f"   Messages waiting: {queue_size}")
-    
-    # Step 2: If queue is empty or low, check database
-    if queue_size <= 5:  # Threshold for "low queue"
-        print(f"\n🔄 Queue is {'empty' if queue_size == 0 else 'low'} - checking database for pending leads...")
+def queue_leads_by_template(template_id, mq_config):
+    """Queue leads that need processing for specific template_id"""
+    try:
+        print(f"\n🔍 Analyzing leads for template: {template_id}")
+        
+        supabase = SupabaseManager()
+        leads = supabase.get_leads_by_template_id(template_id)
+        
+        if not leads:
+            print(f"❌ No leads found for template: {template_id}")
+            return 0
+        
+        # Filter leads that need processing
+        needs_processing = [lead for lead in leads if lead['needs_processing']]
+        already_complete = [lead for lead in leads if not lead['needs_processing']]
+        
+        print(f"\n📊 Lead Analysis Results:")
+        print(f"   Total leads: {len(leads)}")
+        print(f"   Need processing: {len(needs_processing)}")
+        print(f"   Already complete: {len(already_complete)}")
+        
+        if already_complete:
+            print(f"\n✅ Complete leads (will be skipped):")
+            for lead in already_complete[:5]:  # Show first 5
+                print(f"   - {lead['name']} (Score: {lead['score_percentage']}%)")
+            if len(already_complete) > 5:
+                print(f"   ... and {len(already_complete) - 5} more")
+        
+        if not needs_processing:
+            print(f"\n🎉 All leads for this template are already complete!")
+            return 0
+        
+        print(f"\n📤 Queueing {len(needs_processing)} leads that need processing:")
+        
+        # Connect to RabbitMQ
+        mq = RabbitMQManager()
+        mq.host = mq_config['host']
+        mq.port = mq_config['port']
+        mq.username = mq_config['username']
+        mq.password = mq_config['password']
+        mq.queue_name = mq_config['queue_name']
+        
+        if not mq.connect():
+            print("❌ Failed to connect to RabbitMQ for queueing")
+            return 0
+        
+        queued_count = 0
         
         try:
-            # Get pending leads from database with timeout
-            pending_leads = get_pending_leads_from_database()
-            
-            if pending_leads:
-                # Re-queue pending leads
-                requeued = requeue_pending_leads(pending_leads, mq_config)
-                print(f"✅ Database validation complete - {requeued} leads re-queued")
-            else:
-                print("✅ Database validation complete - no pending leads found")
+            for lead in needs_processing:
+                message = {
+                    'url': lead['profile_url'],
+                    'template_id': template_id,
+                    'timestamp': datetime.now().isoformat(),
+                    'trigger': 'template_selection',
+                    'lead_id': lead['id'],
+                    'reason': ', '.join(lead['status_reason'])
+                }
                 
-        except Exception as e:
-            print(f"⚠ Database validation failed: {e}")
-            print("   Continuing with queue processing only...")
-    else:
-        print(f"✅ Queue has sufficient messages ({queue_size}) - skipping database check")
+                try:
+                    mq.channel.basic_publish(
+                        exchange='',
+                        routing_key=mq.queue_name,
+                        body=json.dumps(message),
+                        properties=pika.BasicProperties(
+                            delivery_mode=2,  # Persistent
+                            content_type='application/json'
+                        )
+                    )
+                    queued_count += 1
+                    print(f"   ✓ Queued: {lead['name']} ({', '.join(lead['status_reason'])})")
+                    
+                except Exception as e:
+                    print(f"   ❌ Failed to queue {lead['name']}: {e}")
+            
+            print(f"\n✅ Successfully queued {queued_count}/{len(needs_processing)} leads")
+            
+            with stats['lock']:
+                stats['requeued_from_db'] += queued_count
+            
+        finally:
+            mq.close()
+        
+        return queued_count
     
-    print("="*60)
+    except Exception as e:
+        print(f"❌ Error queueing leads by template: {e}")
+        return 0
 
 
 def send_to_scoring_queue(profile_data, template_id, mq_config):
@@ -426,84 +342,7 @@ def send_to_scoring_queue(profile_data, template_id, mq_config):
         return False
 
 
-def load_crawled_urls():
-    """Load all URLs that have been crawled from output folder"""
-    crawled_urls = set()
-    output_dir = 'data/output'
-    
-    if not os.path.exists(output_dir):
-        return crawled_urls
-    
-    output_files = glob.glob(f'{output_dir}/*.json')
-    
-    for output_file in output_files:
-        try:
-            with open(output_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                url = data.get('profile_url', '')
-                if url:
-                    crawled_urls.add(url)
-        except Exception as e:
-            # Skip files that can't be read
-            continue
-    
-    return crawled_urls
 
-
-def load_urls_from_profile_folder(crawled_urls=None):
-    """Load all URLs from profile/*.json files, skip already crawled ones"""
-    if crawled_urls is None:
-        crawled_urls = set()
-    
-    urls = []
-    skipped = 0
-    
-    # Get all JSON files in profile folder
-    json_files = glob.glob('profile/*.json')
-    
-    if not json_files:
-        print("⚠ No JSON files found in profile/ folder")
-        return urls, skipped
-    
-    print(f"→ Found {len(json_files)} JSON file(s) in profile/")
-    
-    for json_file in json_files:
-        try:
-            with open(json_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                
-                # Handle both array and single object
-                if isinstance(data, list):
-                    profiles = data
-                else:
-                    profiles = [data]
-                
-                for profile in profiles:
-                    url = profile.get('profile_url', '')
-                    
-                    if not url:
-                        continue
-                    
-                    # Skip URLs with "sales" in them
-                    if '/sales/' in url.lower():
-                        skipped += 1
-                        print(f"  ⊘ Skipped (sales URL): {profile.get('name', 'Unknown')}")
-                        continue
-                    
-                    # Skip if already crawled
-                    if url in crawled_urls:
-                        skipped += 1
-                        print(f"  ⊘ Skipped (already crawled): {profile.get('name', 'Unknown')}")
-                        continue
-                    
-                    urls.append(url)
-                    print(f"  ✓ Added: {profile.get('name', 'Unknown')}")
-        
-        except Exception as e:
-            print(f"  ✗ Error reading {json_file}: {e}")
-            continue
-    
-    return urls, skipped
 
 
 def worker_thread(worker_id, mq_config):
@@ -696,8 +535,14 @@ def main():
     print("="*60)
     print("LINKEDIN CRAWLER CONSUMER")
     print("="*60)
-    print("Listening to LavinMQ queue for profile URLs")
+    print("Template-based LinkedIn Profile Scraper")
     print("="*60)
+    
+    # Step 1: Template Selection
+    template_id = select_template_interactive()
+    if not template_id:
+        print("No template selected. Exiting...")
+        return
     
     # Number of workers
     num_workers = int(os.getenv('MAX_WORKERS', '3'))
@@ -718,13 +563,6 @@ def main():
     
     print(f"✓ Connected to LavinMQ: {mq.host}")
     
-    # Check queue
-    queue_size = mq.get_queue_size()
-    print(f"\n→ Queue status:")
-    print(f"  - Queue: {mq.queue_name}")
-    print(f"  - Messages waiting: {queue_size}")
-    print(f"  - Scoring queue: {SCORING_QUEUE}")
-    
     # Save config for workers
     mq_config = {
         'host': mq.host,
@@ -734,7 +572,22 @@ def main():
         'queue_name': mq.queue_name
     }
     
+    # Check current queue size
+    queue_size = mq.get_queue_size()
+    print(f"\n→ Current queue status:")
+    print(f"  - Queue: {mq.queue_name}")
+    print(f"  - Messages waiting: {queue_size}")
+    print(f"  - Scoring queue: {SCORING_QUEUE}")
+    
     mq.close()
+    
+    # Step 2: Queue leads for selected template
+    queued_count = queue_leads_by_template(template_id, mq_config)
+    
+    if queued_count == 0:
+        print("\n🎉 No leads need processing for this template!")
+        print("All leads are already complete (have profile data and scoring > 0%)")
+        return
     
     print(f"\n→ Starting {num_workers} crawler workers...")
     print("  Workers will:")
@@ -742,6 +595,8 @@ def main():
     print("  2. Scrape LinkedIn profiles")
     print("  3. Update Supabase")
     print("  4. Send to scoring queue")
+    print(f"\n  Template: {template_id}")
+    print(f"  Queued leads: {queued_count}")
     print("\n  Press Ctrl+C to stop")
     print(f"  LavinMQ Dashboard: https://leopard.lmq.cloudamqp.com")
     
@@ -759,29 +614,43 @@ def main():
     
     print(f"\n✓ All {num_workers} workers are running!")
     print("\n💡 How it works:")
-    print("  1. Insert lead to Supabase → Webhook triggers")
-    print("  2. Backend API → Sends to LavinMQ queue")
-    print("  3. Crawler (this) → Scrapes profile")
-    print("  4. Scoring (Railway) → Calculates score")
-    print("  5. Supabase → Updated with score")
-    
-    # Initial smart queue check
-    smart_queue_check(mq_config)
-    
-    # Setup periodic database validation
-    last_db_check = time.time()
+    print("  1. Selected template leads → Queued for processing")
+    print("  2. Crawler workers → Scrape profiles")
+    print("  3. Supabase → Updated with profile data")
+    print("  4. Scoring service → Calculates scores")
+    print("  5. Complete → Profile data + scoring data")
     
     try:
-        # Keep main thread alive with periodic database checks
+        # Keep main thread alive and monitor progress
+        last_stats_time = time.time()
+        
         while True:
-            time.sleep(30)  # Check every 30 seconds
+            time.sleep(10)  # Check every 10 seconds
             
-            # Periodic database validation
+            # Print stats periodically
             current_time = time.time()
-            if current_time - last_db_check >= DB_CHECK_INTERVAL:
-                print(f"\n⏰ Periodic database check (every {DB_CHECK_INTERVAL//60} minutes)")
-                smart_queue_check(mq_config)
-                last_db_check = current_time
+            if current_time - last_stats_time >= 30:  # Every 30 seconds
+                print_stats()
+                last_stats_time = current_time
+                
+                # Check if all work is done
+                if stats['processing'] == 0:
+                    # Check queue size
+                    mq_temp = RabbitMQManager()
+                    mq_temp.host = mq_config['host']
+                    mq_temp.port = mq_config['port']
+                    mq_temp.username = mq_config['username']
+                    mq_temp.password = mq_config['password']
+                    mq_temp.queue_name = mq_config['queue_name']
+                    
+                    if mq_temp.connect():
+                        remaining_queue = mq_temp.get_queue_size()
+                        mq_temp.close()
+                        
+                        if remaining_queue == 0:
+                            print(f"\n🎉 All work completed!")
+                            print(f"   Queue is empty and no workers are processing")
+                            break
     
     except KeyboardInterrupt:
         print("\n\n⚠ Interrupted by user. Stopping all workers...")

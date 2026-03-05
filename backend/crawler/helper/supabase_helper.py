@@ -273,3 +273,94 @@ class SupabaseManager:
         except Exception as e:
             print(f"  ✗ Failed to get template: {e}")
             return None
+    
+    def get_all_templates(self):
+        """Get all available templates"""
+        try:
+            result = self.client.table('search_templates')\
+                .select('id, name')\
+                .execute()
+            
+            return result.data or []
+            
+        except Exception as e:
+            print(f"  ✗ Failed to get templates: {e}")
+            return []
+    
+    def get_leads_by_template_id(self, template_id, limit=None):
+        """Get all leads for a specific template_id with processing status"""
+        try:
+            query = self.client.table('leads_list')\
+                .select('id, profile_url, name, template_id, profile_data, scoring_data, connection_status')\
+                .eq('template_id', template_id)
+            
+            if limit:
+                query = query.limit(limit)
+            
+            result = query.execute()
+            
+            if not result.data:
+                return []
+            
+            # Classify leads by processing status
+            leads_with_status = []
+            for lead in result.data:
+                profile_data = lead.get('profile_data')
+                scoring_data = lead.get('scoring_data')
+                
+                # Check if profile data exists and is not empty
+                has_profile = profile_data and profile_data not in [None, '', '{}', {}]
+                
+                # Check if scoring data exists and is not empty
+                has_scoring = scoring_data and scoring_data not in [None, '', '{}', {}]
+                
+                # Check score percentage
+                score_percentage = 0
+                if has_scoring:
+                    try:
+                        if isinstance(scoring_data, dict):
+                            score_data = scoring_data.get('score', {})
+                            score_percentage = score_data.get('percentage', 0) if isinstance(score_data, dict) else 0
+                        elif isinstance(scoring_data, str):
+                            import json
+                            parsed_data = json.loads(scoring_data)
+                            score_data = parsed_data.get('score', {})
+                            score_percentage = score_data.get('percentage', 0) if isinstance(score_data, dict) else 0
+                    except:
+                        score_percentage = 0
+                
+                # Determine processing status
+                needs_processing = False
+                status_reason = []
+                
+                if not has_profile:
+                    needs_processing = True
+                    status_reason.append("missing_profile")
+                
+                if not has_scoring:
+                    needs_processing = True
+                    status_reason.append("missing_scoring")
+                elif score_percentage == 0:
+                    needs_processing = True
+                    status_reason.append("zero_score")
+                
+                lead_info = {
+                    'id': lead['id'],
+                    'profile_url': lead['profile_url'],
+                    'name': lead.get('name', 'Unknown'),
+                    'template_id': lead['template_id'],
+                    'connection_status': lead.get('connection_status', ''),
+                    'has_profile': has_profile,
+                    'has_scoring': has_scoring,
+                    'score_percentage': score_percentage,
+                    'needs_processing': needs_processing,
+                    'status_reason': status_reason
+                }
+                
+                leads_with_status.append(lead_info)
+            
+            return leads_with_status
+            
+        except Exception as e:
+            print(f"  ✗ Failed to get leads by template: {e}")
+            return []

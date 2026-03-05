@@ -375,6 +375,11 @@ Stopping crawler consumer...
 - **Automated operations**: Set-and-forget crawler management
 - **Multiple schedule support**: Different schedules for different time windows
 
+**Timezone Support:**
+- **UTC-based scheduling**: All schedule calculations use UTC timezone for consistency
+- **Cross-timezone compatibility**: Works reliably across different server timezones
+- **Daylight saving time handling**: UTC prevents DST-related scheduling issues
+
 **Comparison with Scheduler Daemon:**
 - **Scheduler Daemon**: Executes crawl jobs at specific times (one-time or periodic execution)
 - **Crawler Manager**: Manages crawler consumer lifecycle (continuous operation during time windows)

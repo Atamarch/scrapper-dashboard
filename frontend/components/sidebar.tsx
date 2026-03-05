@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Users, Building2, FileText, Calendar, ChevronLeft, ChevronRight, Zap, LogOut, ChevronDown, Settings, List } from 'lucide-react';
+import { LayoutDashboard, Users, Building2, FileText, Calendar, ChevronLeft, ChevronRight, Zap, LogOut, ChevronDown, Settings, List, Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
@@ -21,6 +21,7 @@ const navigation = [
       { name: 'List', href: '/requirements/list', icon: List }
     ]
   },
+  { name: 'Crawler', href: '/crawler', icon: Bot },
   { name: 'Scheduler', href: '/scheduler', icon: Calendar },
 ];
 
