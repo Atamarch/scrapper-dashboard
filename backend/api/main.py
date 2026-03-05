@@ -1378,6 +1378,80 @@ async def requeue_failed_leads(request: ReQueueRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+
+# ============================================
+# HEALTH CHECK & MONITORING
+# ============================================
+
+@app.get("/health")
+async def health_check():
+    """
+    Health check endpoint for CI/CD monitoring
+    Returns status of all system components
+    """
+    health_status = {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "services": {}
+    }
+    
+    # Check Supabase connection
+    try:
+        from helper.supabase_helper import supabase
+        # Simple query to test connection
+        result = supabase.table('leads_list').select('id').limit(1).execute()
+        health_status["services"]["database"] = {
+            "status": "healthy",
+            "type": "supabase",
+            "message": "Connection successful"
+        }
+    except Exception as e:
+        health_status["services"]["database"] = {
+            "status": "unhealthy",
+            "type": "supabase", 
+            "message": f"Connection failed: {str(e)}"
+        }
+        health_status["status"] = "degraded"
+    
+    # Check LavinMQ connection
+    try:
+        from helper.rabbitmq_helper import RabbitMQManager
+        mq = RabbitMQManager()
+        if mq.connect():
+            mq.disconnect()
+            health_status["services"]["queue"] = {
+                "status": "healthy",
+                "type": "lavinmq",
+                "message": "Connection successful"
+            }
+        else:
+            raise Exception("Failed to connect")
+    except Exception as e:
+        health_status["services"]["queue"] = {
+            "status": "unhealthy",
+            "type": "lavinmq",
+            "message": f"Connection failed: {str(e)}"
+        }
+        health_status["status"] = "degraded"
+    
+    # Check API endpoints
+    health_status["services"]["api"] = {
+        "status": "healthy",
+        "endpoints": {
+            "schedules": "/api/schedules",
+            "leads": "/api/leads",
+            "requirements": "/api/requirements"
+        }
+    }
+    
+    return health_status
+
+@app.get("/health/simple")
+async def simple_health_check():
+    """Simple health check for load balancers"""
+    return {"status": "ok"}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
