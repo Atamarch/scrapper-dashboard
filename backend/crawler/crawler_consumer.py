@@ -173,7 +173,7 @@ def get_pending_leads_from_database():
         # Query leads that need processing with timeout
         print("   → Querying leads_list table...")
         response = supabase.client.table('leads_list').select(
-            'id, profile_url, template_id, profile_data, scoring_data, status'
+            'id, profile_url, template_id, profile_data, scoring_data, connection_status'
         ).limit(100).execute()  # Limit to prevent huge queries
         
         if not response.data:
@@ -189,7 +189,7 @@ def get_pending_leads_from_database():
             template_id = lead.get('template_id')
             profile_data = lead.get('profile_data')
             scoring_data = lead.get('scoring_data')
-            status = lead.get('status', '')
+            connection_status = lead.get('connection_status', '')
             
             if not profile_url or not template_id:
                 continue
@@ -209,7 +209,7 @@ def get_pending_leads_from_database():
             # SIMPLE VALIDATION LOGIC:
             # 1. Profile data kosong = perlu scraping
             # 2. Scoring data kosong ATAU score 0% = perlu scoring
-            # 3. Status "scraped" tapi data kosong = override, tetap perlu scraping
+            # 3. connection_status "scraped" tapi data kosong = override, tetap perlu scraping
             
             needs_scraping = False
             needs_scoring = False
@@ -237,8 +237,8 @@ def get_pending_leads_from_database():
                     # Invalid JSON = needs reprocessing
                     needs_scoring = True
             
-            # OVERRIDE: If status is "scraped" but data is actually empty, force scraping
-            if status == 'scraped':
+            # OVERRIDE: If connection_status is "scraped" but data is actually empty, force scraping
+            if connection_status == 'scraped':
                 if not profile_data or profile_data in [None, '', '{}', {}]:
                     needs_scraping = True
                     print(f"   ⚠️  Status 'scraped' but profile empty: {profile_url}")
@@ -264,7 +264,7 @@ def get_pending_leads_from_database():
         
         # Count specific issues
         scraped_issues = sum(1 for lead in response.data 
-                           if lead.get('status') == 'scraped' and 
+                           if lead.get('connection_status') == 'scraped' and 
                            ((not lead.get('profile_data') or lead.get('profile_data') in [None, '', '{}', {}]) or
                             (not lead.get('scoring_data') or lead.get('scoring_data') in [None, '', '{}', {}])))
         if scraped_issues > 0:

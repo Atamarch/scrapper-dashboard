@@ -205,7 +205,7 @@ class ReQueueManager:
             query = query.eq('template_id', template_id)
         
         # Get all leads and filter in Python since Supabase OR with null checks can be tricky
-        response = query.select('*, status').execute()
+        response = query.select('*, connection_status').execute()
         leads = response.data or []
         
         # Filter leads with missing data or 0 score - SIMPLIFIED LOGIC
@@ -213,7 +213,7 @@ class ReQueueManager:
         for lead in leads:
             profile_data = lead.get('profile_data')
             scoring_data = lead.get('scoring_data')
-            status = lead.get('status', '')
+            connection_status = lead.get('connection_status', '')
             
             needs_scraping = False
             needs_scoring = False
@@ -250,8 +250,8 @@ class ReQueueManager:
                         needs_scoring = True
                         should_requeue = True
             
-            # 3. OVERRIDE: Status "scraped" tapi data kosong = tetap perlu scraping/scoring
-            if status == 'scraped':
+            # 3. OVERRIDE: connection_status "scraped" tapi data kosong = tetap perlu scraping/scoring
+            if connection_status == 'scraped':
                 if not profile_data or profile_data in [None, '', {}]:
                     needs_scraping = True
                     should_requeue = True
