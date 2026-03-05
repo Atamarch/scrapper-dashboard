@@ -208,60 +208,56 @@ class ReQueueManager:
         response = query.select('*, status').execute()
         leads = response.data or []
         
-        # Filter leads with missing data or 0 score
+        # Filter leads with missing data or 0 score - SIMPLIFIED LOGIC
         failed_leads = []
         for lead in leads:
-            should_requeue = False
-            needs_scraping = False
-            needs_scoring = False
-            
-            # Check profile data
             profile_data = lead.get('profile_data')
+            scoring_data = lead.get('scoring_data')
             status = lead.get('status', '')
             
+            needs_scraping = False
+            needs_scoring = False
+            should_requeue = False
+            
+            # SIMPLE VALIDATION LOGIC:
+            # 1. Profile data kosong = perlu scraping
             if check_profile_data and (not profile_data or profile_data in [None, '', {}]):
                 needs_scraping = True
                 should_requeue = True
             
-            # Special case: If status is "scraped" but profile_data is empty, force scraping
-            if status == 'scraped' and (not profile_data or profile_data in [None, '', {}]):
-                needs_scraping = True
-                should_requeue = True
-            
-            # Check scoring data
+            # 2. Scoring data kosong ATAU score 0% = perlu scoring
             if check_scoring_data:
-                scoring_data = lead.get('scoring_data')
                 if not scoring_data or scoring_data in [None, '', {}]:
                     needs_scoring = True
                     should_requeue = True
-                elif isinstance(scoring_data, dict):
-                    # Check if score percentage is 0
-                    score_data = scoring_data.get('score', {}) if isinstance(scoring_data, dict) else {}
-                    if isinstance(score_data, dict) and score_data.get('percentage', -1) == 0:
+                else:
+                    # Check for 0% score in existing scoring data
+                    try:
+                        if isinstance(scoring_data, dict):
+                            score_data = scoring_data.get('score', {})
+                            if isinstance(score_data, dict) and score_data.get('percentage', -1) == 0:
+                                needs_scoring = True
+                                should_requeue = True
+                        elif isinstance(scoring_data, str):
+                            import json
+                            parsed_data = json.loads(scoring_data)
+                            score_data = parsed_data.get('score', {})
+                            if isinstance(score_data, dict) and score_data.get('percentage', -1) == 0:
+                                needs_scoring = True
+                                should_requeue = True
+                    except:
+                        # Invalid JSON = needs reprocessing
                         needs_scoring = True
                         should_requeue = True
-                elif isinstance(scoring_data, str):
-                    try:
-                        import json
-                        parsed_data = json.loads(scoring_data)
-                        score_data = parsed_data.get('score', {}) if isinstance(parsed_data, dict) else {}
-                        if isinstance(score_data, dict) and score_data.get('percentage', -1) == 0:
-                            needs_scoring = True
-                            should_requeue = True
-                    except:
-                        needs_scoring = True
-                        should_requeue = True  # Invalid JSON, needs reprocessing
             
-            # Special case: If profile has score 0 but has profile data, only need scoring (not scraping)
-            if needs_scoring and profile_data and profile_data not in [None, '', {}]:
-                # Profile exists but score is 0, only need re-scoring
-                needs_scraping = False
-            
-            # Override: If status is "scraped" but both profile and scoring are empty, need both
-            if status == 'scraped' and (not profile_data or profile_data in [None, '', {}]) and (not lead.get('scoring_data') or lead.get('scoring_data') in [None, '', {}]):
-                needs_scraping = True
-                needs_scoring = True
-                should_requeue = True
+            # 3. OVERRIDE: Status "scraped" tapi data kosong = tetap perlu scraping/scoring
+            if status == 'scraped':
+                if not profile_data or profile_data in [None, '', {}]:
+                    needs_scraping = True
+                    should_requeue = True
+                if not scoring_data or scoring_data in [None, '', {}]:
+                    needs_scoring = True
+                    should_requeue = True
             
             if should_requeue:
                 # Add metadata about what needs processing

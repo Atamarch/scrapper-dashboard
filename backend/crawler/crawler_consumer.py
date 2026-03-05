@@ -206,43 +206,45 @@ def get_pending_leads_from_database():
                 if not has_requirements:
                     continue
             
-            # Check if needs processing
-            needs_scraping = not profile_data or profile_data in [None, '', '{}', {}]
+            # SIMPLE VALIDATION LOGIC:
+            # 1. Profile data kosong = perlu scraping
+            # 2. Scoring data kosong ATAU score 0% = perlu scoring
+            # 3. Status "scraped" tapi data kosong = override, tetap perlu scraping
             
-            # Special case: If status is "scraped" but profile_data is empty, force scraping
-            if status == 'scraped' and (not profile_data or profile_data in [None, '', '{}', {}]):
-                needs_scraping = True
-                print(f"   ⚠️  Found 'scraped' status but empty profile data: {profile_url}")
-            
-            # Check if scoring data is missing or has 0 score
+            needs_scraping = False
             needs_scoring = False
+            
+            # Check if profile data is missing or empty
+            if not profile_data or profile_data in [None, '', '{}', {}]:
+                needs_scraping = True
+            
+            # Check if scoring data is missing, empty, or has 0% score
             if not scoring_data or scoring_data in [None, '', '{}', {}]:
                 needs_scoring = True
-            elif isinstance(scoring_data, dict):
-                # Check if score percentage is 0
-                score_data = scoring_data.get('score', {}) if isinstance(scoring_data, dict) else {}
-                if isinstance(score_data, dict) and score_data.get('percentage', -1) == 0:
-                    needs_scoring = True
-            elif isinstance(scoring_data, str):
+            else:
+                # Check for 0% score in existing scoring data
                 try:
-                    import json
-                    parsed_data = json.loads(scoring_data)
-                    score_data = parsed_data.get('score', {}) if isinstance(parsed_data, dict) else {}
-                    if isinstance(score_data, dict) and score_data.get('percentage', -1) == 0:
-                        needs_scoring = True
+                    if isinstance(scoring_data, dict):
+                        score_data = scoring_data.get('score', {})
+                        if isinstance(score_data, dict) and score_data.get('percentage', -1) == 0:
+                            needs_scoring = True
+                    elif isinstance(scoring_data, str):
+                        parsed_data = json.loads(scoring_data)
+                        score_data = parsed_data.get('score', {})
+                        if isinstance(score_data, dict) and score_data.get('percentage', -1) == 0:
+                            needs_scoring = True
                 except:
-                    needs_scoring = True  # Invalid JSON, needs reprocessing
+                    # Invalid JSON = needs reprocessing
+                    needs_scoring = True
             
-            # Special case: If profile has score 0 but has profile data, only need scoring (not scraping)
-            if needs_scoring and profile_data and profile_data not in [None, '', '{}', {}]:
-                # Profile exists but score is 0, only need re-scoring
-                needs_scraping = False
-            
-            # Override: If status is "scraped" but both profile and scoring are empty, need both
-            if status == 'scraped' and (not profile_data or profile_data in [None, '', '{}', {}]) and (not scoring_data or scoring_data in [None, '', '{}', {}]):
-                needs_scraping = True
-                needs_scoring = True
-                print(f"   ⚠️  Found 'scraped' status but both profile and scoring empty: {profile_url}")
+            # OVERRIDE: If status is "scraped" but data is actually empty, force scraping
+            if status == 'scraped':
+                if not profile_data or profile_data in [None, '', '{}', {}]:
+                    needs_scraping = True
+                    print(f"   ⚠️  Status 'scraped' but profile empty: {profile_url}")
+                if not scoring_data or scoring_data in [None, '', '{}', {}]:
+                    needs_scoring = True
+                    print(f"   ⚠️  Status 'scraped' but scoring empty: {profile_url}")
             
             if needs_scraping or needs_scoring:
                 pending_leads.append({
@@ -257,15 +259,16 @@ def get_pending_leads_from_database():
         print(f"      Total leads: {total_leads}")
         print(f"      Pending leads: {len(pending_leads)}")
         print(f"      Need scraping: {sum(1 for l in pending_leads if l['needs_scraping'])}")
-        print(f"      Need scoring only: {sum(1 for l in pending_leads if l['needs_scoring'] and not l['needs_scraping'])}")
-        print(f"      Need both scraping & scoring: {sum(1 for l in pending_leads if l['needs_scraping'] and l['needs_scoring'])}")
+        print(f"      Need scoring: {sum(1 for l in pending_leads if l['needs_scoring'])}")
+        print(f"      Need both: {sum(1 for l in pending_leads if l['needs_scraping'] and l['needs_scoring'])}")
         
-        # Count scraped status issues
-        scraped_empty = sum(1 for lead in response.data 
+        # Count specific issues
+        scraped_issues = sum(1 for lead in response.data 
                            if lead.get('status') == 'scraped' and 
-                           (not lead.get('profile_data') or lead.get('profile_data') in [None, '', '{}', {}]))
-        if scraped_empty > 0:
-            print(f"      ⚠️  'Scraped' status but empty data: {scraped_empty}")
+                           ((not lead.get('profile_data') or lead.get('profile_data') in [None, '', '{}', {}]) or
+                            (not lead.get('scoring_data') or lead.get('scoring_data') in [None, '', '{}', {}])))
+        if scraped_issues > 0:
+            print(f"      ⚠️  'Scraped' status with empty data: {scraped_issues}")
         
         return pending_leads
         
