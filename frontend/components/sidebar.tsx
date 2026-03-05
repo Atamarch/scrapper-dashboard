@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Users, Building2, FileText, Calendar, ChevronLeft, ChevronRight, LogOut, ChevronDown, Settings, Info } from 'lucide-react';
+import { LayoutDashboard, Users, Building2, FileText, Calendar, ChevronLeft, ChevronRight, Zap, LogOut, ChevronDown, Settings, List } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
@@ -13,7 +13,14 @@ const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
   { name: 'Leads', href: '/leads', icon: Users },
   { name: 'Company', href: '/company', icon: Building2 },
-  { name: 'Requirements', href: '/requirements', icon: FileText },
+  { 
+    name: 'Requirements', 
+    icon: FileText,
+    submenu: [
+      { name: 'Generator', href: '/requirements/generator', icon: Zap  },
+      { name: 'List', href: '/requirements/list', icon: List }
+    ]
+  },
   { name: 'Scheduler', href: '/scheduler', icon: Calendar },
 ];
 
@@ -28,21 +35,46 @@ export function Sidebar() {
     return false;
   });
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
-  const [userEmail, setUserEmail] = useState<string>('');
-  const [userName, setUserName] = useState<string>('');
+  const [showRequirementsDropdown, setShowRequirementsDropdown] = useState(false);
+  const [userEmail, setUserEmail] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('user-email') || '';
+    }
+    return '';
+  });
+  const [userName, setUserName] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('user-name') || '';
+    }
+    return '';
+  });
   const profileDropdownRef = useRef<HTMLDivElement>(null);
-  const lastToastTime = useRef<number>(0);
+  const hasFetchedUser = useRef(false);
 
   useEffect(() => {
     async function getUserData() {
+      // Skip if already fetched or data exists
+      if (hasFetchedUser.current || (userEmail && userName)) {
+        return;
+      }
+
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        setUserEmail(user.email || '');
-        setUserName(user.user_metadata?.full_name || user.email?.split('@')[0] || 'User');
+        const email = user.email || '';
+        const name = user.user_metadata?.full_name || '';
+        
+        setUserEmail(email);
+        setUserName(name);
+        
+        // Cache in localStorage
+        localStorage.setItem('user-email', email);
+        localStorage.setItem('user-name', name);
+        
+        hasFetchedUser.current = true;
       }
     }
     getUserData();
-  }, []);
+  }, [userEmail, userName]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -59,25 +91,31 @@ export function Sidebar() {
     const newState = !isCollapsed;
     setIsCollapsed(newState);
     localStorage.setItem('sidebar-collapsed', String(newState));
+    
+    // Dispatch custom event for header to listen
+    window.dispatchEvent(new Event('sidebar-toggled'));
+    
     if (newState) {
       setShowProfileDropdown(false);
     }
   };
 
   const handleProfileClick = () => {
-    const now = Date.now();
-    // Only show toast if 2 seconds have passed since last toast
-    if (now - lastToastTime.current > 2000) {
-      toast('Expand sidebar to view profile', {
-        icon: <Info className='text-blue-400'/>,
-      });
-      lastToastTime.current = now;
+    if (isCollapsed) {
+      // Auto-expand sidebar and open dropdown
+      setIsCollapsed(false);
+      localStorage.setItem('sidebar-collapsed', 'false');
+      window.dispatchEvent(new Event('sidebar-toggled'));
+      setShowProfileDropdown(true);
     }
   };
 
   const handleLogout = async () => {
     try {
       await supabase.auth.signOut();
+      // Clear cached user data
+      localStorage.removeItem('user-email');
+      localStorage.removeItem('user-name');
       toast.success('Logged out successfully');
       router.push('/login');
     } catch (error) {
@@ -89,38 +127,110 @@ export function Sidebar() {
   return (
     <div 
       className={cn(
-        'flex h-screen flex-col bg-[#1a1f2e] text-gray-300',
+        'flex h-screen flex-col bg-[#1a1f2e] text-gray-300 relative z-10',
         isCollapsed ? 'w-20' : 'w-64'
       )} 
-      style={{ transition: 'width 0.3s ease' }}
+      style={{ 
+        transition: 'width 0.3s ease',
+        boxShadow: '6px 0 16px rgba(0, 0, 0, 0.6)'
+      }}
       suppressHydrationWarning
     >
-      <div className="flex items-center justify-between border-b border-gray-700 p-6">
+      {/* Logo Section with unique shadow */}
+      <div className="m-4 mb-0 rounded-lg p-3" 
+           style={{ boxShadow: '0 4px 16px rgba(0, 0, 0, 0.3)'}}>
         {!isCollapsed && (
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center overflow-hidden">
+          <div className="flex items-center gap-3 p-1">
+            <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-lg shadow-md">
               <Image src="/logo-sarana-without-text.png" alt="Sarana AI Logo" width={30} height={30}/>
             </div>
             <div>
               <h1 className="text-lg font-semibold text-white">Sarana AI</h1>
-              <p className="text-sm text-gray-400">Lead Management</p>
+              <p className="text-sm text-gray-400">Scrapper Dashboard</p>
             </div>
           </div>
         )}
         {isCollapsed && (
-          <div className="flex h-12 w-10 items-center justify-center overflow-hidden mx-auto">
             <Image src="/logo-sarana-without-text.png" alt="Sarana AI Logo" width={30} height={30} />
-          </div>
         )}
       </div>
 
       <nav className="flex-1 space-y-1 p-4 overflow-y-auto">
         {navigation.map((item) => {
+          // Check if item has submenu (Requirements)
+          if (item.submenu) {
+            const isActive = item.submenu.some(sub => pathname === sub.href);
+            const isOpen = showRequirementsDropdown || item.submenu.some(sub => pathname.startsWith(sub.href));
+            
+            return (
+              <div key={item.name}>
+                <button
+                  onClick={() => {
+                    if (isCollapsed) {
+                      // Auto-expand sidebar and open dropdown
+                      setIsCollapsed(false);
+                      localStorage.setItem('sidebar-collapsed', 'false');
+                      window.dispatchEvent(new Event('sidebar-toggled'));
+                      setShowRequirementsDropdown(true);
+                    } else {
+                      setShowRequirementsDropdown(!showRequirementsDropdown);
+                    }
+                  }}
+                  className={cn(
+                    'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+                    isActive
+                      ? 'bg-gray-700/50 text-white'
+                      : 'text-gray-400 hover:bg-gray-700/30 hover:text-white',
+                    isCollapsed && 'justify-center'
+                  )}
+                  title={isCollapsed ? item.name : undefined}
+                >
+                  <item.icon className="h-5 w-5 flex-shrink-0" />
+                  {!isCollapsed && (
+                    <>
+                      <span className="flex-1 text-left">{item.name}</span>
+                      <ChevronDown className={cn(
+                        'h-4 w-4 transition-transform',
+                        isOpen && 'rotate-180'
+                      )} />
+                    </>
+                  )}
+                </button>
+                
+                {/* Submenu */}
+                {!isCollapsed && isOpen && (
+                  <div className="ml-8 mt-1 space-y-1">
+                    {item.submenu.map((subItem) => {
+                      const isSubActive = pathname === subItem.href;
+                      const SubIcon = subItem.icon;
+                      return (
+                        <Link
+                          key={subItem.href}
+                          href={subItem.href}
+                          className={cn(
+                            'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
+                            isSubActive
+                              ? 'bg-gray-700/50 text-white'
+                              : 'text-gray-400 hover:bg-gray-700/30 hover:text-white'
+                          )}
+                        >
+                          <SubIcon className="h-4 w-4 flex-shrink-0" />
+                          {subItem.name}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          }
+          
+          // Regular menu item
           const isActive = pathname === item.href;
           return (
             <Link
               key={item.name}
-              href={item.href}
+              href={item.href!}
               className={cn(
                 'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
                 isActive
@@ -143,8 +253,14 @@ export function Sidebar() {
               onClick={() => setShowProfileDropdown(!showProfileDropdown)}
               className="flex w-full items-center gap-3 rounded-lg p-3 hover:bg-gray-700/30 transition-all group"
             >
-              <div className="relative flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-blue-600 text-white font-semibold text-sm flex-shrink-0 group-hover:scale-105 transition-transform">
-                {userName.charAt(0).toUpperCase()}
+              <div className="relative flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-blue-200 to-white flex-shrink-0 group-hover:scale-105 transition-transform overflow-hidden">
+                <Image 
+                  src="/logo-sarana-without-text.png" 
+                  alt="User Avatar" 
+                  width={20} 
+                  height={20}
+                  className="object-contain"
+                />
                 <div className="absolute inset-0 rounded-full bg-blue-400 opacity-0 group-hover:opacity-20 transition-opacity"></div>
               </div>
               <div className="flex-1 min-w-0 text-left">
@@ -204,10 +320,16 @@ export function Sidebar() {
           <div className="pt-4 mt-4 border-t border-gray-700/50">
             <button
               onClick={handleProfileClick}
-              className="relative flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-blue-600 text-white font-semibold text-sm mx-auto hover:scale-110 transition-transform group"
+              className="relative flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-blue-200 to-white  mx-auto hover:scale-110 transition-transform group overflow-hidden"
               title={userName}
             >
-              {userName.charAt(0).toUpperCase()}
+              <Image 
+                src="/logo-sarana-without-text.png" 
+                alt="User Avatar" 
+                width={20} 
+                height={20}
+                className="object-contain"
+              />
               <div className="absolute inset-0 rounded-full bg-blue-400 opacity-0 group-hover:opacity-20 transition-opacity"></div>
             </button>
           </div>

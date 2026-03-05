@@ -2,9 +2,11 @@
 
 import { useState, useEffect } from 'react'
 import { Sidebar } from '@/components/sidebar'
-import { Plus, Play, Pause, Trash2, Clock, Calendar, Edit, X } from 'lucide-react'
+import { TopHeader } from '@/components/top-header'
+import { Plus, Play, Pause, Trash2, Clock, Calendar, X, Edit } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { crawlerAPI, Schedule } from '@/lib/api'
+import toast from 'react-hot-toast'
 
 export default function SchedulerPage() {
   const [jobs, setJobs] = useState<Schedule[]>([])
@@ -17,6 +19,7 @@ export default function SchedulerPage() {
     start_schedule: '',
     status: 'active'
   })
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
 
   useEffect(() => {
     loadScheduledJobs()
@@ -54,10 +57,10 @@ export default function SchedulerPage() {
       // Reload schedules
       await loadScheduledJobs()
       
-      alert('Schedule created successfully!')
+      toast.success('Schedule created successfully!')
     } catch (error) {
       console.error('Failed to create schedule:', error)
-      alert('Failed to create schedule')
+      toast.error('Failed to create schedule')
     }
   }
 
@@ -95,10 +98,10 @@ export default function SchedulerPage() {
       // Reload schedules
       await loadScheduledJobs()
       
-      alert('Schedule updated successfully!')
+      toast.success('Schedule updated successfully!')
     } catch (error) {
       console.error('Failed to update schedule:', error)
-      alert('Failed to update schedule')
+      toast.error('Failed to update schedule')
     }
   }
 
@@ -106,21 +109,22 @@ export default function SchedulerPage() {
     try {
       await crawlerAPI.toggleSchedule(jobId)
       await loadScheduledJobs()
+      toast.success('Schedule status updated')
     } catch (error) {
       console.error('Failed to toggle schedule:', error)
-      alert('Failed to toggle schedule status')
+      toast.error('Failed to toggle schedule status')
     }
   }
 
   async function handleRemove(jobId: string) {
-    if (!confirm('Are you sure you want to delete this schedule?')) return
-    
     try {
       await crawlerAPI.deleteSchedule(jobId)
       await loadScheduledJobs()
+      setDeleteConfirm(null)
+      toast.success('Schedule deleted successfully')
     } catch (error) {
       console.error('Failed to delete schedule:', error)
-      alert('Failed to delete schedule')
+      toast.error('Failed to delete schedule')
     }
   }
 
@@ -137,25 +141,17 @@ export default function SchedulerPage() {
   }
 
   return (
-    <div className="flex h-screen">
+    <div className="flex h-screen bg-[#0f1419]">
       <Sidebar />
-      <main className="flex-1 overflow-auto">
-        <div className="p-8">
-          <div className="mb-8 p-1 rounded-xl bg-gradient-to-r from-[#1F2B4D] to-transparent">
-            <div className="p-4 rounded-xl bg-gradient-to-r from-[#141C33] to-transparent flex items-center justify-between">
-              <div>
-                <h1 className="text-3xl font-bold text-white">Crawler Scheduler</h1>
-                <p className="mt-1 text-gray-400">Manage automated crawling schedules</p>
-              </div>
-              <button
-                onClick={() => setShowModal(true)}
-                className="flex items-center gap-2 rounded-md bg-white px-4 py-2 text-sm font-medium text-black transition-colors hover:bg-gray-200"
-              >
-                <Plus className="h-4 w-4" />
-                Add Schedule
-              </button>
+      <main className="flex-1 flex flex-col overflow-hidden">
+        <TopHeader />
+        
+        <div className="flex-1 overflow-y-auto">
+          <div className="px-8 py-8 md:px-20 md:py-8 xl:px-40 xl:py-16">
+            <div className="mb-10">
+              <h1 className="text-4xl font-bold text-white">Crawler Scheduler</h1>
+              <p className="mt-2 text-base text-gray-400">Manage automated crawling schedules</p>
             </div>
-          </div>
 
           {/* Stats Cards */}
           <div className="grid gap-6 md:grid-cols-3 mb-6">
@@ -202,8 +198,15 @@ export default function SchedulerPage() {
 
           {/* Scheduled Jobs Table */}
           <div className="rounded-lg border border-gray-700 bg-[#1a1f2e]">
-            <div className="p-6">
+            <div className="p-6 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-white">Scheduled Jobs</h2>
+              <button
+                onClick={() => setShowModal(true)}
+                className="flex items-center gap-2 rounded-md bg-white px-4 py-2 text-sm font-medium text-black transition-colors hover:bg-gray-200"
+              >
+                <Plus className="h-4 w-4" />
+                Add Schedule
+              </button>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full">
@@ -290,7 +293,7 @@ export default function SchedulerPage() {
                               )}
                             </button>
                             <button
-                              onClick={() => handleRemove(job.id)}
+                              onClick={() => setDeleteConfirm(job.id)}
                               className="rounded-md border border-gray-700 p-2 transition-colors hover:border-red-800 hover:bg-red-950 text-white"
                               title="Remove"
                             >
@@ -304,6 +307,7 @@ export default function SchedulerPage() {
                 </tbody>
               </table>
             </div>
+          </div>
           </div>
         </div>
       </main>
@@ -472,6 +476,34 @@ export default function SchedulerPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-lg border border-gray-700 bg-[#1a1f2e] shadow-xl">
+            <div className="p-6">
+              <h2 className="text-xl font-semibold text-white mb-4">Delete Schedule</h2>
+              <p className="text-gray-300 mb-6">
+                Are you sure you want to delete this schedule? This action cannot be undone.
+              </p>
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => setDeleteConfirm(null)}
+                  className="rounded-md border border-gray-700 px-4 py-2 text-sm font-medium text-gray-300 transition-colors hover:bg-gray-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleRemove(deleteConfirm)}
+                  className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -3,11 +3,13 @@
 import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Sidebar } from '@/components/sidebar';
+import { TopHeader } from '@/components/top-header';
 import { supabase, type Lead, type Template } from '@/lib/supabase';
 import { ExternalLink, ChevronLeft, ChevronRight, Download, ChevronDown, ChevronUp, Search } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-const ITEMS_PER_PAGE = 10;
+const ITEMS_PER_PAGE_DESKTOP = 10;
+const ITEMS_PER_PAGE_MOBILE = 5;
 
 function LeadsPageContent() {
   const searchParams = useSearchParams();
@@ -33,6 +35,44 @@ function LeadsPageContent() {
   const [selectedRequirements, setSelectedRequirements] = useState<string[]>([]);
   const [showRequirementsFilter, setShowRequirementsFilter] = useState(false);
   const [templateRequirements, setTemplateRequirements] = useState<any[]>([]);
+  const [isMobile, setIsMobile] = useState(false);
+  
+  // Collapsible sections state
+  const [expandedSections, setExpandedSections] = useState({
+    requirements: false,
+    scoringResult: false,
+    profileData: false,
+    outreachMessage: false
+  });
+
+  const toggleSection = (section: keyof typeof expandedSections) => {
+    setExpandedSections(prev => ({
+      ...prev,
+      [section]: !prev[section]
+    }));
+  };
+
+  // Reset dropdown saat modal ditutup atau ganti profile
+  useEffect(() => {
+    if (!showDetailModal || !selectedLead) {
+      // Reset semua dropdown ke tertutup
+      setExpandedSections({
+        requirements: false,
+        scoringResult: false,
+        profileData: false,
+        outreachMessage: false
+      });
+    }
+  }, [showDetailModal, selectedLead?.id]); // Trigger saat modal tutup atau ganti lead
+
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -77,6 +117,7 @@ function LeadsPageContent() {
   // Fetch template requirements when template changes
   useEffect(() => {
     async function fetchTemplateRequirements() {
+      // Always fetch requirements, even if no template selected
       if (!selectedTemplate) {
         setTemplateRequirements([]);
         setSelectedRequirements([]);
@@ -172,8 +213,9 @@ function LeadsPageContent() {
         setTotalCount(filteredData.length);
 
         // Paginate
-        const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-        const paginatedLeads = filteredData.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+        const itemsPerPage = isMobile ? ITEMS_PER_PAGE_MOBILE : ITEMS_PER_PAGE_DESKTOP;
+        const startIndex = (currentPage - 1) * itemsPerPage;
+        const paginatedLeads = filteredData.slice(startIndex, startIndex + itemsPerPage);
         
         setLeads(paginatedLeads);
       } catch (error) {
@@ -184,9 +226,10 @@ function LeadsPageContent() {
     }
 
     fetchLeads();
-  }, [currentPage, selectedTemplate, sortBy, sortOrder, searchQuery, selectedRequirements]);
+  }, [currentPage, selectedTemplate, sortBy, sortOrder, searchQuery, selectedRequirements, isMobile]);
 
-  const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE);
+  const itemsPerPage = isMobile ? ITEMS_PER_PAGE_MOBILE : ITEMS_PER_PAGE_DESKTOP;
+  const totalPages = Math.ceil(totalCount / itemsPerPage);
 
   const handleTemplateChange = (templateId: string) => {
     setSelectedTemplate(templateId);
@@ -500,21 +543,23 @@ function LeadsPageContent() {
   };
 
   return (
-    <div className="flex h-screen">
+    <div className="flex h-screen bg-[#0f1419]">
       <Sidebar />
-      <main className="flex-1 overflow-auto">
-        <div className="p-8">
-          <div className="mb-8 p-1 rounded-xl bg-gradient-to-r from-[#1F2B4D] to-transparent">
-            <div className="p-4 rounded-xl bg-gradient-to-r from-[#141C33] to-transparent">
-              <h1 className="text-3xl font-bold text-white">Leads</h1>
-              <p className="mt-1 text-gray-400">Select a template to view leads</p>
+      <main className="flex-1 flex flex-col overflow-hidden">
+        <TopHeader />
+        
+        <div className="flex-1 overflow-y-auto">
+          <div className="px-8 py-8 md:px-20 md:py-8 xl:px-40 xl:py-16">
+            <div className="mb-10">
+              <h1 className="text-4xl font-bold text-white">Leads</h1>
+              <p className="mt-2 text-base text-gray-400">Select a template to view leads</p>
             </div>
-          </div>
 
-          <div className="mb-6 flex flex-col md:flex-col lg:flex-row items-start md:items-start lg:items-center justify-between gap-4">
-            {/* Search Bar */}
-            <div className="relative w-full md:w-192 lg:w-80">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+          {/* Row 1: Search + Action Buttons */}
+          <div className="mb-6 flex flex-col md:flex-row gap-4">
+            {/* Search Bar - Full Width */}
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
               <input
                 type="text"
                 placeholder="Search by name..."
@@ -523,210 +568,17 @@ function LeadsPageContent() {
                   setSearchQuery(e.target.value);
                   setCurrentPage(1);
                 }}
-                className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-700 bg-[#1a1f2e] text-white placeholder-gray-400 focus:border-blue-500 focus:outline-none"
+                className="w-full pl-10 pr-4 py-3 rounded-lg border border-gray-700 bg-[#1a1f2e] text-white placeholder-gray-400 focus:border-blue-500 focus:outline-none transition-colors"
               />
             </div>
 
-            <div className="flex flex-col md:flex-row items-start md:items-center gap-3 w-full lg:w-auto">
-              {/* Filter Section */}
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full md:w-auto p-3 rounded-xl border border-gray-700 bg-[#1a1f2e]/50">
-                <span className="bg-slate-800 px-3 py-2 rounded-lg text-sm text-gray-400 whitespace-nowrap text-center sm:text-left">Filter by Template</span>
-                <div className="relative template-dropdown-container w-full sm:flex-1 md:flex-initial">
-                <button
-                  onClick={() => setShowTemplateDropdown(!showTemplateDropdown)}
-                  className="flex items-center gap-2 rounded-lg border border-gray-700 bg-[#232D48] px-4 py-2 text-white hover:border-gray-600 focus:border-blue-500 focus:outline-none w-full md:w-[240px] md:max-w-[240px] justify-between"
-                  title={selectedTemplate ? templates.find(t => t.id === selectedTemplate)?.name : 'Select Template'}
-                >
-                  <span className="truncate">
-                    {selectedTemplate 
-                      ? templates.find(t => t.id === selectedTemplate)?.name || 'Select Template'
-                      : 'Select Template'}
-                  </span>
-                  {showTemplateDropdown ? (
-                    <ChevronUp className="h-4 w-4 flex-shrink-0" />
-                  ) : (
-                    <ChevronDown className="h-4 w-4 flex-shrink-0" />
-                  )}
-                </button>
-
-                {showTemplateDropdown && (
-                  <div 
-                    className="absolute top-full left-0 mt-2 w-full md:w-[240px] md:max-w-[240px] max-h-[400px] overflow-y-auto rounded-lg border border-gray-700 bg-[#1a1f2e] shadow-lg z-10"
-                    style={{ 
-                      scrollbarWidth: 'thin', 
-                      scrollbarColor: '#4B5563 #1a1f2e' 
-                    }}
-                  >
-                    {templates.map((template) => (
-                      <button
-                        key={template.id}
-                        onClick={() => handleTemplateChange(template.id)}
-                        className={`w-full px-4 py-2.5 text-left text-sm transition-colors hover:bg-gray-700/50 ${
-                          selectedTemplate === template.id ? 'bg-gray-700/50 text-white' : 'text-gray-400'
-                        }`}
-                        title={template.name}
-                      >
-                        <span className="block truncate">{template.name}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              </div>
-
-              {/* Sort Section */}
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full md:w-auto p-3 rounded-xl border border-gray-700 bg-[#1a1f2e]/50">
-                <span className="bg-slate-800 px-3 py-2 rounded-lg text-sm text-gray-400 whitespace-nowrap text-center sm:text-left">Sort by</span>
-                <div className="relative sort-dropdown-container w-full sm:flex-1 md:flex-initial">
-                <button
-                  onClick={() => setShowSortDropdown(!showSortDropdown)}
-                  className="flex items-center gap-2 rounded-lg border border-gray-700 bg-[#232D48] px-4 py-2 text-white hover:border-gray-600 focus:border-blue-500 focus:outline-none w-full md:w-[240px] md:max-w-[240px] justify-between"
-                >
-                  <span className="truncate">
-                    {sortBy === 'date' && sortOrder === 'desc' && 'Date (Newest)'}
-                    {sortBy === 'date' && sortOrder === 'asc' && 'Date (Oldest)'}
-                    {sortBy === 'score' && sortOrder === 'desc' && 'Score (High to Low)'}
-                    {sortBy === 'score' && sortOrder === 'asc' && 'Score (Low to High)'}
-                  </span>
-                  {showSortDropdown ? (
-                    <ChevronUp className="h-4 w-4 flex-shrink-0" />
-                  ) : (
-                    <ChevronDown className="h-4 w-4 flex-shrink-0" />
-                  )}
-                </button>
-
-                {showSortDropdown && (
-                  <div className="absolute top-full left-0 mt-2 w-full md:w-[240px] md:max-w-[240px] rounded-lg border border-gray-700 bg-[#1a1f2e] shadow-lg z-10">
-                    <button
-                      onClick={() => {
-                        setSortBy('date');
-                        setSortOrder('desc');
-                        setCurrentPage(1);
-                        setShowSortDropdown(false);
-                      }}
-                      className={`w-full px-4 py-2.5 text-left text-sm transition-colors hover:bg-gray-700/50 ${
-                        sortBy === 'date' && sortOrder === 'desc' ? 'bg-gray-700/50 text-white' : 'text-gray-400'
-                      }`}
-                    >
-                      Date (Newest)
-                    </button>
-                    <button
-                      onClick={() => {
-                        setSortBy('date');
-                        setSortOrder('asc');
-                        setCurrentPage(1);
-                        setShowSortDropdown(false);
-                      }}
-                      className={`w-full px-4 py-2.5 text-left text-sm transition-colors hover:bg-gray-700/50 ${
-                        sortBy === 'date' && sortOrder === 'asc' ? 'bg-gray-700/50 text-white' : 'text-gray-400'
-                      }`}
-                    >
-                      Date (Oldest)
-                    </button>
-                    <button
-                      onClick={() => {
-                        setSortBy('score');
-                        setSortOrder('desc');
-                        setCurrentPage(1);
-                        setShowSortDropdown(false);
-                      }}
-                      className={`w-full px-4 py-2.5 text-left text-sm transition-colors hover:bg-gray-700/50 ${
-                        sortBy === 'score' && sortOrder === 'desc' ? 'bg-gray-700/50 text-white' : 'text-gray-400'
-                      }`}
-                    >
-                      Score (High to Low)
-                    </button>
-                    <button
-                      onClick={() => {
-                        setSortBy('score');
-                        setSortOrder('asc');
-                        setCurrentPage(1);
-                        setShowSortDropdown(false);
-                      }}
-                      className={`w-full px-4 py-2.5 text-left text-sm transition-colors hover:bg-gray-700/50 ${
-                        sortBy === 'score' && sortOrder === 'asc' ? 'bg-gray-700/50 text-white' : 'text-gray-400'
-                      }`}
-                    >
-                      Score (Low to High)
-                    </button>
-                  </div>
-                )}
-              </div>
-              </div>
-
-              {/* Requirements Filter Section */}
-              {selectedTemplate && templateRequirements.length > 0 && (
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full md:w-auto p-3 rounded-xl border border-gray-700 bg-[#1a1f2e]/50">
-                  <span className="bg-slate-800 px-3 py-2 rounded-lg text-sm text-gray-400 whitespace-nowrap text-center sm:text-left">
-                    Requirements {selectedRequirements.length > 0 && `(${selectedRequirements.length})`}
-                  </span>
-                  <div className="relative requirements-filter-container w-full sm:flex-1 md:flex-initial">
-                    <button
-                      onClick={() => setShowRequirementsFilter(!showRequirementsFilter)}
-                      className="flex items-center gap-2 rounded-lg border border-gray-700 bg-[#232D48] px-4 py-2 text-white hover:border-gray-600 focus:border-blue-500 focus:outline-none w-full md:w-[240px] md:max-w-[240px] justify-between"
-                    >
-                      <span className="truncate">
-                        {selectedRequirements.length === 0 ? 'Select Requirements' : `${selectedRequirements.length} selected`}
-                      </span>
-                      {showRequirementsFilter ? (
-                        <ChevronUp className="h-4 w-4 flex-shrink-0" />
-                      ) : (
-                        <ChevronDown className="h-4 w-4 flex-shrink-0" />
-                      )}
-                    </button>
-
-                    {showRequirementsFilter && (
-                      <div className="absolute top-full left-0 mt-2 w-full md:w-[320px] max-h-[400px] overflow-y-auto rounded-lg border border-gray-700 bg-[#1a1f2e] shadow-lg z-10">
-                        <div className="p-2 border-b border-gray-700 bg-[#141C33]">
-                          <p className="text-xs text-gray-400 px-2">Select requirements to filter leads</p>
-                        </div>
-                        <div className="p-2 space-y-1">
-                          {templateRequirements.map((req) => (
-                            <label
-                              key={req.id}
-                              className="flex items-start gap-3 px-3 py-2 rounded-md hover:bg-gray-700/30 cursor-pointer transition-colors"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={selectedRequirements.includes(req.id)}
-                                onChange={() => handleToggleRequirement(req.id)}
-                                className="mt-0.5 h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-0"
-                              />
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm text-white break-words">{req.label}</p>
-                                <p className="text-xs text-gray-500 mt-0.5">
-                                  Type: <span className="text-gray-400">{req.type}</span>
-                                </p>
-                              </div>
-                            </label>
-                          ))}
-                        </div>
-                        {selectedRequirements.length > 0 && (
-                          <div className="p-2 border-t border-gray-700 bg-[#141C33]">
-                            <button
-                              onClick={() => {
-                                setSelectedRequirements([]);
-                                setCurrentPage(1);
-                              }}
-                              className="w-full px-3 py-1.5 text-xs text-gray-400 hover:text-white transition-colors"
-                            >
-                              Clear all filters
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3 w-full lg:w-auto">
+            {/* Action Buttons */}
+            <div className="flex gap-3">
               {/* Send Outreach Button */}
               <button
                 onClick={handleSendOutreach}
                 disabled={selectedLeads.length === 0 || sendingOutreach}
-                className="flex items-center justify-center gap-2 rounded-lg border border-gray-700 bg-[#1A2E3C] px-4 py-2 text-white transition-colors hover:bg-[#2A4E5C] disabled:cursor-not-allowed disabled:opacity-50 w-full md:w-auto"
+                className="flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-3 text-white transition-all hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
                 title={selectedLeads.length === 0 ? 'Select leads to send outreach' : `Send outreach to ${selectedLeads.length} selected lead(s)`}
               >
                 {sendingOutreach ? (
@@ -735,40 +587,41 @@ function LeadsPageContent() {
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
-                    Sending...
+                    <span className="hidden sm:inline">Sending...</span>
                   </>
                 ) : (
                   <>
                     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                     </svg>
-                    Send Outreach {selectedLeads.length > 0 && `(${selectedLeads.length})`}
+                    <span className="hidden sm:inline">Send</span>
+                    {selectedLeads.length > 0 && <span className="hidden md:inline">({selectedLeads.length})</span>}
                   </>
                 )}
               </button>
 
               {/* Export Button */}
-              <div className="relative export-menu-container w-full md:w-auto">
+              <div className="relative export-menu-container">
                 <button
                   onClick={() => setShowExportMenu(!showExportMenu)}
                   disabled={exporting || totalCount === 0 || !selectedTemplate}
-                  className="flex items-center justify-center gap-2 rounded-lg border border-gray-700 bg-[#1A2E1C] px-4 py-2 text-white transition-colors hover:bg-[#2A472C] disabled:opacity-50 w-full md:w-auto"
+                  className="flex items-center gap-2 rounded-lg bg-green-600 px-5 py-3 text-white transition-all hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <Download className="h-4 w-4" />
-                  {exporting ? 'Exporting...' : 'Export'}
+                  <span className="hidden sm:inline">{exporting ? 'Exporting...' : 'Export'}</span>
                 </button>
 
                 {showExportMenu && (
-                  <div className="absolute right-0 top-full mt-2 w-40 rounded-lg border border-gray-700 bg-[#141A14] shadow-lg z-10">
+                  <div className="absolute right-0 top-full mt-2 w-44 rounded-lg border border-gray-700 bg-[#1a1f2e] shadow-xl z-10">
                     <button
                       onClick={exportToCSV}
-                      className="w-full px-4 py-2.5 text-left text-sm text-white transition-colors hover:bg-[#2F6A32] rounded-t-lg"
+                      className="w-full px-4 py-2.5 text-left text-sm text-white transition-colors hover:bg-gray-700 rounded-t-lg"
                     >
                       Export as CSV
                     </button>
                     <button
                       onClick={exportToJSON}
-                      className="w-full px-4 py-2.5 text-left text-sm text-white transition-colors hover:bg-[#817F37] rounded-b-lg"
+                      className="w-full px-4 py-2.5 text-left text-sm text-white transition-colors hover:bg-gray-700 rounded-b-lg"
                     >
                       Export as JSON
                     </button>
@@ -778,224 +631,406 @@ function LeadsPageContent() {
             </div>
           </div>
 
-          <div className="rounded-xl bg-gradient-to-r from-[#233567] to-[#324886] p-6 mb-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-semibold text-white">Leads List</h2>
-              <div className="flex items-center gap-4">
-                {selectedLeads.length > 0 && (
-                  <span className="text-sm text-blue-300">
-                    {selectedLeads.length} selected
-                  </span>
+          {/* Row 2: Filter Dropdowns */}
+          <div className="mb-8 flex flex-wrap gap-3">
+            {/* Template Filter */}
+            <div className="relative template-dropdown-container">
+              <button
+                onClick={() => setShowTemplateDropdown(!showTemplateDropdown)}
+                className="flex items-center gap-2 rounded-lg border border-gray-700 bg-[#1a1f2e] px-4 py-3 text-white hover:border-gray-600 focus:border-blue-500 focus:outline-none min-w-[200px] justify-between"
+              >
+                <span className="truncate text-sm">
+                  {selectedTemplate 
+                    ? templates.find(t => t.id === selectedTemplate)?.name || 'Select Template'
+                    : 'Select Template'}
+                </span>
+                {showTemplateDropdown ? (
+                  <ChevronUp className="h-4 w-4 flex-shrink-0" />
+                ) : (
+                  <ChevronDown className="h-4 w-4 flex-shrink-0" />
                 )}
-                <span className="text-sm text-gray-400">{totalCount} leads</span>
-              </div>
+              </button>
+
+              {showTemplateDropdown && (
+                <div className="absolute top-full left-0 mt-2 w-[240px] max-h-[400px] overflow-y-auto rounded-lg border border-gray-700 bg-[#1a1f2e] shadow-xl z-10">
+                  {templates.map((template) => (
+                    <button
+                      key={template.id}
+                      onClick={() => handleTemplateChange(template.id)}
+                      className={`w-full px-4 py-2.5 text-left text-sm transition-colors hover:bg-gray-700 ${
+                        selectedTemplate === template.id ? 'bg-gray-700 text-white' : 'text-gray-400'
+                      }`}
+                    >
+                      <span className="block truncate">{template.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Sort Filter */}
+            <div className="relative sort-dropdown-container">
+              <button
+                onClick={() => setShowSortDropdown(!showSortDropdown)}
+                className="flex items-center gap-2 rounded-lg border border-gray-700 bg-[#1a1f2e] px-4 py-3 text-white hover:border-gray-600 focus:border-blue-500 focus:outline-none min-w-[200px] justify-between"
+              >
+                <span className="truncate text-sm">
+                  {sortBy === 'date' && sortOrder === 'desc' && 'Date (Newest)'}
+                  {sortBy === 'date' && sortOrder === 'asc' && 'Date (Oldest)'}
+                  {sortBy === 'score' && sortOrder === 'desc' && 'Score (High to Low)'}
+                  {sortBy === 'score' && sortOrder === 'asc' && 'Score (Low to High)'}
+                </span>
+                {showSortDropdown ? (
+                  <ChevronUp className="h-4 w-4 flex-shrink-0" />
+                ) : (
+                  <ChevronDown className="h-4 w-4 flex-shrink-0" />
+                )}
+              </button>
+
+              {showSortDropdown && (
+                <div className="absolute top-full left-0 mt-2 w-[200px] rounded-lg border border-gray-700 bg-[#1a1f2e] shadow-xl z-10">
+                  <button
+                    onClick={() => {
+                      setSortBy('date');
+                      setSortOrder('desc');
+                      setCurrentPage(1);
+                      setShowSortDropdown(false);
+                    }}
+                    className={`w-full px-4 py-2.5 text-left text-sm transition-colors hover:bg-gray-700 ${
+                      sortBy === 'date' && sortOrder === 'desc' ? 'bg-gray-700 text-white' : 'text-gray-400'
+                    }`}
+                  >
+                    Date (Newest)
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSortBy('date');
+                      setSortOrder('asc');
+                      setCurrentPage(1);
+                      setShowSortDropdown(false);
+                    }}
+                    className={`w-full px-4 py-2.5 text-left text-sm transition-colors hover:bg-gray-700 ${
+                      sortBy === 'date' && sortOrder === 'asc' ? 'bg-gray-700 text-white' : 'text-gray-400'
+                    }`}
+                  >
+                    Date (Oldest)
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSortBy('score');
+                      setSortOrder('desc');
+                      setCurrentPage(1);
+                      setShowSortDropdown(false);
+                    }}
+                    className={`w-full px-4 py-2.5 text-left text-sm transition-colors hover:bg-gray-700 ${
+                      sortBy === 'score' && sortOrder === 'desc' ? 'bg-gray-700 text-white' : 'text-gray-400'
+                    }`}
+                  >
+                    Score (High to Low)
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSortBy('score');
+                      setSortOrder('asc');
+                      setCurrentPage(1);
+                      setShowSortDropdown(false);
+                    }}
+                    className={`w-full px-4 py-2.5 text-left text-sm transition-colors hover:bg-gray-700 ${
+                      sortBy === 'score' && sortOrder === 'asc' ? 'bg-gray-700 text-white' : 'text-gray-400'
+                    }`}
+                  >
+                    Score (Low to High)
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Requirements Filter - Always visible */}
+            <div className="relative requirements-filter-container">
+              <button
+                onClick={() => setShowRequirementsFilter(!showRequirementsFilter)}
+                disabled={!selectedTemplate}
+                className="flex items-center gap-2 rounded-lg border border-gray-700 bg-[#1a1f2e] px-4 py-3 text-white hover:border-gray-600 focus:border-blue-500 focus:outline-none min-w-[200px] justify-between disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <span className="truncate text-sm">
+                  {!selectedTemplate ? 'Requirements' : selectedRequirements.length === 0 ? 'Requirements' : `Requirements (${selectedRequirements.length})`}
+                </span>
+                {showRequirementsFilter ? (
+                  <ChevronUp className="h-4 w-4 flex-shrink-0" />
+                ) : (
+                  <ChevronDown className="h-4 w-4 flex-shrink-0" />
+                )}
+              </button>
+
+              {showRequirementsFilter && selectedTemplate && (
+                <div className="absolute top-full left-0 mt-2 w-[320px] max-h-[400px] overflow-y-auto rounded-lg border border-gray-700 bg-[#1a1f2e] shadow-xl z-10">
+                  {templateRequirements.length === 0 ? (
+                    <div className="p-6 text-center">
+                      <p className="text-sm text-gray-400">No requirements available for this template</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="p-3 border-b border-gray-700 bg-[#141C33]">
+                        <p className="text-xs text-gray-400">Select requirements to filter leads</p>
+                      </div>
+                      <div className="p-2 space-y-1">
+                        {templateRequirements.map((req) => (
+                          <label
+                            key={req.id}
+                            className="flex items-start gap-3 px-3 py-2 rounded-md hover:bg-gray-700/30 cursor-pointer transition-colors"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedRequirements.includes(req.id)}
+                              onChange={() => handleToggleRequirement(req.id)}
+                              className="mt-0.5 h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-0"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm text-white break-words">{req.label}</p>
+                              <p className="text-xs text-gray-500 mt-0.5">
+                                Type: <span className="text-gray-400">{req.type}</span>
+                              </p>
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                      {selectedRequirements.length > 0 && (
+                        <div className="p-2 border-t border-gray-700 bg-[#141C33]">
+                          <button
+                            onClick={() => {
+                              setSelectedRequirements([]);
+                              setCurrentPage(1);
+                            }}
+                            className="w-full px-3 py-1.5 text-xs text-gray-400 hover:text-white transition-colors"
+                          >
+                            Clear all filters
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
-          <div className="rounded-xl border border-gray-700 bg-[#1a1f2e]">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="border-b border-gray-700">
-                  <tr>
-                    <th className="px-4 py-4 text-left w-12">
-                      <input
-                        type="checkbox"
-                        checked={selectAll}
-                        onChange={handleSelectAll}
-                        disabled={leads.length === 0}
-                        className="h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50"
-                      />
-                    </th>
-                    <th className="px-3 py-4 text-left text-sm font-medium text-gray-400 w-16">No</th>
-                    <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Name</th>
-                    <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Status</th>
-                    <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Score</th>
-                    <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Processed At</th>
-                    <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Profile</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-[#202531]">
-                  {loading ? (
-                    <>
-                      {[1, 2, 3, 4, 5].map((i) => (
-                        <tr key={i} className="border-b border-gray-700/50">
-                          <td className="px-4 py-4">
-                            <div className="h-4 w-4 animate-pulse rounded bg-gray-700" />
-                          </td>
-                          <td className="px-3 py-4">
-                            <div className="h-3 w-6 animate-pulse rounded bg-gray-700" />
-                          </td>
-                          <td colSpan={7} className="px-6 py-4">
-                            <div className="space-y-2">
-                              <div className="h-3 w-3/4 animate-pulse rounded bg-gray-700" />
-                              <div className="h-2 w-1/2 animate-pulse rounded bg-gray-700" />
-                              <div className="h-2 w-2/3 animate-pulse rounded bg-gray-700" />
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </>
-                  ) : leads.length === 0 ? (
+          <div className="flex flex-col min-h-[50vh]">
+            <div className="rounded-xl border border-gray-700 bg-[#1a1f2e] overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="border-b border-gray-700 bg-[#141C33]">
                     <tr>
-                      <td colSpan={9} className="px-6 py-20">
-                        <div className="flex flex-col items-center justify-center">
-                          <div className="mb-6">
-                            <img 
-                              src="/logo_without_bg.png" 
-                              alt="Logo" 
-                              className="w-16 h-16 opacity-30"
-                            />
-                          </div>
-                          <p className="text-lg text-gray-400">
-                            {!selectedTemplate ? 'Please select a template to view leads' : 'No leads found'}
-                          </p>
-                          <p className="mt-2 text-sm text-gray-500">
-                            {!selectedTemplate ? 'Choose a template from the dropdown above' : 'Try adjusting your filter'}
-                          </p>
-                        </div>
-                      </td>
+                      <th className="px-4 py-4 text-left w-12">
+                        <input
+                          type="checkbox"
+                          checked={selectAll}
+                          onChange={handleSelectAll}
+                          disabled={leads.length === 0}
+                          className="h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50"
+                        />
+                      </th>
+                      <th className="px-3 py-4 text-left text-sm font-medium text-gray-400 w-16">No</th>
+                      <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Name</th>
+                      <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Status</th>
+                      <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Score</th>
+                      <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Processed At</th>
+                      <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Actions</th>
                     </tr>
-                  ) : (
-                    <>
-                      {leads.map((lead, index) => {
-                        const rowNumber = (currentPage - 1) * ITEMS_PER_PAGE + index + 1;
-                        const isSelected = selectedLeads.includes(lead.id);
-                        return (
-                          <tr 
-                            key={lead.id} 
-                            className={`border-b border-gray-700/50 transition-colors ${
-                              isSelected ? 'bg-blue-500/5' : 'hover:bg-gray-800/30'
-                            }`}
-                          >
+                  </thead>
+                  <tbody>
+                    {loading ? (
+                      <>
+                        {Array.from({ length: itemsPerPage }).map((_, i) => (
+                          <tr key={i} className="border-b border-gray-700/50">
                             <td className="px-4 py-4">
-                              <div className="flex items-center">
+                              <div className="h-4 w-4 animate-pulse rounded bg-gray-700" />
+                            </td>
+                            <td className="px-3 py-4">
+                              <div className="h-3 w-8 animate-pulse rounded bg-gray-700" />
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="h-4 w-48 animate-pulse rounded bg-gray-700" />
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="h-6 w-20 animate-pulse rounded-full bg-gray-700" />
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="h-4 w-16 animate-pulse rounded bg-gray-700" />
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="h-4 w-24 animate-pulse rounded bg-gray-700" />
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="h-4 w-20 animate-pulse rounded bg-gray-700" />
+                            </td>
+                          </tr>
+                        ))}
+                      </>
+                    ) : leads.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="px-6 py-20">
+                          <div className="flex flex-col items-center justify-center">
+                            <div className="mb-6">
+                              <img 
+                                src="/logo_without_bg.png" 
+                                alt="Logo" 
+                                className="w-16 h-16 opacity-30"
+                              />
+                            </div>
+                            <p className="text-lg text-gray-400">
+                              {!selectedTemplate ? 'Please select a template to view leads' : 'No leads found'}
+                            </p>
+                            <p className="mt-2 text-sm text-gray-500">
+                              {!selectedTemplate ? 'Choose a template from the dropdown above' : 'Try adjusting your filter'}
+                            </p>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      <>
+                        {leads.map((lead, index) => {
+                          const rowNumber = (currentPage - 1) * itemsPerPage + index + 1;
+                          const isSelected = selectedLeads.includes(lead.id);
+                          return (
+                            <tr 
+                              key={lead.id} 
+                              className={`border-b border-gray-700/50 transition-colors ${
+                                isSelected ? 'bg-blue-500/5' : 'hover:bg-gray-700/30'
+                              }`}
+                            >
+                              <td className="px-4 py-4">
                                 <input
                                   type="checkbox"
                                   checked={isSelected}
                                   onChange={() => handleSelectLead(lead.id)}
                                   className="h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-0 cursor-pointer transition-all hover:border-blue-500"
                                 />
-                              </div>
-                            </td>
-                            <td className="px-3 py-4 text-sm text-gray-500">{rowNumber}</td>
-                            <td className="px-6 py-4 text-white">{lead.name}</td>
-                            <td className="px-6 py-4">
-                              <span className={`rounded-full px-3 py-1 text-xs font-medium ${
-                                lead.connection_status === 'connected' || lead.connection_status === 'success'
-                                  ? 'bg-green-500/10 text-green-500'
-                                  : lead.connection_status === 'pending'
-                                    ? 'bg-yellow-500/10 text-yellow-500'
-                                    : 'bg-gray-500/10 text-gray-500'
+                              </td>
+                              <td className="px-3 py-4 text-sm text-gray-500">{rowNumber}</td>
+                              <td className="px-6 py-4 text-white font-medium">{lead.name}</td>
+                              <td className="px-6 py-4">
+                                <span className={`rounded-full px-3 py-1 text-xs font-medium ${
+                                  lead.connection_status === 'connected' || lead.connection_status === 'success'
+                                    ? 'bg-green-500/10 text-green-500'
+                                    : lead.connection_status === 'pending'
+                                      ? 'bg-yellow-500/10 text-yellow-500'
+                                      : 'bg-gray-500/10 text-gray-500'
                                 }`}>
-                                {lead.connection_status}
-                              </span>
-                            </td>
-                            <td className="px-6 py-4">
-                              <span className={`font-semibold ${
-                                lead.score != null && lead.score >= 80
-                                  ? 'text-green-500'
-                                  : lead.score != null && lead.score >= 50
-                                    ? 'text-yellow-500'
-                                    : lead.score != null
-                                      ? 'text-red-500'
-                                      : 'text-gray-500'
+                                  {lead.connection_status}
+                                </span>
+                              </td>
+                              <td className="px-6 py-4">
+                                <span className={`font-semibold ${
+                                  lead.score != null && lead.score >= 80
+                                    ? 'text-green-500'
+                                    : lead.score != null && lead.score >= 50
+                                      ? 'text-yellow-500'
+                                      : lead.score != null
+                                        ? 'text-red-500'
+                                        : 'text-gray-500'
                                 }`}>
-                                {lead.score != null ? `${lead.score.toFixed(1)}%` : '-'}
-                              </span>
-                            </td>
-                            <td className="px-6 py-4 text-gray-400">
-                              {lead.processed_at ? (
-                                new Date(lead.processed_at).toLocaleDateString('en-GB', { 
-                                  day: 'numeric', 
-                                  month: 'short', 
-                                  year: 'numeric'
-                                })
-              ) : (
-                                <span className="text-gray-500">-</span>
-                              )}
-                            </td>
-                            <td className="px-6 py-4">
-                              {lead.profile_url ? (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setSelectedLead(lead);
-                                    setShowDetailModal(true);
-                                  }}
-                                  className="inline-flex items-center gap-1 text-blue-500 hover:text-blue-400"
-                                >
-                                  View <ExternalLink className="h-3 w-3" />
-                                </button>
-                              ) : (
-                                <span className="text-gray-500">-</span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </>
-                  )}
-                </tbody>
-              </table>
+                                  {lead.score != null ? `${lead.score.toFixed(1)}%` : '-'}
+                                </span>
+                              </td>
+                              <td className="px-6 py-4 text-gray-400 text-sm">
+                                {lead.processed_at ? (
+                                  new Date(lead.processed_at).toLocaleDateString('en-GB', { 
+                                    day: 'numeric', 
+                                    month: 'short', 
+                                    year: 'numeric'
+                                  })
+                                ) : (
+                                  <span className="text-gray-500">-</span>
+                                )}
+                              </td>
+                              <td className="px-6 py-4">
+                                {lead.profile_url ? (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedLead(lead);
+                                      setShowDetailModal(true);
+                                    }}
+                                    className="text-sm font-medium text-blue-500 hover:text-blue-400 transition-colors"
+                                  >
+                                    View
+                                  </button>
+                                ) : (
+                                  <span className="text-sm text-gray-500">-</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
 
+            {/* Pagination - Always at bottom */}
             {!loading && totalPages > 1 && (
-              <div className="flex items-center justify-center gap-2 border-t rounded-xl bg-[#1a1f2e] border-gray-700 p-6">
+              <div className="mt-auto pt-8 flex items-center justify-center gap-2">
                 <button
                   onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                   disabled={currentPage === 1}
-                  className="rounded-lg border border-gray-700 px-4 py-2 text-gray-400 transition-colors hover:bg-gray-800 disabled:opacity-50"
+                  className="rounded-lg border border-gray-700 bg-[#1a1f2e] px-4 py-2 text-gray-400 transition-all hover:bg-gray-700 hover:border-gray-600 disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                   <ChevronLeft className="h-4 w-4" />
                 </button>
 
-                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                  let pageNum;
-                  if (totalPages <= 5) {
-                    pageNum = i + 1;
-                  } else if (currentPage <= 3) {
-                    pageNum = i + 1;
-                  } else if (currentPage >= totalPages - 2) {
-                    pageNum = totalPages - 4 + i;
-                  } else {
-                    pageNum = currentPage - 2 + i;
-                  }
+                <div className="flex items-center gap-2">
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
 
-                  return (
-                    <button
-                      key={pageNum}
-                      onClick={() => setCurrentPage(pageNum)}
-                      className={`rounded-lg px-4 py-2 transition-colors ${currentPage === pageNum
-                        ? 'bg-blue-500 text-white'
-                        : 'border border-gray-700 text-gray-400 hover:bg-gray-800'
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={() => setCurrentPage(pageNum)}
+                        className={`min-w-[40px] rounded-lg px-4 py-2 text-sm font-medium transition-all ${
+                          currentPage === pageNum
+                            ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/20'
+                            : 'border border-gray-700 bg-[#1a1f2e] text-gray-400 hover:bg-gray-700 hover:border-gray-600'
                         }`}
-                    >
-                      {pageNum}
-                    </button>
-                  );
-                })}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  })}
 
-                {totalPages > 5 && currentPage < totalPages - 2 && (
-                  <>
-                    <span className="text-gray-400">...</span>
-                    <button
-                      onClick={() => setCurrentPage(totalPages)}
-                      className="rounded-lg border border-gray-700 px-4 py-2 text-gray-400 transition-colors hover:bg-gray-800"
-                    >
-                      {totalPages}
-                    </button>
-                  </>
-                )}
+                  {totalPages > 5 && currentPage < totalPages - 2 && (
+                    <>
+                      <span className="px-2 text-gray-500">...</span>
+                      <button
+                        onClick={() => setCurrentPage(totalPages)}
+                        className="min-w-[40px] rounded-lg border border-gray-700 bg-[#1a1f2e] px-4 py-2 text-sm font-medium text-gray-400 transition-all hover:bg-gray-700 hover:border-gray-600"
+                      >
+                        {totalPages}
+                      </button>
+                    </>
+                  )}
+                </div>
 
                 <button
                   onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                   disabled={currentPage === totalPages}
-                  className="rounded-lg border border-gray-700 px-4 py-2 text-gray-400 transition-colors hover:bg-gray-800 disabled:opacity-50"
+                  className="rounded-lg border border-gray-700 bg-[#1a1f2e] px-4 py-2 text-gray-400 transition-all hover:bg-gray-700 hover:border-gray-600 disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                   <ChevronRight className="h-4 w-4" />
                 </button>
               </div>
             )}
+          </div>
           </div>
         </div>
       </main>
@@ -1031,94 +1066,162 @@ function LeadsPageContent() {
             </div>
 
             <div className="p-6 space-y-6">
-              {/* Requirements Checklist */}
-              {selectedLead.scoring_data?.results && selectedLead.scoring_data.results.length > 0 ? (
-                <div>
-                  <h4 className="text-lg font-semibold text-white mb-4">Requirements Checklist</h4>
-                  <div className="space-y-2">
-                    {selectedLead.scoring_data.results.map((result: any) => (
-                      <div 
-                        key={result.id}
-                        className={`flex items-start gap-3 rounded-lg border p-4 ${
-                          result.matched 
-                            ? 'border-green-500/20 bg-green-500/5' 
-                            : 'border-red-500/20 bg-red-500/5'
-                        }`}
-                      >
-                        <div className="flex-shrink-0 mt-0.5">
-                          {result.matched ? (
-                            <svg className="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                            </svg>
-                          ) : (
-                            <svg className="h-5 w-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                          )}
-                        </div>
-                        <div className="flex-1">
-                          <p className="text-white font-medium">{result.label}</p>
-                          {!result.matched && result.candidate_value && result.candidate_value !== 'N/A' && (
-                            <p className="text-sm text-gray-400 mt-1">
-                              Candidate: <span className="text-gray-300">{result.candidate_value}</span>
+              {/* Requirements Checklist - Collapsible */}
+              <div>
+                <button
+                  onClick={() => toggleSection('requirements')}
+                  className="w-full flex items-center justify-between text-lg font-semibold text-white mb-4 px-4 py-3 rounded-lg hover:bg-gray-700/30 transition-all"
+                >
+                  <span>Requirements Checklist</span>
+                  {expandedSections.requirements ? (
+                    <ChevronUp className="h-5 w-5" />
+                  ) : (
+                    <ChevronDown className="h-5 w-5" />
+                  )}
+                </button>
+                
+                {expandedSections.requirements && (
+                  <>
+                    {selectedLead.scoring_data?.results && selectedLead.scoring_data.results.length > 0 ? (
+                      <div className="space-y-2">
+                        {selectedLead.scoring_data.results.map((result: any) => (
+                          <div 
+                            key={result.id}
+                            className={`flex items-start gap-3 rounded-lg border p-4 ${
+                              result.matched 
+                                ? 'border-green-500/20 bg-green-500/5' 
+                                : 'border-red-500/20 bg-red-500/5'
+                            }`}
+                          >
+                            <div className="flex-shrink-0 mt-0.5">
+                              {result.matched ? (
+                                <svg className="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                              ) : (
+                                <svg className="h-5 w-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                              )}
+                            </div>
+                            <div className="flex-1">
+                              <p className="text-white font-medium">{result.label}</p>
+                              {!result.matched && result.candidate_value && result.candidate_value !== 'N/A' && (
+                                <p className="text-sm text-gray-400 mt-1">
+                                  Candidate: <span className="text-gray-300">{result.candidate_value}</span>
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-6">
+                        <div className="flex items-start gap-3">
+                          <svg className="h-6 w-6 text-yellow-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                          </svg>
+                          <div>
+                            <h4 className="text-lg font-semibold text-yellow-500 mb-2">No Requirements Data</h4>
+                            <p className="text-gray-400 text-sm">
+                              This lead has been scored but no requirements checklist is available.
                             </p>
-                          )}
+                          </div>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-6">
-                  <div className="flex items-start gap-3">
-                    <svg className="h-6 w-6 text-yellow-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                    </svg>
-                    <div>
-                      <h4 className="text-lg font-semibold text-yellow-500 mb-2">No Requirements Data</h4>
-                      <p className="text-gray-400 text-sm">
-                        This lead has been scored but no requirements checklist is available. This may happen if:
-                      </p>
-                      <ul className="mt-2 text-gray-400 text-sm list-disc list-inside space-y-1">
-                        <li>The template has no requirements configured</li>
-                        <li>The scoring was done before the checklist system was implemented</li>
-                        <li>There was an error loading requirements during scoring</li>
-                      </ul>
-                      <p className="mt-3 text-gray-400 text-sm">
-                        To fix this, you can re-score this lead by triggering a new crawl.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
+                    )}
+                  </>
+                )}
+              </div>
 
-              {/* Profile Data */}
-              {selectedLead.scoring_data ? (
-                <div>
-                  <h4 className="text-lg font-semibold text-white mb-4">Scoring Result (JSON)</h4>
-                  <div className="rounded-lg border border-gray-700 bg-[#141C33]">
-                    <pre className="p-4 text-xs text-gray-300 overflow-auto max-h-96">
-                      {JSON.stringify(selectedLead.scoring_data, null, 2)}
-                    </pre>
-                  </div>
-                </div>
-              ) : (
-                <div className="rounded-lg border border-gray-700 bg-[#141C33] p-6">
-                  <p className="text-gray-400 text-center">No scoring data available</p>
-                </div>
-              )}
-
-              {/* Note Sent Section */}
+              {/* Scoring Result (JSON) - Collapsible */}
               <div>
-                <h4 className="text-lg font-semibold text-white mb-4">Outreach Message</h4>
-                {selectedLead.note_sent ? (
-                  <div className="rounded-lg border border-gray-700 bg-[#141C33] p-4">
-                    <p className="text-sm text-gray-300 whitespace-pre-wrap">{selectedLead.note_sent}</p>
-                  </div>
-                ) : (
-                  <div className="rounded-lg border border-gray-700 bg-[#141C33] p-6">
-                    <p className="text-gray-400 text-center text-sm">No outreach message sent yet</p>
-                  </div>
+                <button
+                  onClick={() => toggleSection('scoringResult')}
+                  className="w-full flex items-center justify-between text-lg font-semibold text-white mb-4 px-4 py-3 rounded-lg hover:bg-gray-700/30 transition-all"
+                >
+                  <span>Scoring Result (JSON)</span>
+                  {expandedSections.scoringResult ? (
+                    <ChevronUp className="h-5 w-5" />
+                  ) : (
+                    <ChevronDown className="h-5 w-5" />
+                  )}
+                </button>
+                
+                {expandedSections.scoringResult && (
+                  <>
+                    {selectedLead.scoring_data ? (
+                      <div className="rounded-lg border border-gray-700 bg-[#141C33]">
+                        <pre className="p-4 text-xs text-gray-300 overflow-auto max-h-96">
+                          {JSON.stringify(selectedLead.scoring_data, null, 2)}
+                        </pre>
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border border-gray-700 bg-[#141C33] p-6">
+                        <p className="text-gray-400 text-center">No scoring data available</p>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* Profile Data (JSON) - Collapsible - NEW */}
+              <div>
+                <button
+                  onClick={() => toggleSection('profileData')}
+                  className="w-full flex items-center justify-between text-lg font-semibold text-white mb-4 px-4 py-3 rounded-lg hover:bg-gray-700/30 transition-all"
+                >
+                  <span>Profile Data (JSON)</span>
+                  {expandedSections.profileData ? (
+                    <ChevronUp className="h-5 w-5" />
+                  ) : (
+                    <ChevronDown className="h-5 w-5" />
+                  )}
+                </button>
+                
+                {expandedSections.profileData && (
+                  <>
+                    {selectedLead.profile_data ? (
+                      <div className="rounded-lg border border-gray-700 bg-[#141C33]">
+                        <pre className="p-4 text-xs text-gray-300 overflow-auto max-h-96">
+                          {JSON.stringify(selectedLead.profile_data, null, 2)}
+                        </pre>
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border border-gray-700 bg-[#141C33] p-6">
+                        <p className="text-gray-400 text-center">No profile data available</p>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* Outreach Message - Collapsible */}
+              <div>
+                <button
+                  onClick={() => toggleSection('outreachMessage')}
+                  className="w-full flex items-center justify-between text-lg font-semibold text-white mb-4 px-4 py-3 rounded-lg hover:bg-gray-700/30 transition-all"
+                >
+                  <span>Outreach Message</span>
+                  {expandedSections.outreachMessage ? (
+                    <ChevronUp className="h-5 w-5" />
+                  ) : (
+                    <ChevronDown className="h-5 w-5" />
+                  )}
+                </button>
+                
+                {expandedSections.outreachMessage && (
+                  <>
+                    {selectedLead.note_sent ? (
+                      <div className="rounded-lg border border-gray-700 bg-[#141C33] p-4">
+                        <p className="text-sm text-gray-300 whitespace-pre-wrap">{selectedLead.note_sent}</p>
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border border-gray-700 bg-[#141C33] p-6">
+                        <p className="text-gray-400 text-center text-sm">No outreach message sent yet</p>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 

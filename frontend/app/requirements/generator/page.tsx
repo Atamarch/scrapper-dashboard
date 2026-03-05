@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Sidebar } from '@/components/sidebar'
+import { TopHeader } from '@/components/top-header'
 import { Loader2, Download, Save, Plus, FileText, ChevronDown, ChevronUp } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
@@ -140,35 +141,17 @@ export default function RequirementsGeneratorPage() {
   }
 
   return (
-    <div className="flex h-screen">
+    <div className="flex h-screen bg-[#0f1419]">
       <Sidebar />
-      <main className="flex-1 overflow-auto">
-        <div className="p-8">
-          <div className="mb-8 p-1 rounded-xl bg-gradient-to-r from-[#1F2B4D] to-transparent">
-            <div className="p-4 rounded-xl bg-gradient-to-r from-[#141C33] to-transparent flex items-center justify-between">
-              <div>
-                <h1 className="text-3xl font-bold text-white">Requirements Generator</h1>
-                <p className="mt-1 text-gray-400">Generate job requirements from URL or text</p>
-              </div>
-              <button
-                onClick={handleGenerate}
-                disabled={loading}
-                className="flex items-center gap-2 rounded-md bg-white px-4 py-2 text-sm font-medium text-black transition-colors hover:bg-gray-200 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed"
-              >
-                {loading ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <Plus className="h-4 w-4" />
-                    Generate
-                  </>
-                )}
-              </button>
+      <main className="flex-1 flex flex-col overflow-hidden">
+        <TopHeader />
+        
+        <div className="flex-1 overflow-y-auto">
+          <div className="px-8 py-8 md:px-20 md:py-8 xl:px-40 xl:py-16">
+            <div className="mb-10">
+              <h1 className="text-4xl font-bold text-white">Requirements Generator</h1>
+              <p className="mt-2 text-base text-gray-400">Generate job requirements from URL or text</p>
             </div>
-          </div>
 
           <div className="grid gap-6">
             {/* Input Section */}
@@ -299,6 +282,25 @@ export default function RequirementsGeneratorPage() {
                       {success}
                     </div>
                   )}
+
+                  {/* Generate Button */}
+                  <button
+                    onClick={handleGenerate}
+                    disabled={loading}
+                    className="w-full flex items-center justify-center gap-2 rounded-md bg-white px-4 py-3 text-sm font-medium text-black transition-colors hover:bg-gray-200 disabled:bg-gray-700 disabled:text-gray-500 disabled:cursor-not-allowed"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="h-4 w-4" />
+                        Generate Requirements
+                      </>
+                    )}
+                  </button>
                 </div>
               </div>
             </div>
@@ -415,6 +417,7 @@ export default function RequirementsGeneratorPage() {
                 )}
               </div>
             </div>
+          </div>
           </div>
         </div>
       </main>

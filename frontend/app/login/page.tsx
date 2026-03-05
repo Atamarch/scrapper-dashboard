@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { Mail, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import toast from 'react-hot-toast';
+import RobotCatMascot from '@/components/RobotCatMascot';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -14,6 +15,10 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Refs for mascot animation
+  const emailInputRef = useRef<HTMLInputElement | null>(null);
+  const passwordInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -85,88 +90,93 @@ export default function LoginPage() {
       </div>
 
       {/* Right Section - Login Form */}
-      <div className="w-full md:w-1/2 lg:w-1/2 flex items-center justify-center p-6 md:p-8 lg:p-12 bg-[#EBF7FF]">
-        <div className="w-full max-w-md animate-fade-in">
-          {/* Logo - Sarana AI */}
-          <div className="flex justify-center mb-6">
-            <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-xl shadow-lg shadow-blue-600/40 ring-1 ring-blue-500/20">
-              <Image 
-                src="/logo-sarana-without-text.png" 
-                alt="Sarana AI Logo" 
-                width={44} 
-                height={44} 
-              />
-            </div>
-          </div>
-
-          {/* Header */}
-          <div className="text-center mb-8">
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">
-              SARANA AI
-            </h2>
-            <p className="text-sm text-gray-600">Scrapper Dashboard</p>
-          </div>
-
-          {/* Robot Icon - Empty img placeholder */}
-          <div className="flex justify-center mb-8">
-            <img
-              src="/robot.png"
-              alt="Robot Icon"
-              className='w-50 h-auto'
+      <div className="w-full md:w-1/2 lg:w-1/2 flex flex-col items-center justify-center p-6 md:p-8 lg:p-12 bg-[#0f1419]">
+        {/* Logo - Sarana AI */}
+        <div className="flex justify-center mb-6">
+          <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-xl shadow-lg shadow-blue-600/40 ring-1 ring-blue-500/20 bg-[#1a1f2e]">
+            <Image 
+              src="/logo-sarana-without-text.png" 
+              alt="Sarana AI Logo" 
+              width={44} 
+              height={44} 
             />
           </div>
+        </div>
 
-          {/* Error Message */}
-          {error && (
-            <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4 animate-shake">
-              <div className="flex items-start gap-3">
-                <AlertCircle className="h-5 w-5 flex-shrink-0 text-red-600 mt-0.5" />
-                <p className="text-sm text-red-800">{error}</p>
+        {/* Header */}
+        <div className="text-center mb-6">
+          <h2 className="text-2xl font-bold text-white mb-2">
+            SARANA AI
+          </h2>
+          <p className="text-sm text-gray-400">Scrapper Dashboard</p>
+        </div>
+
+        {/* Robot Mascot */}
+        <div className="flex justify-center">
+          <RobotCatMascot 
+            emailInputRef={emailInputRef}
+            passwordInputRef={passwordInputRef}
+            showPassword={showPassword}
+            passwordValue={password}
+          />
+        </div>
+
+        {/* Login Card */}
+        <div className="w-full max-w-md animate-fade-in">
+          <div className="rounded-xl bg-[#1a1f2e] p-8 shadow-lg shadow-blue-600/40">
+            {/* Error Message */}
+            {error && (
+              <div className="mb-6 rounded-lg border border-red-500/20 bg-red-500/10 p-4 animate-shake">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="h-5 w-5 flex-shrink-0 text-red-500 mt-0.5" />
+                  <p className="text-sm text-red-400">{error}</p>
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-5">
+            {/* Form */}
+            <form onSubmit={handleSubmit} className="space-y-5">
             {/* Email */}
             <div className="space-y-2">
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+              <label htmlFor="email" className="block text-sm font-medium text-gray-300">
                 Email Address
               </label>
               <div className="relative group">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400 transition-colors group-focus-within:text-blue-600" />
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-500 transition-colors group-focus-within:text-blue-500" />
                 <input
+                  ref={emailInputRef}
                   id="email"
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="Enter your email"
                   required
-                  className="w-full bg-white pl-10 pr-4 py-3 rounded-lg border border-gray-300 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  className="w-full bg-[#0f1419] pl-10 pr-4 py-3 rounded-lg border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                 />
               </div>
             </div>
 
             {/* Password */}
             <div className="space-y-2">
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+              <label htmlFor="password" className="block text-sm font-medium text-gray-300">
                 Password
               </label>
               <div className="relative group">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400 transition-colors group-focus-within:text-blue-600" />
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-500 transition-colors group-focus-within:text-blue-500" />
                 <input
+                  ref={passwordInputRef}
                   id="password"
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Enter your password"
                   required
-                  className="w-full pl-10 pr-12 py-3 bg-white rounded-lg border border-gray-300 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  className="w-full pl-10 pr-12 py-3 bg-[#0f1419] rounded-lg border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition-colors"
                 >
                   {showPassword ? (
                     <EyeOff className="h-5 w-5" />
@@ -181,7 +191,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={isLoading}
-              className="relative w-full py-3 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-all shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 group overflow-hidden mt-6"
+              className="relative w-full py-3 rounded-lg bg-blue-500 text-white font-semibold hover:bg-blue-600 transition-all shadow-lg hover:shadow-xl hover:shadow-blue-500/20 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 group overflow-hidden mt-6"
             >
               {/* Button shine effect */}
               <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent translate-x-[-200%] group-hover:translate-x-[200%] transition-transform duration-1000" />
@@ -202,14 +212,15 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* Footer */}
-          <div className="mt-8 text-center">
-            <p className="text-sm text-gray-500">
-              Having trouble logging in?{' '}
-              <button type="button" className="text-blue-600 hover:text-blue-700 font-medium transition-colors">
-                Contact support
-              </button>
-            </p>
+            {/* Footer */}
+            <div className="mt-6 text-center">
+              <p className="text-sm text-gray-400">
+                Having trouble logging in?{' '}
+                <button type="button" className="text-blue-500 hover:text-blue-400 font-medium transition-colors">
+                  Contact support
+                </button>
+              </p>
+            </div>
           </div>
         </div>
       </div>

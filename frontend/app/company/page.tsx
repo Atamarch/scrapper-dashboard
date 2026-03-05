@@ -2,12 +2,14 @@
 
 import { useEffect, useState } from 'react';
 import { Sidebar } from '@/components/sidebar';
+import { TopHeader } from '@/components/top-header';
 import { TemplatesModal } from '@/components/templates-modal';
 import { supabase, type Company } from '@/lib/supabase';
 import { Building2, ChevronLeft, ChevronRight, Search, ArrowUpAZ, ArrowDownZA } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-const ITEMS_PER_PAGE = 9;
+const ITEMS_PER_PAGE_DESKTOP = 10;
+const ITEMS_PER_PAGE_MOBILE = 5;
 
 export default function CompanyPage() {
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -16,7 +18,17 @@ export default function CompanyPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCompany, setSelectedCompany] = useState<{ id: string; name: string } | null>(null);
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc' | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   useEffect(() => {
     async function fetchCompanies() {
@@ -55,47 +67,51 @@ export default function CompanyPage() {
   }, []);
 
   useEffect(() => {
-    const filtered = companies.filter(company =>
+    let filtered = companies.filter(company =>
       company.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       company.code.toLowerCase().includes(searchQuery.toLowerCase())
     );
     
-    // Sort filtered companies
-    const sorted = [...filtered].sort((a, b) => {
-      if (sortOrder === 'asc') {
-        return a.name.localeCompare(b.name);
-      } else {
-        return b.name.localeCompare(a.name);
-      }
-    });
+    // Only sort if user clicked sort button
+    if (sortOrder !== null) {
+      filtered = [...filtered].sort((a, b) => {
+        if (sortOrder === 'asc') {
+          return a.name.localeCompare(b.name);
+        } else {
+          return b.name.localeCompare(a.name);
+        }
+      });
+    }
     
-    setFilteredCompanies(sorted);
+    setFilteredCompanies(filtered);
     setCurrentPage(1);
   }, [searchQuery, companies, sortOrder]);
 
-  const totalPages = Math.ceil(filteredCompanies.length / ITEMS_PER_PAGE);
-  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-  const paginatedCompanies = filteredCompanies.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  const itemsPerPage = isMobile ? ITEMS_PER_PAGE_MOBILE : ITEMS_PER_PAGE_DESKTOP;
+  const totalPages = Math.ceil(filteredCompanies.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedCompanies = filteredCompanies.slice(startIndex, startIndex + itemsPerPage);
 
   const handleViewRequirements = (company: Company) => {
     setSelectedCompany({ id: company.id, name: company.name });
   };
 
   return (
-    <div className="flex h-screen">
+    <div className="flex h-screen bg-[#0f1419]">
       <Sidebar />
-      <main className="flex-1 overflow-auto">
-        <div className="p-8">
-          <div className="mb-8 p-1 rounded-xl bg-gradient-to-r from-[#1F2B4D] to-transparent">
-            <div className="p-4 rounded-xl bg-gradient-to-r from-[#141C33] to-transparent">
-              <h1 className="text-3xl font-bold text-white">Company</h1>
-              <p className="mt-1 text-gray-400">
+      <main className="flex-1 flex flex-col overflow-hidden">
+        <TopHeader />
+        
+        <div className="flex-1 overflow-y-auto">
+          <div className="px-8 py-8 md:px-20 md:py-8 xl:px-40 xl:py-16">
+            <div className="mb-10">
+              <h1 className="text-4xl font-bold text-white">Company</h1>
+              <p className="mt-2 text-base text-gray-400">
                 Manage your companies ({filteredCompanies.length} total)
               </p>
             </div>
-          </div>
 
-          <div className="mb-6 flex flex-col md:flex-row gap-3">
+          <div className="mb-8 flex flex-col md:flex-row gap-4">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
               <input
@@ -103,14 +119,14 @@ export default function CompanyPage() {
                 placeholder="Search companies by name or code..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full rounded-lg border border-gray-700 bg-[#1a1f2e] py-2.5 pl-10 pr-4 text-white placeholder-gray-400 focus:border-blue-500 focus:outline-none"
+                className="w-full rounded-lg border border-gray-700 bg-[#1a1f2e] py-3 pl-10 pr-4 text-white placeholder-gray-400 focus:border-blue-500 focus:outline-none"
               />
             </div>
             
-            <div className="flex gap-2">
+            <div className="flex gap-3">
               <button
-                onClick={() => setSortOrder('asc')}
-                className={`flex items-center gap-2 rounded-lg border px-4 py-2.5 transition-colors ${
+                onClick={() => setSortOrder(sortOrder === 'asc' ? null : 'asc')}
+                className={`flex items-center gap-2 rounded-lg border px-5 py-3 transition-colors ${
                   sortOrder === 'asc'
                     ? 'border-blue-500 bg-blue-500/10 text-blue-500'
                     : 'border-gray-700 bg-[#1a1f2e] text-gray-400 hover:border-gray-600'
@@ -121,8 +137,8 @@ export default function CompanyPage() {
                 <span className="hidden sm:inline">A-Z</span>
               </button>
               <button
-                onClick={() => setSortOrder('desc')}
-                className={`flex items-center gap-2 rounded-lg border px-4 py-2.5 transition-colors ${
+                onClick={() => setSortOrder(sortOrder === 'desc' ? null : 'desc')}
+                className={`flex items-center gap-2 rounded-lg border px-5 py-3 transition-colors ${
                   sortOrder === 'desc'
                     ? 'border-blue-500 bg-blue-500/10 text-blue-500'
                     : 'border-gray-700 bg-[#1a1f2e] text-gray-400 hover:border-gray-600'
@@ -136,18 +152,17 @@ export default function CompanyPage() {
           </div>
 
           {loading ? (
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              {[1, 2, 3, 4, 5, 6].map((i) => (
-                <div key={i} className="rounded-xl border border-gray-700 bg-[#1a1f2e] p-6">
-                  <div className="mb-4 flex h-12 w-12 animate-pulse rounded-lg bg-gray-700" />
+            <div className="grid gap-6 grid-cols-1 md:grid-cols-2">
+              {Array.from({ length: itemsPerPage }).map((_, i) => (
+                <div key={i} className="rounded-xl border border-gray-700 bg-[#1a1f2e] p-5">
+                  <div className="mb-5 flex h-12 w-12 animate-pulse rounded-lg bg-gray-700" />
                   <div className="space-y-3">
                     <div className="h-4 w-3/4 animate-pulse rounded bg-gray-700" />
                     <div className="h-3 w-1/2 animate-pulse rounded bg-gray-700" />
-                    <div className="h-3 w-2/3 animate-pulse rounded bg-gray-700" />
                   </div>
-                  <div className="mt-4 flex items-center justify-between border-t border-gray-700 pt-4">
+                  <div className="mt-5 flex items-center justify-between border-t border-gray-700 pt-4">
                     <div className="h-3 w-20 animate-pulse rounded bg-gray-700" />
-                    <div className="h-3 w-24 animate-pulse rounded bg-gray-700" />
+                    <div className="h-3 w-16 animate-pulse rounded bg-gray-700" />
                   </div>
                 </div>
               ))}
@@ -163,19 +178,19 @@ export default function CompanyPage() {
               <p className="mt-2 text-sm text-gray-500">Try adjusting your search</p>
             </div>
           ) : (
-            <>
-              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 animate-flip-in">
+            <div className="flex flex-col min-h-[50vh]">
+              <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-5 animate-flip-in">
                 {paginatedCompanies.map((company) => (
                   <div
                     key={company.id}
-                    className="shine-effect group relative rounded-xl border border-gray-700 bg-[#1a1f2e] p-6 transition-all hover:border-gray-600"
+                    className="shine-effect group relative rounded-xl border border-gray-700 bg-[#1a1f2e] p-5 transition-all hover:border-gray-600 hover:shadow-lg"
                   >
-                    <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-blue-500/10">
+                    <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-lg bg-blue-500/10">
                       <Building2 className="h-6 w-6 text-blue-500" />
                     </div>
 
-                    <h3 className="mb-2 text-lg font-semibold text-white">{company.name}</h3>
-                    <p className="mb-4 text-sm text-gray-500">Code: {company.code}</p>
+                    <h3 className="mb-2 text-base font-semibold text-white line-clamp-1">{company.name}</h3>
+                    <p className="mb-5 text-sm text-gray-500">Code: {company.code}</p>
 
                     <div className="flex items-center justify-between border-t border-gray-700 pt-4">
                       <span className="text-xs text-gray-500">
@@ -189,62 +204,71 @@ export default function CompanyPage() {
                         onClick={() => handleViewRequirements(company)}
                         className="text-sm font-medium text-blue-500 transition-colors hover:text-blue-400"
                       >
-                        Views All
+                        View
                       </button>
                     </div>
                   </div>
                 ))}
               </div>
 
+              {/* Pagination - Always at bottom */}
               {totalPages > 1 && (
-                <div className="mt-8 flex items-center justify-center gap-2">
+                <div className="mt-auto pt-8 flex items-center justify-center gap-2">
                   <button
                     onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                     disabled={currentPage === 1}
-                    className="rounded-lg border border-gray-700 px-4 py-2 text-gray-400 transition-colors hover:bg-gray-800 disabled:opacity-50"
+                    className="rounded-lg border border-gray-700 bg-[#1a1f2e] px-4 py-2 text-gray-400 transition-all hover:bg-gray-700 hover:border-gray-600 disabled:opacity-30 disabled:cursor-not-allowed"
                   >
                     <ChevronLeft className="h-4 w-4" />
                   </button>
 
-                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                    const pageNum = i + 1;
-                    return (
-                      <button
-                        key={pageNum}
-                        onClick={() => setCurrentPage(pageNum)}
-                        className={`rounded-lg px-4 py-2 transition-colors ${currentPage === pageNum
-                          ? 'bg-blue-500 text-white'
-                          : 'border border-gray-700 text-gray-400 hover:bg-gray-800'
+                  <div className="flex items-center gap-2">
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      const pageNum = i + 1;
+                      return (
+                        <button
+                          key={pageNum}
+                          onClick={() => setCurrentPage(pageNum)}
+                          className={`min-w-[40px] rounded-lg px-4 py-2 text-sm font-medium transition-all ${
+                            currentPage === pageNum
+                              ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/20'
+                              : 'border border-gray-700 bg-[#1a1f2e] text-gray-400 hover:bg-gray-700 hover:border-gray-600'
                           }`}
-                      >
-                        {pageNum}
-                      </button>
-                    );
-                  })}
+                        >
+                          {pageNum}
+                        </button>
+                      );
+                    })}
 
-                  {totalPages > 5 && (
-                    <>
-                      <span className="text-gray-400">...</span>
-                      <button
-                        onClick={() => setCurrentPage(totalPages)}
-                        className="rounded-lg border border-gray-700 px-4 py-2 text-gray-400 transition-colors hover:bg-gray-800"
-                      >
-                        {totalPages}
-                      </button>
-                    </>
-                  )}
+                    {totalPages > 5 && (
+                      <>
+                        <span className="px-2 text-gray-500">...</span>
+                        <button
+                          onClick={() => setCurrentPage(totalPages)}
+                          className={`min-w-[40px] rounded-lg px-4 py-2 text-sm font-medium transition-all ${
+                            currentPage === totalPages
+                              ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/20'
+                              : 'border border-gray-700 bg-[#1a1f2e] text-gray-400 hover:bg-gray-700 hover:border-gray-600'
+                          }`}
+                        >
+                          {totalPages}
+                        </button>
+                      </>
+                    )}
+                  </div>
 
                   <button
                     onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                     disabled={currentPage === totalPages}
-                    className="rounded-lg border border-gray-700 px-4 py-2 text-gray-400 transition-colors hover:bg-gray-800 disabled:opacity-50"
+                    className="rounded-lg border border-gray-700 bg-[#1a1f2e] px-4 py-2 text-gray-400 transition-all hover:bg-gray-700 hover:border-gray-600 disabled:opacity-30 disabled:cursor-not-allowed"
                   >
                     <ChevronRight className="h-4 w-4" />
                   </button>
                 </div>
               )}
-            </>
+            </div>
           )}
+          </div>
         </div>
       </main>
 

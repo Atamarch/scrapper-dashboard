@@ -1,10 +1,10 @@
-# Sarana AI - Lead Management Dashboard
+# Sarana AI - Scrapper Dashboard
 
 Dashboard untuk mengelola leads dan templates dengan integrasi Supabase.
 
 ## Fitur
 
-- **Dashboard**: Menampilkan statistik total leads, connected, pending, conversion rate, dan total templates
+- **Dashboard**: Menampilkan statistik total leads, total jobs, dan total companies
 - **Leads**: Tabel leads dengan filter by template dan pagination
 - **Company**: Grid view companies dengan search, pagination, dan modal untuk view requirements (templates)
 - **Authentication**: Login/Sign up page with social OAuth integration and animated UI
@@ -80,7 +80,7 @@ companies (1) ──→ (N) search_templates (1) ──→ (N) leads_list
 
 ### Dashboard
 - Card statistik dengan animasi loading
-- Real-time data dari Supabase (total leads, connected, pending, conversion rate, total templates)
+- Real-time data dari Supabase (total leads, total jobs, total companies)
 - Icon untuk setiap metrik
 
 ### Leads
@@ -238,3 +238,131 @@ const requirements = template.requirements;
 **Components Using Requirements:**
 - `templates-modal.tsx` - Displays requirements in JSON preview modal
 - `json-preview-modal.tsx` - Renders requirements JSON for viewing
+
+
+## Custom Hooks
+
+### useMascotAnimation (`frontend/hooks/useMascotAnimation.ts`)
+
+A React hook that provides GSAP-powered animations for an interactive mascot character with eye tracking, blinking, and expressive behaviors.
+
+#### Features
+
+**1. Automatic Idle Blinking**
+- Random blink intervals (4-6 seconds)
+- Smooth eyelid animation using scaleY transform
+- Automatically starts on mount and stops on unmount
+
+**2. Eye Tracking**
+- Pupil movement follows cursor/input position
+- Clamped movement range (-6 to 6 pixels)
+- Smooth transitions with power3 easing
+- Enable/disable tracking on demand
+
+**3. Expressive States**
+- **Close Eyes**: Morphs eye shapes to closed curved lines, hides pupils
+- **Peek One Eye**: Opens left eye partially (35%) with playful bounce
+- **Reset to Idle**: Returns to normal state with centered pupils and resumes blinking
+
+#### Usage
+
+```typescript
+import { useMascotAnimation } from '@/hooks/useMascotAnimation';
+import { useRef } from 'react';
+
+function MascotComponent() {
+  // Create refs for SVG elements
+  const leftEye = useRef<SVGGElement>(null);
+  const rightEye = useRef<SVGGElement>(null);
+  const leftPupil = useRef<SVGCircleElement>(null);
+  const rightPupil = useRef<SVGCircleElement>(null);
+  const leftEyeShape = useRef<SVGPathElement>(null);
+  const rightEyeShape = useRef<SVGPathElement>(null);
+
+  const {
+    enableTracking,
+    disableTracking,
+    movePupil,
+    closeEyes,
+    peekOneEye,
+    resetToIdle,
+  } = useMascotAnimation({
+    leftEye,
+    rightEye,
+    leftPupil,
+    rightPupil,
+    leftEyeShape,
+    rightEyeShape,
+  });
+
+  // Example: Track input field focus
+  const handleFocus = () => {
+    enableTracking();
+  };
+
+  const handleBlur = () => {
+    disableTracking();
+    resetToIdle();
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const percentX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    movePupil(percentX);
+  };
+
+  return (
+    <svg>
+      {/* SVG mascot structure */}
+    </svg>
+  );
+}
+```
+
+#### API Reference
+
+**Parameters:**
+- `refs: MascotRefs` - Object containing refs to SVG elements
+
+**Returns:**
+- `blink()` - Trigger a single blink animation
+- `enableTracking()` - Enable pupil tracking
+- `disableTracking()` - Disable pupil tracking
+- `movePupil(percentX: number)` - Move pupils horizontally (-1 to 1 range)
+- `closeEyes()` - Close eyes with smooth morph animation
+- `peekOneEye()` - Open left eye partially with bounce effect
+- `resetToIdle()` - Return to normal state and resume blinking
+
+#### Dependencies
+
+- `gsap` - Animation library for smooth transitions and morphing
+- `react` - For hooks and refs
+
+#### Animation Details
+
+**Eye Shapes:**
+- Eyes are rendered as SVG circles with dynamic radius
+- Open: `r="12"` (full circle)
+- Closed: `r="1"` (minimal dot)
+- Peeking: `r="4"` (35% open - left eye only)
+
+**Blink Animation:**
+- Uses radius morphing instead of scale transforms
+- Shrinks from top with `transformOrigin: 'center top'`
+- Close phase: radius 12 → 1 (80ms, power2.in easing)
+- Open phase: radius 1 → 12 (120ms, power2.out easing)
+- Total blink duration: 200ms
+
+**Close Eyes Animation:**
+- Hides pupils completely with opacity fade and scale to 0 (150ms)
+- Shrinks eye shape radius to 1 (300ms, power2.inOut easing)
+- Shows eyebrows with fade-in (200ms, starts at 100ms)
+- All animations run in parallel for smooth coordinated effect
+- Simplified implementation: removed eye group opacity fade for cleaner visual effect
+
+**Timing:**
+- Blink duration: 200ms (80ms close + 120ms open)
+- Pupil movement: 250ms with power3.out easing
+- Eye morph (close/peek): 300ms with power2.inOut easing
+- Peek animation: 250ms with power2.out easing
+- Close eyes: 300ms total (pupils fade + eye group dim + shape shrink + eyebrows appear)

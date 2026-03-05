@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Sarana AI - Lead Management",
-  description: "Lead Management Dashboard",
+  title: "Sarana AI - Scrapper Dashboard",
+  description: "Scrapper Management Dashboard",
 };
 
 export default function RootLayout({

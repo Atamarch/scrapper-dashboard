@@ -959,3 +959,158 @@ Both endpoints return appropriate HTTP status codes:
 - Single company analytics
 - Template performance within a company
 - Company-focused recruitment workflows
+
+## ⚙️ VS Code Workspace Configuration
+
+The project includes VS Code workspace settings to optimize the development experience.
+
+### TypeScript Settings (`.vscode/settings.json`)
+
+- **Auto-closing Tags**: Disabled (`typescript.autoClosingTags: false`)
+  - Prevents automatic insertion of closing JSX/TSX tags
+  - Gives developers full control over tag completion
+  - Useful when working with complex React component structures
+
+To modify workspace settings, edit `.vscode/settings.json` directly or use VS Code's settings UI (Workspace tab).
+
+## 🎭 Mascot Animation Hook
+
+The frontend includes a custom React hook for animating SVG mascot characters with eye tracking and interactive behaviors.
+
+### Hook: `useMascotAnimation` (`frontend/hooks/useMascotAnimation.ts`)
+
+A GSAP-powered animation hook that provides lifelike eye movements and interactions for SVG mascot characters.
+
+#### Features
+
+**Automatic Behaviors:**
+- **Idle Blinking**: Random blinks every 4-6 seconds when idle
+- **Eye Tracking**: Pupils follow cursor movement when enabled
+- **State Management**: Tracks closed, peeking, and tracking states
+
+**Interactive Animations:**
+- **Blink**: Quick eye blink animation (0.25s total)
+- **Close Eyes**: Smooth eye closing with pupil fade-out
+- **Peek One Eye**: Playful partial eye opening (35%) with bounce effect
+- **Unsee Peek**: Reverses peek animation, closing the peeking eye back to closed state
+- **Reset to Idle**: Returns to normal state and resumes blinking
+
+**Eye Morphing:**
+- Uses SVG path morphing for smooth eye shape transitions
+- Open eye path: `M 0 0 Q 15 -8, 30 0 Q 15 8, 0 0`
+- Closed eye path: `M 0 0 Q 15 0, 30 0 Q 15 0, 0 0`
+- Peek eye path: `M 0 0 Q 15 -3, 30 0 Q 15 3, 0 0` (35% open)
+
+#### Required SVG Structure
+
+The hook expects SVG elements with specific refs:
+
+```typescript
+interface MascotRefs {
+  leftEye: MutableRefObject<SVGGElement | null>;
+  rightEye: MutableRefObject<SVGGElement | null>;
+  leftPupil: MutableRefObject<SVGCircleElement | null>;
+  rightPupil: MutableRefObject<SVGCircleElement | null>;
+  leftEyeShape: MutableRefObject<SVGPathElement | null>;
+  rightEyeShape: MutableRefObject<SVGPathElement | null>;
+}
+```
+
+#### Usage Example
+
+```typescript
+import { useRef } from 'react';
+import { useMascotAnimation } from '@/hooks/useMascotAnimation';
+
+function MascotComponent() {
+  // Create refs for SVG elements
+  const leftEye = useRef<SVGGElement>(null);
+  const rightEye = useRef<SVGGElement>(null);
+  const leftPupil = useRef<SVGCircleElement>(null);
+  const rightPupil = useRef<SVGCircleElement>(null);
+  const leftEyeShape = useRef<SVGPathElement>(null);
+  const rightEyeShape = useRef<SVGPathElement>(null);
+
+  // Initialize animation hook
+  const mascot = useMascotAnimation({
+    leftEye,
+    rightEye,
+    leftPupil,
+    rightPupil,
+    leftEyeShape,
+    rightEyeShape,
+  });
+
+  // Enable eye tracking on mouse move
+  const handleMouseMove = (e: MouseEvent) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const percentX = ((e.clientX - rect.left) / rect.width - 0.5) * 2;
+    mascot.movePupil(percentX);
+  };
+
+  return (
+    <div 
+      onMouseEnter={() => mascot.enableTracking()}
+      onMouseLeave={() => mascot.disableTracking()}
+      onMouseMove={handleMouseMove}
+    >
+      <svg viewBox="0 0 200 200">
+        <g ref={leftEye}>
+          <path ref={leftEyeShape} d="M 0 0 Q 15 -8, 30 0 Q 15 8, 0 0" />
+          <circle ref={leftPupil} r="5" />
+        </g>
+        <g ref={rightEye}>
+          <path ref={rightEyeShape} d="M 0 0 Q 15 -8, 30 0 Q 15 8, 0 0" />
+          <circle ref={rightPupil} r="5" />
+        </g>
+      </svg>
+    </div>
+  );
+}
+```
+
+#### API Methods
+
+| Method | Description | Parameters |
+|--------|-------------|------------|
+| `blink()` | Trigger a single blink animation | None |
+| `enableTracking()` | Enable cursor tracking for pupils | None |
+| `disableTracking()` | Disable cursor tracking | None |
+| `movePupil(percentX)` | Move pupils horizontally | `percentX`: -1 to 1 (clamped to ±6px) |
+| `closeEyes()` | Close eyes with smooth animation | None |
+| `peekOneEye()` | Open left eye partially (35%) | None |
+| `unseePeek()` | Close the peeking eye back to closed state | None |
+| `resetToIdle()` | Return to normal state and resume blinking | None |
+
+#### Animation Timings
+
+- **Blink**: 0.1s close + 0.15s open = 0.25s total
+- **Close Eyes**: 0.3s morph + 0.15s pupil fade
+- **Peek**: 0.25s eye open + 0.3s bounce effect
+- **Unsee Peek**: 0.2s eye close + 0.15s pupil fade + 0.2s position reset
+- **Reset**: 0.3s morph + 0.2s pupil fade-in
+- **Pupil Movement**: 0.25s smooth tracking
+- **Idle Blink Interval**: Random 4-6 seconds
+
+#### State Management
+
+The hook maintains internal state refs to prevent conflicting animations:
+- `isTrackingRef`: Whether cursor tracking is active
+- `isClosedRef`: Whether eyes are currently closed
+- `isPeekingRef`: Whether in peek animation state
+
+These states ensure animations don't overlap inappropriately (e.g., no blinking while eyes are closed).
+
+#### Dependencies
+
+- **GSAP** (`gsap`): Animation library for smooth transitions
+- **React** (`useEffect`, `useRef`): Hook lifecycle and ref management
+
+#### Cleanup
+
+The hook automatically cleans up on unmount:
+- Stops blink intervals
+- Reverts GSAP context
+- Clears all timeouts
+
+This prevents memory leaks and ensures proper cleanup when the component is removed from the DOM.
