@@ -17,7 +17,7 @@ load_dotenv()
 # Configuration
 SCORING_QUEUE = os.getenv('SCORING_QUEUE', 'scoring_queue')
 REQUIREMENTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'scoring', 'requirements')
-DB_CHECK_INTERVAL = int(os.getenv('DB_CHECK_INTERVAL', '300'))  # 5 minutes default
+DB_CHECK_INTERVAL = int(os.getenv('DB_CHECK_INTERVAL', '60'))  # 1 minute default
 
 
 # ============================================================================

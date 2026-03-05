@@ -25,10 +25,24 @@ jobs:
       with:
         node-version: '18'
     
+    - name: Debug Environment
+      run: |
+        echo "Current directory: $(pwd)"
+        echo "Python version: $(python --version)"
+        echo "Pip version: $(pip --version)"
+        ls -la
+        echo "Backend structure:"
+        ls -la backend/ || echo "Backend directory not found"
+        echo "API structure:"
+        ls -la backend/api/ || echo "API directory not found"
+        echo "Tests structure:"
+        ls -la backend/api/tests/ || echo "Tests directory not found"
+    
     - name: Test API Dependencies
       run: |
         cd backend/api
         pip install -r requirements.txt
+        pip install requests  # Add missing dependency
         python -c "import fastapi; print('API FastAPI ready')"
         python -c "import supabase; print('API Supabase client ready')"
         echo "API dependencies validated (Railway already deployed)"
@@ -58,20 +72,15 @@ jobs:
     
     - name: Validate Requirements Templates
       run: |
-        python backend/api/tests/test_health.py
+        cd backend/api
+        python tests/test_health.py
         echo "Requirements templates validation completed"
     
     - name: Test Health Check Endpoint
       run: |
         cd backend/api
         echo "Testing health check endpoint structure..."
-        python -c "
-        try:
-            from main import app
-            print('Health check endpoint imported successfully')
-        except Exception as e:
-            print(f'Health check import test: {e}')
-        "
+        python -c "from main import app; print('Health check endpoint imported successfully')" || echo "Health check import failed"
         echo "Health check endpoint structure validated"
     
     - name: Python Code Quality Check
