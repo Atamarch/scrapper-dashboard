@@ -560,16 +560,46 @@ def worker_thread(worker_id, mq_config):
             with stats['lock']:
                 stats['processing'] += 1
             
-            # Check if already scraped in Supabase
+            # Check if already scraped in Supabase - UPDATED LOGIC
             if supabase:
                 existing_lead = supabase.get_lead_by_url(url)
-                if existing_lead and existing_lead.get('score') is not None:
-                    print(f"[Worker {worker_id}] ⊘ Already scraped (has score: {existing_lead.get('score')})")
-                    with stats['lock']:
-                        stats['skipped'] += 1
-                        stats['processing'] -= 1
-                    ack_message(ch, method.delivery_tag)
-                    return
+                if existing_lead:
+                    profile_data = existing_lead.get('profile_data')
+                    scoring_data = existing_lead.get('scoring_data')
+                    
+                    # Skip only if both profile and scoring data exist AND score > 0
+                    has_profile = profile_data and profile_data not in [None, '', '{}', {}]
+                    has_scoring = scoring_data and scoring_data not in [None, '', '{}', {}]
+                    
+                    if has_profile and has_scoring:
+                        # Check if score is > 0
+                        try:
+                            if isinstance(scoring_data, dict):
+                                score_data = scoring_data.get('score', {})
+                                score_percentage = score_data.get('percentage', 0) if isinstance(score_data, dict) else 0
+                            elif isinstance(scoring_data, str):
+                                parsed_data = json.loads(scoring_data)
+                                score_data = parsed_data.get('score', {})
+                                score_percentage = score_data.get('percentage', 0) if isinstance(score_data, dict) else 0
+                            else:
+                                score_percentage = 0
+                            
+                            if score_percentage > 0:
+                                print(f"[Worker {worker_id}] ⊘ Already scraped (has score: {score_percentage}%)")
+                                with stats['lock']:
+                                    stats['skipped'] += 1
+                                    stats['processing'] -= 1
+                                ack_message(ch, method.delivery_tag)
+                                return
+                            else:
+                                print(f"[Worker {worker_id}] 🔄 Re-processing (score is 0%)")
+                        except:
+                            print(f"[Worker {worker_id}] 🔄 Re-processing (invalid scoring data)")
+                    else:
+                        if not has_profile:
+                            print(f"[Worker {worker_id}] 🔄 Re-processing (missing profile data)")
+                        if not has_scoring:
+                            print(f"[Worker {worker_id}] 🔄 Re-processing (missing scoring data)")
             
             # Create crawler and process
             crawler = LinkedInCrawler()
