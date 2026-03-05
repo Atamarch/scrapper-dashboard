@@ -30,7 +30,7 @@ supabase: Client = create_client(
 )
 
 # Config
-POLL_INTERVAL = int(os.getenv('POLL_INTERVAL', 300))  # 5 minutes default
+POLL_INTERVAL = int(os.getenv('POLL_INTERVAL', 60))  # 1 minute default
 DEFAULT_REQUIREMENTS_ID = os.getenv('DEFAULT_REQUIREMENTS_ID', 'desk_collection')
 
 
