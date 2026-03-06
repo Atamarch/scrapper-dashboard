@@ -399,46 +399,59 @@ def worker_thread(worker_id, mq_config):
             with stats['lock']:
                 stats['processing'] += 1
             
-            # Check if already scraped in Supabase - UPDATED LOGIC
+            # Check if already scraped in Supabase - IMPROVED VALIDATION
             if supabase:
                 existing_lead = supabase.get_lead_by_url(url)
                 if existing_lead:
                     profile_data = existing_lead.get('profile_data')
                     scoring_data = existing_lead.get('scoring_data')
                     
-                    # Skip only if both profile and scoring data exist AND score > 0
-                    has_profile = profile_data and profile_data not in [None, '', '{}', {}]
-                    has_scoring = scoring_data and scoring_data not in [None, '', '{}', {}]
+                    # Check if profile data is complete (has required fields)
+                    has_complete_profile = False
+                    if profile_data and profile_data not in [None, '', '{}', {}]:
+                        if isinstance(profile_data, dict):
+                            required_fields = ['name', 'headline', 'location']
+                            has_complete_profile = all(profile_data.get(field) for field in required_fields)
+                        elif isinstance(profile_data, str):
+                            try:
+                                parsed_data = json.loads(profile_data)
+                                required_fields = ['name', 'headline', 'location']
+                                has_complete_profile = all(parsed_data.get(field) for field in required_fields)
+                            except:
+                                has_complete_profile = False
                     
-                    if has_profile and has_scoring:
-                        # Check if score is > 0
+                    # Check if scoring data is complete (has results array)
+                    has_complete_scoring = False
+                    score_percentage = 0
+                    if scoring_data and scoring_data not in [None, '', '{}', {}]:
                         try:
                             if isinstance(scoring_data, dict):
-                                score_data = scoring_data.get('score', {})
-                                score_percentage = score_data.get('percentage', 0) if isinstance(score_data, dict) else 0
+                                score_percentage = scoring_data.get('percentage', 0)
+                                has_complete_scoring = 'results' in scoring_data and len(scoring_data.get('results', [])) > 0
                             elif isinstance(scoring_data, str):
                                 parsed_data = json.loads(scoring_data)
-                                score_data = parsed_data.get('score', {})
-                                score_percentage = score_data.get('percentage', 0) if isinstance(score_data, dict) else 0
-                            else:
-                                score_percentage = 0
-                            
-                            if score_percentage > 0:
-                                print(f"[Worker {worker_id}] ⊘ Already scraped (has score: {score_percentage}%)")
-                                with stats['lock']:
-                                    stats['skipped'] += 1
-                                    stats['processing'] -= 1
-                                ack_message(ch, method.delivery_tag)
-                                return
-                            else:
-                                print(f"[Worker {worker_id}] 🔄 Re-processing (score is 0%)")
+                                score_percentage = parsed_data.get('percentage', 0)
+                                has_complete_scoring = 'results' in parsed_data and len(parsed_data.get('results', [])) > 0
                         except:
-                            print(f"[Worker {worker_id}] 🔄 Re-processing (invalid scoring data)")
+                            has_complete_scoring = False
+                            score_percentage = 0
+                    
+                    # Skip only if BOTH profile and scoring are complete
+                    if has_complete_profile and has_complete_scoring:
+                        print(f"[Worker {worker_id}] ⊘ Already complete (Profile: ✓, Scoring: ✓, Score: {score_percentage}%)")
+                        with stats['lock']:
+                            stats['skipped'] += 1
+                            stats['processing'] -= 1
+                        ack_message(ch, method.delivery_tag)
+                        return
                     else:
-                        if not has_profile:
-                            print(f"[Worker {worker_id}] 🔄 Re-processing (missing profile data)")
-                        if not has_scoring:
-                            print(f"[Worker {worker_id}] 🔄 Re-processing (missing scoring data)")
+                        # Log what's missing
+                        missing = []
+                        if not has_complete_profile:
+                            missing.append("incomplete profile")
+                        if not has_complete_scoring:
+                            missing.append("missing/incomplete scoring")
+                        print(f"[Worker {worker_id}] 🔄 Re-processing ({', '.join(missing)})")
             
             # Create crawler and process
             crawler = LinkedInCrawler()

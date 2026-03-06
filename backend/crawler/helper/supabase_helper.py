@@ -309,25 +309,38 @@ class SupabaseManager:
                 profile_data = lead.get('profile_data')
                 scoring_data = lead.get('scoring_data')
                 
-                # Check if profile data exists and is not empty
-                has_profile = profile_data and profile_data not in [None, '', '{}', {}]
+                # Check if profile data exists and has required fields
+                has_profile = False
+                if profile_data and profile_data not in [None, '', '{}', {}]:
+                    if isinstance(profile_data, dict):
+                        # Check for essential profile fields
+                        required_fields = ['name', 'headline', 'location']
+                        has_profile = all(profile_data.get(field) for field in required_fields)
+                    elif isinstance(profile_data, str):
+                        try:
+                            import json
+                            parsed_data = json.loads(profile_data)
+                            required_fields = ['name', 'headline', 'location']
+                            has_profile = all(parsed_data.get(field) for field in required_fields)
+                        except:
+                            has_profile = False
                 
-                # Check if scoring data exists and is not empty
-                has_scoring = scoring_data and scoring_data not in [None, '', '{}', {}]
-                
-                # Check score percentage
+                # Check if scoring data exists and has valid results
+                has_scoring = False
                 score_percentage = 0
-                if has_scoring:
+                if scoring_data and scoring_data not in [None, '', '{}', {}]:
                     try:
                         if isinstance(scoring_data, dict):
-                            score_data = scoring_data.get('score', {})
-                            score_percentage = score_data.get('percentage', 0) if isinstance(score_data, dict) else 0
+                            score_percentage = scoring_data.get('percentage', 0)
+                            # Check if scoring has results array
+                            has_scoring = 'results' in scoring_data and len(scoring_data.get('results', [])) > 0
                         elif isinstance(scoring_data, str):
                             import json
                             parsed_data = json.loads(scoring_data)
-                            score_data = parsed_data.get('score', {})
-                            score_percentage = score_data.get('percentage', 0) if isinstance(score_data, dict) else 0
+                            score_percentage = parsed_data.get('percentage', 0)
+                            has_scoring = 'results' in parsed_data and len(parsed_data.get('results', [])) > 0
                     except:
+                        has_scoring = False
                         score_percentage = 0
                 
                 # Determine processing status
@@ -336,7 +349,7 @@ class SupabaseManager:
                 
                 if not has_profile:
                     needs_processing = True
-                    status_reason.append("missing_profile")
+                    status_reason.append("incomplete_profile")
                 
                 if not has_scoring:
                     needs_processing = True
