@@ -5,6 +5,7 @@ import { Sidebar } from '@/components/sidebar';
 import { TopHeader } from '@/components/top-header';
 import { Bot, Play, Square, RefreshCw, Users, CheckCircle2, AlertCircle, Clock, Zap } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { crawlerAPI } from '@/lib/api';
 import toast from 'react-hot-toast';
 
 interface Template {
@@ -55,14 +56,8 @@ export default function CrawlerPage() {
 
   const fetchTemplates = async () => {
     try {
-      const response = await fetch('/api/templates');
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch templates');
-      }
-      
-      const data = await response.json();
-      setTemplates(data || []);
+      const response = await crawlerAPI.getTemplates();
+      setTemplates(response.templates || []);
     } catch (error) {
       console.error('Error fetching templates:', error);
       toast.error('Failed to fetch templates');
@@ -72,26 +67,9 @@ export default function CrawlerPage() {
   };
 
   const analyzeLeads = async (templateId: string) => {
-    setAnalyzing(true);
-    try {
-      const response = await fetch('/api/crawler/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ templateId })
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to analyze leads');
-      }
-
-      const stats = await response.json();
-      setLeadStats(stats);
-    } catch (error) {
-      console.error('Error analyzing leads:', error);
-      toast.error('Failed to analyze leads');
-    } finally {
-      setAnalyzing(false);
-    }
+    // Note: Analyze functionality should be implemented in backend API
+    toast.info('Analyze feature coming soon - will be implemented in backend API');
+    setAnalyzing(false);
   };
 
   const startCrawler = async () => {
@@ -100,58 +78,14 @@ export default function CrawlerPage() {
       return;
     }
 
-    setStarting(true);
-    try {
-      const response = await fetch('/api/crawler/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ templateId: selectedTemplate })
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to start crawler');
-      }
-
-      const result = await response.json();
-      
-      const selectedTemplateName = templates.find(t => t.id === selectedTemplate)?.name;
-      
-      setCrawlerStatus({
-        isRunning: true,
-        currentTemplate: selectedTemplateName,
-        startedAt: new Date().toISOString(),
-        processedCount: 0
-      });
-
-      toast.success('Crawler started successfully!');
-    } catch (error) {
-      console.error('Error starting crawler:', error);
-      toast.error('Failed to start crawler');
-    } finally {
-      setStarting(false);
-    }
+    // Note: Start crawler functionality should be implemented in backend API
+    toast.info('Start crawler feature coming soon - will be implemented in backend API');
+    setStarting(false);
   };
 
   const stopCrawler = async () => {
-    try {
-      const response = await fetch('/api/crawler/stop', {
-        method: 'POST'
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to stop crawler');
-      }
-
-      setCrawlerStatus({
-        isRunning: false,
-        processedCount: 0
-      });
-
-      toast.success('Crawler stopped successfully!');
-    } catch (error) {
-      console.error('Error stopping crawler:', error);
-      toast.error('Failed to stop crawler');
-    }
+    // Note: Stop crawler functionality should be implemented in backend API
+    toast.info('Stop crawler feature coming soon - will be implemented in backend API');
   };
 
   const getStatusColor = (status: 'idle' | 'running' | 'stopping') => {
