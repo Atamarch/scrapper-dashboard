@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import { Sidebar } from '@/components/sidebar';
 import { TopHeader } from '@/components/top-header';
 import { Bot, Play, Square, RefreshCw, Users, CheckCircle2, AlertCircle, Clock, Zap } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
 import { crawlerAPI } from '@/lib/api';
 import toast from 'react-hot-toast';
 
@@ -67,11 +66,17 @@ export default function CrawlerPage() {
   };
 
   const analyzeLeads = async (templateId: string) => {
-    // Note: Analyze functionality should be implemented in backend API
-    toast('Analyze feature coming soon - will be implemented in backend API', {
-      icon: 'ℹ️',
-    });
-    setAnalyzing(false);
+    setAnalyzing(true);
+    try {
+      const stats = await crawlerAPI.analyzeLead(templateId);
+      setLeadStats(stats);
+      toast.success('Analysis complete!');
+    } catch (error) {
+      console.error('Error analyzing leads:', error);
+      toast.error('Failed to analyze leads');
+    } finally {
+      setAnalyzing(false);
+    }
   };
 
   const startCrawler = async () => {
@@ -80,18 +85,41 @@ export default function CrawlerPage() {
       return;
     }
 
-    // Note: Start crawler functionality should be implemented in backend API
-    toast('Start crawler feature coming soon - will be implemented in backend API', {
-      icon: 'ℹ️',
-    });
-    setStarting(false);
+    setStarting(true);
+    try {
+      const result = await crawlerAPI.startScraping({
+        template_id: selectedTemplate
+      });
+      
+      if (result.success) {
+        const selectedTemplateName = templates.find(t => t.id === selectedTemplate)?.name;
+        
+        setCrawlerStatus({
+          isRunning: true,
+          currentTemplate: selectedTemplateName,
+          startedAt: new Date().toISOString(),
+          processedCount: result.leads_queued
+        });
+
+        toast.success(`${result.leads_queued} leads queued for scraping!`);
+      } else {
+        toast.error('Failed to start crawler');
+      }
+    } catch (error) {
+      console.error('Error starting crawler:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      toast.error(`Failed to start crawler: ${errorMessage}`);
+    } finally {
+      setStarting(false);
+    }
   };
 
   const stopCrawler = async () => {
-    // Note: Stop crawler functionality should be implemented in backend API
-    toast('Stop crawler feature coming soon - will be implemented in backend API', {
-      icon: 'ℹ️',
+    setCrawlerStatus({
+      isRunning: false,
+      processedCount: 0
     });
+    toast.success('Crawler stopped');
   };
 
   const getStatusColor = (status: 'idle' | 'running' | 'stopping') => {

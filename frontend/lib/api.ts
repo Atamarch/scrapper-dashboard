@@ -146,6 +146,15 @@ class CrawlerAPI {
     });
   }
 
+  async analyzeLead(templateId: string) {
+    return this.request<{
+      total: number;
+      complete: number;
+      needProcessing: number;
+      completionRate: number;
+    }>(`/api/scraping/analyze/${templateId}`);
+  }
+
   // ===== COMPANY MANAGEMENT =====
   async getCompanies(platform?: string) {
     const params = platform ? `?platform=${encodeURIComponent(platform)}` : '';

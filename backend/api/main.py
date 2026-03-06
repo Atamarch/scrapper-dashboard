@@ -1249,6 +1249,38 @@ async def crawl_instant(request: InstantCrawlRequest):
 # SCRAPING REQUEST ENDPOINTS
 # ============================================================================
 
+@app.get("/api/scraping/analyze/{template_id}")
+@handle_api_errors
+async def analyze_leads(template_id: str):
+    """Analyze leads for a template to see completion status"""
+    try:
+        from helper.supabase_helper import SupabaseManager
+        supabase_manager = SupabaseManager()
+        leads = supabase_manager.get_leads_by_template_id(template_id)
+        
+        if not leads:
+            return {
+                "total": 0,
+                "complete": 0,
+                "needProcessing": 0,
+                "completionRate": 0
+            }
+        
+        total = len(leads)
+        need_processing = len([lead for lead in leads if lead['needs_processing']])
+        complete = total - need_processing
+        completion_rate = (complete / total * 100) if total > 0 else 0
+        
+        return {
+            "total": total,
+            "complete": complete,
+            "needProcessing": need_processing,
+            "completionRate": round(completion_rate, 2)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/scraping/start", response_model=ScrapingResponse)
 @handle_api_errors
 async def start_scraping(request: ScrapingRequest):
