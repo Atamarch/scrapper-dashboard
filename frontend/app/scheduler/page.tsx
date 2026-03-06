@@ -30,11 +30,23 @@ export default function SchedulerPage() {
 
   async function loadTemplates() {
     try {
+      console.log('🔄 Loading templates...')
       const response = await crawlerAPI.getTemplates()
-      console.log('Templates response:', response)
-      setTemplates(response.templates || [])
+      console.log('✅ Templates response:', response)
+      
+      if (response && response.templates) {
+        setTemplates(response.templates)
+        console.log(`✅ Loaded ${response.templates.length} templates`)
+      } else {
+        console.warn('⚠️ No templates in response')
+        setTemplates([])
+      }
     } catch (error) {
-      console.error('Failed to load templates:', JSON.stringify(error, null, 2))
+      console.error('❌ Failed to load templates:', error)
+      if (error instanceof Error) {
+        console.error('Error message:', error.message)
+        console.error('Error stack:', error.stack)
+      }
       setTemplates([])
     }
   }

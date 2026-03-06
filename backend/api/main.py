@@ -25,6 +25,9 @@ from helper.supabase_helper import ScheduleManager, CompanyManager, LeadsManager
 # Error handling decorator
 def handle_api_errors(func):
     """Decorator to handle common API errors"""
+    from functools import wraps
+    
+    @wraps(func)
     async def wrapper(*args, **kwargs):
         try:
             return await func(*args, **kwargs)
@@ -1036,17 +1039,37 @@ def classify_requirement(text: str, req_id: int) -> Dict:
     }
 
 @app.get("/api/requirements/templates")
-@handle_api_errors
 async def get_templates():
     """Get all requirements templates"""
     try:
+        print("📥 Fetching templates from search_templates table...")
+        
+        # Test supabase connection first
+        if not supabase:
+            print("❌ Supabase client not initialized")
+            return {
+                "success": False,
+                "templates": [],
+                "error": "Supabase client not initialized"
+            }
+        
         result = supabase.table('search_templates').select('id, name, created_at').execute()
+        print(f"✅ Templates fetched: {len(result.data) if result.data else 0} templates")
+        print(f"📊 Template data: {result.data}")
+        
         return {
             "success": True,
-            "templates": result.data
+            "templates": result.data or []
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"❌ Error fetching templates: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "templates": [],
+            "error": str(e)
+        }
 
 
 @app.post("/api/requirements/generate")
