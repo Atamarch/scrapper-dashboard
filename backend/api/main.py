@@ -1254,6 +1254,8 @@ async def crawl_instant(request: InstantCrawlRequest):
 async def analyze_leads(template_id: str):
     """Analyze leads for a template to see completion status"""
     try:
+        # Import from crawler's helper since SupabaseManager is there
+        sys.path.insert(0, str(Path(__file__).parent.parent / "crawler"))
         from helper.supabase_helper import SupabaseManager
         supabase_manager = SupabaseManager()
         leads = supabase_manager.get_leads_by_template_id(template_id)
@@ -1292,6 +1294,8 @@ async def start_scraping(request: ScrapingRequest):
             raise HTTPException(status_code=503, detail="Database not available")
         
         # Get leads for this template
+        # Import from crawler's helper since SupabaseManager is there
+        sys.path.insert(0, str(Path(__file__).parent.parent / "crawler"))
         from helper.supabase_helper import SupabaseManager
         supabase_manager = SupabaseManager()
         leads = supabase_manager.get_leads_by_template_id(request.template_id)
