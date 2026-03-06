@@ -4,25 +4,15 @@
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-export type Schedule = {
-  id: string;
-  name: string;
-  start_schedule: string;
-  status: 'active' | 'inactive';
-  last_run: string | null;
-  created_at: string;
+export type ScrapingRequest = {
+  template_id: string;
 };
 
-export type ScheduleCreate = {
-  name: string;
-  start_schedule: string;
-  status?: 'active' | 'inactive';
-};
-
-export type ScheduleUpdate = {
-  name?: string;
-  start_schedule?: string;
-  status?: 'active' | 'inactive';
+export type ScrapingResponse = {
+  success: boolean;
+  message: string;
+  leads_queued: number;
+  batch_id: string;
 };
 
 class CrawlerAPI {
@@ -54,43 +44,39 @@ class CrawlerAPI {
     return response.json();
   }
 
-  // Health check
+  // Core
   async healthCheck() {
-    return this.request<{ status: string; scheduler_running: boolean; timestamp: string }>('/api/health');
+    return this.request<{ status: string; timestamp: string }>('/health');
   }
 
-  // Schedules
-  async getSchedules() {
-    return this.request<{ schedules: Schedule[] }>('/api/schedules');
+  async getQueueStatus() {
+    return this.request<any>('/api/queue/status');
   }
 
-  async getSchedule(id: string) {
-    return this.request<Schedule>(`/api/schedules/${id}`);
-  }
-
-  async createSchedule(data: ScheduleCreate) {
-    return this.request<{ message: string; schedule_id: string }>('/api/schedules', {
+  // Scraping
+  async startScraping(data: ScrapingRequest) {
+    return this.request<ScrapingResponse>('/api/scraping/start', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
-  async updateSchedule(id: string, data: ScheduleUpdate) {
-    return this.request<{ message: string }>(`/api/schedules/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    });
+  // Companies
+  async getCompanies(platform?: string) {
+    const params = platform ? `?platform=${encodeURIComponent(platform)}` : '';
+    return this.request<any>(`/api/companies${params}`);
   }
 
-  async deleteSchedule(id: string) {
-    return this.request<{ message: string }>(`/api/schedules/${id}`, {
-      method: 'DELETE',
-    });
+  // Leads
+  async getLeadsByPlatform(platform: string, limit = 100, offset = 0) {
+    return this.request<any>(`/api/leads/by-platform?platform=${encodeURIComponent(platform)}&limit=${limit}&offset=${offset}`);
   }
 
-  async toggleSchedule(id: string) {
-    return this.request<{ message: string; status: string }>(`/api/schedules/${id}/toggle`, {
+  // Outreach
+  async sendOutreach(data: any) {
+    return this.request<any>('/api/outreach/send', {
       method: 'POST',
+      body: JSON.stringify(data),
     });
   }
 }

@@ -223,6 +223,19 @@ class InstantCrawlRequest(BaseModel):
     )
 
 
+class ScrapingRequest(BaseModel):
+    """Simple scraping request"""
+    template_id: str = Field(..., description="Template ID to scrape", example="38a1699d-ad54-4f05-9483-e3d35142d35f")
+
+
+class ScrapingResponse(BaseModel):
+    """Simple scraping response"""
+    success: bool = Field(..., description="Request success", example=True)
+    message: str = Field(..., description="Response message", example="25 leads queued for scraping")
+    leads_queued: int = Field(..., description="Number of leads queued", example=25)
+    batch_id: str = Field(..., description="Batch ID", example="20260305_143022")
+
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize database and start scheduler"""
@@ -1166,6 +1179,64 @@ async def crawl_instant(request: InstantCrawlRequest):
         
     except Exception as e:
         print(f"❌ Instant crawl error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# SCRAPING REQUEST ENDPOINTS
+# ============================================================================
+
+@app.post("/api/scraping/start", response_model=ScrapingResponse)
+@handle_api_errors
+async def start_scraping(request: ScrapingRequest):
+    """Start scraping for template ID"""
+    try:
+        print(f"📥 Start scraping for template: {request.template_id}")
+        
+        if not db:
+            raise HTTPException(status_code=503, detail="Database not available")
+        
+        # Get leads for this template
+        from helper.supabase_helper import SupabaseManager
+        supabase_manager = SupabaseManager()
+        leads = supabase_manager.get_leads_by_template_id(request.template_id)
+        
+        if not leads:
+            raise HTTPException(status_code=404, detail="No leads found for template")
+        
+        # Filter leads that need processing
+        needs_processing = [lead for lead in leads if lead['needs_processing']]
+        
+        if not needs_processing:
+            return ScrapingResponse(
+                success=True,
+                message="All leads already complete",
+                leads_queued=0,
+                batch_id=""
+            )
+        
+        # Queue leads
+        batch_id = datetime.now().strftime('%Y%m%d_%H%M%S')
+        queued_count = 0
+        
+        for lead in needs_processing:
+            success = queue_publisher.publish_crawler_job(
+                profile_url=lead['profile_url'],
+                template_id=request.template_id
+            )
+            if success:
+                queued_count += 1
+        
+        return ScrapingResponse(
+            success=True,
+            message=f"{queued_count} leads queued for scraping",
+            leads_queued=queued_count,
+            batch_id=batch_id
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
