@@ -31,18 +31,21 @@ export default function SchedulerPage() {
   async function loadTemplates() {
     try {
       const response = await crawlerAPI.getTemplates()
-      setTemplates(response.templates)
+      setTemplates(response.templates || [])
     } catch (error) {
       console.error('Failed to load templates:', error)
+      // Set empty array if failed to load
+      setTemplates([])
     }
   }
 
   async function loadScheduledJobs() {
     try {
       const response = await crawlerAPI.getSchedules()
-      setJobs(response.schedules)
+      setJobs(response.schedules || [])
     } catch (error) {
       console.error('Failed to load schedules:', error)
+      setJobs([])
     } finally {
       setLoading(false)
     }
@@ -74,7 +77,8 @@ export default function SchedulerPage() {
       toast.success('Schedule created successfully!')
     } catch (error) {
       console.error('Failed to create schedule:', error)
-      toast.error('Failed to create schedule')
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      toast.error(`Failed to create schedule: ${errorMessage}`)
     }
   }
 
@@ -118,7 +122,8 @@ export default function SchedulerPage() {
       toast.success('Schedule updated successfully!')
     } catch (error) {
       console.error('Failed to update schedule:', error)
-      toast.error('Failed to update schedule')
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      toast.error(`Failed to update schedule: ${errorMessage}`)
     }
   }
 
@@ -129,7 +134,8 @@ export default function SchedulerPage() {
       toast.success('Schedule status updated')
     } catch (error) {
       console.error('Failed to toggle schedule:', error)
-      toast.error('Failed to toggle schedule status')
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      toast.error(`Failed to toggle schedule: ${errorMessage}`)
     }
   }
 
@@ -140,7 +146,8 @@ export default function SchedulerPage() {
       toast.success('Schedule executed successfully')
     } catch (error) {
       console.error('Failed to execute schedule:', error)
-      toast.error('Failed to execute schedule')
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      toast.error(`Failed to execute schedule: ${errorMessage}`)
     }
   }
 
@@ -152,7 +159,8 @@ export default function SchedulerPage() {
       toast.success('Schedule deleted successfully')
     } catch (error) {
       console.error('Failed to delete schedule:', error)
-      toast.error('Failed to delete schedule')
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      toast.error(`Failed to delete schedule: ${errorMessage}`)
     }
   }
 
