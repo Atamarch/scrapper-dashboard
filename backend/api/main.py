@@ -289,6 +289,11 @@ class CrawlerScheduleCreate(BaseModel):
         example="0 9 * * *",
         description="Cron expression (e.g., '0 9 * * *' for daily at 9 AM)"
     )
+    template_id: str = Field(
+        ...,
+        example="38a1699d-ad54-4f05-9483-e3d35142d35f",
+        description="Template ID to use for scraping"
+    )
     status: Optional[str] = Field(
         default='active',
         example="active",
@@ -305,6 +310,11 @@ class CrawlerScheduleUpdate(BaseModel):
         None, 
         example="0 10 * * *",
         description="Cron expression (e.g., '0 10 * * *' for daily at 10 AM)"
+    )
+    template_id: Optional[str] = Field(
+        None,
+        example="38a1699d-ad54-4f05-9483-e3d35142d35f",
+        description="Template ID to use for scraping"
     )
     status: Optional[str] = Field(
         None,
@@ -342,10 +352,16 @@ async def get_schedule(schedule_id: str):
 async def create_schedule(schedule: CrawlerScheduleCreate):
     """Create new schedule"""
     try:
-        # Create schedule (no template validation needed)
+        # Validate template exists
+        template_result = supabase.table('requirements_templates').select('id, position').eq('id', schedule.template_id).execute()
+        if not template_result.data:
+            raise HTTPException(status_code=404, detail=f"Template with ID {schedule.template_id} not found")
+        
+        # Create schedule with template_id
         data = {
             'name': schedule.name,
             'start_schedule': schedule.start_schedule,
+            'template_id': schedule.template_id,
             'status': schedule.status,
             'created_at': datetime.now().isoformat()
         }
@@ -381,8 +397,9 @@ async def update_schedule(schedule_id: str, schedule: CrawlerScheduleUpdate):
         
         # Validate template if provided
         if 'template_id' in update_data:
-            if not ScheduleManager.template_exists(update_data['template_id']):
-                raise HTTPException(status_code=400, detail="Template not found")
+            template_result = supabase.table('requirements_templates').select('id, position').eq('id', update_data['template_id']).execute()
+            if not template_result.data:
+                raise HTTPException(status_code=404, detail=f"Template with ID {update_data['template_id']} not found")
         
         # Update schedule
         updated = ScheduleManager.update(schedule_id, update_data)
@@ -603,23 +620,32 @@ async def execute_schedule_manually(schedule_id: str):
         if not schedule:
             raise HTTPException(status_code=404, detail="Schedule not found")
         
+        # Check if template_id exists in schedule
+        if 'template_id' not in schedule or not schedule['template_id']:
+            raise HTTPException(status_code=400, detail="Schedule does not have a template_id configured")
+        
+        # Validate template exists
+        template_result = supabase.table('requirements_templates').select('id, position').eq('id', schedule['template_id']).execute()
+        if not template_result.data:
+            raise HTTPException(status_code=404, detail=f"Template with ID {schedule['template_id']} not found")
+        
+        # Start scraping with the template_id from schedule
+        scraping_request = ScrapingRequest(template_id=schedule['template_id'])
+        scraping_result = await start_scraping(scraping_request)
+        
         # Update last_run timestamp
         ScheduleManager.update(schedule_id, {
             'last_run': datetime.now().isoformat()
         })
         
-        # Get queue status
-        queue_status_response = await get_queue_status()
-        queue_info = queue_status_response["queue_status"]
-        
         return {
             "success": True,
-            "message": f"Schedule '{schedule['name']}' executed manually",
+            "message": f"Schedule '{schedule['name']}' executed manually with template {schedule['template_id']}",
             "schedule_id": schedule_id,
             "schedule_name": schedule['name'],
-            "last_run_updated": True,
-            "queue_status": queue_info,
-            "note": "Queue status checked and last_run timestamp updated. Consumer should process any pending messages."
+            "template_id": schedule['template_id'],
+            "scraping_result": scraping_result,
+            "last_run_updated": True
         }
         
     except HTTPException:
@@ -1008,6 +1034,20 @@ def classify_requirement(text: str, req_id: int) -> Dict:
         'type': 'skill',
         'value': text.lower()
     }
+
+@app.get("/api/requirements/templates")
+@handle_api_errors
+async def get_templates():
+    """Get all requirements templates"""
+    try:
+        result = supabase.table('requirements_templates').select('id, position, created_at').execute()
+        return {
+            "success": True,
+            "templates": result.data
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/api/requirements/generate")
 async def generate_requirements(request: RequirementsGenerateRequest):
@@ -1556,13 +1596,7 @@ async def health_check():
     }
     
     return health_status
-
-@app.get("/health/simple")
-async def simple_health_check():
-    """Simple health check for load balancers"""
-    return {"status": "ok"}
-
-
+    
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

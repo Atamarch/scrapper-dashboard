@@ -3,13 +3,14 @@
 import { useState, useEffect } from 'react'
 import { Sidebar } from '@/components/sidebar'
 import { TopHeader } from '@/components/top-header'
-import { Plus, Play, Pause, Trash2, Clock, Calendar, X, Edit } from 'lucide-react'
+import { Plus, Play, Pause, Trash2, Clock, Calendar, X, Edit, PlayCircle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { crawlerAPI, Schedule } from '@/lib/api'
 import toast from 'react-hot-toast'
 
 export default function SchedulerPage() {
   const [jobs, setJobs] = useState<Schedule[]>([])
+  const [templates, setTemplates] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
@@ -17,13 +18,24 @@ export default function SchedulerPage() {
   const [formData, setFormData] = useState({
     name: '',
     start_schedule: '',
+    template_id: '',
     status: 'active'
   })
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
 
   useEffect(() => {
     loadScheduledJobs()
+    loadTemplates()
   }, [])
+
+  async function loadTemplates() {
+    try {
+      const response = await crawlerAPI.getTemplates()
+      setTemplates(response.templates)
+    } catch (error) {
+      console.error('Failed to load templates:', error)
+    }
+  }
 
   async function loadScheduledJobs() {
     try {
@@ -43,6 +55,7 @@ export default function SchedulerPage() {
       await crawlerAPI.createSchedule({
         name: formData.name,
         start_schedule: formData.start_schedule,
+        template_id: formData.template_id,
         status: formData.status as 'active' | 'inactive'
       })
 
@@ -50,6 +63,7 @@ export default function SchedulerPage() {
       setFormData({
         name: '',
         start_schedule: '',
+        template_id: '',
         status: 'active'
       })
       setShowModal(false)
@@ -69,6 +83,7 @@ export default function SchedulerPage() {
     setFormData({
       name: job.name,
       start_schedule: job.start_schedule,
+      template_id: job.template_id,
       status: job.status
     })
     setShowEditModal(true)
@@ -83,6 +98,7 @@ export default function SchedulerPage() {
       await crawlerAPI.updateSchedule(editingJob.id, {
         name: formData.name,
         start_schedule: formData.start_schedule,
+        template_id: formData.template_id,
         status: formData.status as 'active' | 'inactive'
       })
 
@@ -91,6 +107,7 @@ export default function SchedulerPage() {
       setFormData({
         name: '',
         start_schedule: '',
+        template_id: '',
         status: 'active'
       })
       setShowEditModal(false)
@@ -116,6 +133,17 @@ export default function SchedulerPage() {
     }
   }
 
+  async function handleExecuteNow(jobId: string) {
+    try {
+      await crawlerAPI.executeScheduleManually(jobId)
+      await loadScheduledJobs()
+      toast.success('Schedule executed successfully')
+    } catch (error) {
+      console.error('Failed to execute schedule:', error)
+      toast.error('Failed to execute schedule')
+    }
+  }
+
   async function handleRemove(jobId: string) {
     try {
       await crawlerAPI.deleteSchedule(jobId)
@@ -128,7 +156,7 @@ export default function SchedulerPage() {
     }
   }
 
-  function formatDate(dateString: string | null) {
+  function formatDate(dateString: string | null | undefined) {
     if (!dateString) return 'Never'
     const date = new Date(dateString)
     return date.toLocaleString('id-ID', {
@@ -216,6 +244,9 @@ export default function SchedulerPage() {
                       Name
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">
+                      Template
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">
                       Cron Schedule
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">
@@ -232,77 +263,92 @@ export default function SchedulerPage() {
                 <tbody className="divide-y divide-gray-700">
                   {loading ? (
                     <tr>
-                      <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
+                      <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
                         Loading...
                       </td>
                     </tr>
                   ) : jobs.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
+                      <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
                         No scheduled jobs yet. Click "Add Schedule" to create one.
                       </td>
                     </tr>
                   ) : (
-                    jobs.map((job) => (
-                      <tr key={job.id} className="transition-colors hover:bg-gray-700/30">
-                        <td className="px-6 py-4">
-                          <div className="font-medium text-white">{job.name}</div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <code className="rounded bg-[#141C33] px-2 py-1 text-sm text-gray-300">
-                            {job.start_schedule}
-                          </code>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span
-                            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                              job.status === 'active'
-                                ? 'bg-green-500/10 text-green-500'
-                                : 'bg-yellow-500/10 text-yellow-500'
-                            }`}
-                          >
+                    jobs.map((job) => {
+                      const template = templates.find(t => t.id === job.template_id)
+                      return (
+                        <tr key={job.id} className="transition-colors hover:bg-gray-700/30">
+                          <td className="px-6 py-4">
+                            <div className="font-medium text-white">{job.name}</div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="text-sm text-gray-300">
+                              {template ? template.position : job.template_id}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <code className="rounded bg-[#141C33] px-2 py-1 text-sm text-gray-300">
+                              {job.start_schedule}
+                            </code>
+                          </td>
+                          <td className="px-6 py-4">
                             <span
-                              className={`h-1.5 w-1.5 rounded-full ${
-                                job.status === 'active' ? 'bg-green-500' : 'bg-yellow-500'
+                              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                                job.status === 'active'
+                                  ? 'bg-green-500/10 text-green-500'
+                                  : 'bg-yellow-500/10 text-yellow-500'
                               }`}
-                            />
-                            {job.status === 'active' ? 'Active' : 'Inactive'}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-400">
-                          {formatDate(job.last_run)}
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              onClick={() => handleEdit(job)}
-                              className="rounded-md border border-gray-700 p-2 transition-colors hover:bg-gray-700 text-white"
-                              title="Edit"
                             >
-                              <Edit className="h-4 w-4" />
-                            </button>
-                            <button
-                              onClick={() => handleToggleStatus(job.id)}
-                              className="rounded-md border border-gray-700 p-2 transition-colors hover:bg-gray-700 text-white"
-                              title={job.status === 'active' ? 'Pause' : 'Resume'}
-                            >
-                              {job.status === 'active' ? (
-                                <Pause className="h-4 w-4" />
-                              ) : (
-                                <Play className="h-4 w-4" />
-                              )}
-                            </button>
-                            <button
-                              onClick={() => setDeleteConfirm(job.id)}
-                              className="rounded-md border border-gray-700 p-2 transition-colors hover:border-red-800 hover:bg-red-950 text-white"
-                              title="Remove"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
+                              <span
+                                className={`h-1.5 w-1.5 rounded-full ${
+                                  job.status === 'active' ? 'bg-green-500' : 'bg-yellow-500'
+                                }`}
+                              />
+                              {job.status === 'active' ? 'Active' : 'Inactive'}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-gray-400">
+                            {formatDate(job.last_run)}
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                onClick={() => handleExecuteNow(job.id)}
+                                className="rounded-md border border-gray-700 p-2 transition-colors hover:bg-green-700 text-white"
+                                title="Execute Now"
+                              >
+                                <PlayCircle className="h-4 w-4" />
+                              </button>
+                              <button
+                                onClick={() => handleEdit(job)}
+                                className="rounded-md border border-gray-700 p-2 transition-colors hover:bg-gray-700 text-white"
+                                title="Edit"
+                              >
+                                <Edit className="h-4 w-4" />
+                              </button>
+                              <button
+                                onClick={() => handleToggleStatus(job.id)}
+                                className="rounded-md border border-gray-700 p-2 transition-colors hover:bg-gray-700 text-white"
+                                title={job.status === 'active' ? 'Pause' : 'Resume'}
+                              >
+                                {job.status === 'active' ? (
+                                  <Pause className="h-4 w-4" />
+                                ) : (
+                                  <Play className="h-4 w-4" />
+                                )}
+                              </button>
+                              <button
+                                onClick={() => setDeleteConfirm(job.id)}
+                                className="rounded-md border border-gray-700 p-2 transition-colors hover:border-red-800 hover:bg-red-950 text-white"
+                                title="Remove"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })
                   )}
                 </tbody>
               </table>
@@ -339,6 +385,25 @@ export default function SchedulerPage() {
                   className="w-full rounded-md border border-gray-700 bg-[#141C33] px-3 py-2 text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                   placeholder="e.g., Daily Morning Scraping"
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Template
+                </label>
+                <select
+                  required
+                  value={formData.template_id}
+                  onChange={(e) => setFormData({ ...formData, template_id: e.target.value })}
+                  className="w-full rounded-md border border-gray-700 bg-[#141C33] px-3 py-2 text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="">Select a template</option>
+                  {templates.map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.position}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>
@@ -423,6 +488,25 @@ export default function SchedulerPage() {
                   className="w-full rounded-md border border-gray-700 bg-[#141C33] px-3 py-2 text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                   placeholder="e.g., Daily Morning Scraping"
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Template
+                </label>
+                <select
+                  required
+                  value={formData.template_id}
+                  onChange={(e) => setFormData({ ...formData, template_id: e.target.value })}
+                  className="w-full rounded-md border border-gray-700 bg-[#141C33] px-3 py-2 text-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="">Select a template</option>
+                  {templates.map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.position}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>
