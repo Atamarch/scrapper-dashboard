@@ -68,7 +68,9 @@ export default function CrawlerPage() {
 
   const analyzeLeads = async (templateId: string) => {
     // Note: Analyze functionality should be implemented in backend API
-    toast.info('Analyze feature coming soon - will be implemented in backend API');
+    toast('Analyze feature coming soon - will be implemented in backend API', {
+      icon: 'ℹ️',
+    });
     setAnalyzing(false);
   };
 
@@ -79,13 +81,17 @@ export default function CrawlerPage() {
     }
 
     // Note: Start crawler functionality should be implemented in backend API
-    toast.info('Start crawler feature coming soon - will be implemented in backend API');
+    toast('Start crawler feature coming soon - will be implemented in backend API', {
+      icon: 'ℹ️',
+    });
     setStarting(false);
   };
 
   const stopCrawler = async () => {
     // Note: Stop crawler functionality should be implemented in backend API
-    toast.info('Stop crawler feature coming soon - will be implemented in backend API');
+    toast('Stop crawler feature coming soon - will be implemented in backend API', {
+      icon: 'ℹ️',
+    });
   };
 
   const getStatusColor = (status: 'idle' | 'running' | 'stopping') => {

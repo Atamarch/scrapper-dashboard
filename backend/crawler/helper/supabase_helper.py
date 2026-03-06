@@ -292,7 +292,7 @@ class SupabaseManager:
         """Get all leads for a specific template_id with processing status"""
         try:
             query = self.client.table('leads_list')\
-                .select('id, profile_url, name, template_id, profile_data, scoring_data, connection_status')\
+                .select('id, profile_url, name, template_id, profile_data, scoring_data, connection_status, score')\
                 .eq('template_id', template_id)
             
             if limit:
@@ -306,67 +306,71 @@ class SupabaseManager:
             # Classify leads by processing status
             leads_with_status = []
             for lead in result.data:
+                connection_status = lead.get('connection_status', '')
                 profile_data = lead.get('profile_data')
                 scoring_data = lead.get('scoring_data')
+                score = lead.get('score', 0)
                 
-                # Check if profile data exists and has required fields
-                has_profile = False
-                if profile_data and profile_data not in [None, '', '{}', {}]:
-                    if isinstance(profile_data, dict):
-                        # Check for essential profile fields
-                        required_fields = ['name', 'headline', 'location']
-                        has_profile = all(profile_data.get(field) for field in required_fields)
-                    elif isinstance(profile_data, str):
-                        try:
-                            import json
-                            parsed_data = json.loads(profile_data)
-                            required_fields = ['name', 'headline', 'location']
-                            has_profile = all(parsed_data.get(field) for field in required_fields)
-                        except:
-                            has_profile = False
-                
-                # Check if scoring data exists and has valid results
-                has_scoring = False
-                score_percentage = 0
-                if scoring_data and scoring_data not in [None, '', '{}', {}]:
-                    try:
-                        if isinstance(scoring_data, dict):
-                            score_percentage = scoring_data.get('percentage', 0)
-                            # Check if scoring has results array
-                            has_scoring = 'results' in scoring_data and len(scoring_data.get('results', [])) > 0
-                        elif isinstance(scoring_data, str):
-                            import json
-                            parsed_data = json.loads(scoring_data)
-                            score_percentage = parsed_data.get('percentage', 0)
-                            has_scoring = 'results' in parsed_data and len(parsed_data.get('results', [])) > 0
-                    except:
-                        has_scoring = False
-                        score_percentage = 0
-                
-                # Determine processing status
                 needs_processing = False
                 status_reason = []
                 
-                if not has_profile:
-                    needs_processing = True
-                    status_reason.append("incomplete_profile")
+                # Check if data exists (not empty)
+                has_profile_data = bool(profile_data and profile_data not in [None, '', '{}', {}])
+                has_scoring_data = bool(scoring_data and scoring_data not in [None, '', '{}', {}])
                 
-                if not has_scoring:
+                # RULE 1: Check connection_status first
+                if connection_status == 'pending':
+                    # Status pending = auto queue
                     needs_processing = True
-                    status_reason.append("missing_scoring")
-                elif score_percentage == 0:
-                    needs_processing = True
-                    status_reason.append("zero_score")
+                    status_reason.append("status_pending")
+                    
+                elif connection_status == 'scraped':
+                    # Status scraped = check further
+                    
+                    # RULE 2: Check if profile_data is empty
+                    if not has_profile_data:
+                        needs_processing = True
+                        status_reason.append("profile_data_empty")
+                    
+                    # RULE 3: Check if scoring_data is empty
+                    if not has_scoring_data:
+                        needs_processing = True
+                        status_reason.append("scoring_data_empty")
+                    
+                    # RULE 4: If score is 0 or null, check if scoring_data exists
+                    if score is None or score == 0:
+                        if not has_scoring_data:
+                            # Score 0/null AND no scoring data = need processing
+                            needs_processing = True
+                            if "scoring_data_empty" not in status_reason:
+                                status_reason.append("score_zero_no_data")
+                        # else: Score 0 but has scoring data = valid (kandidat tidak cocok), SKIP
+                    
+                    # If all data exists and score > 0, it's complete
+                    if has_profile_data and has_scoring_data and score and score > 0:
+                        needs_processing = False
+                        status_reason = []
+                        
+                else:
+                    # Other status (failed, etc) - check if needs retry
+                    if not has_profile_data:
+                        needs_processing = True
+                        status_reason.append("profile_data_empty")
+                    
+                    if not has_scoring_data:
+                        needs_processing = True
+                        status_reason.append("scoring_data_empty")
                 
                 lead_info = {
                     'id': lead['id'],
                     'profile_url': lead['profile_url'],
                     'name': lead.get('name', 'Unknown'),
                     'template_id': lead['template_id'],
-                    'connection_status': lead.get('connection_status', ''),
-                    'has_profile': has_profile,
-                    'has_scoring': has_scoring,
-                    'score_percentage': score_percentage,
+                    'connection_status': connection_status,
+                    'score': score,
+                    'has_profile': has_profile_data,
+                    'has_scoring': has_scoring_data,
+                    'score_percentage': score or 0,
                     'needs_processing': needs_processing,
                     'status_reason': status_reason
                 }
