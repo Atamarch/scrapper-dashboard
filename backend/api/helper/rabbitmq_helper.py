@@ -88,6 +88,10 @@ class QueuePublisher:
     
     def publish_outreach_job(self, lead: Dict, message_text: str, dry_run: bool = True, batch_id: str = None) -> bool:
         """Publish outreach job to queue"""
+        if not OUTREACH_QUEUE:
+            print(f"❌ OUTREACH_QUEUE not configured in environment variables")
+            return False
+            
         message = {
             'job_id': f"outreach_{batch_id}_{lead.get('id', 'unknown')}",
             'lead_id': lead.get('id'),
@@ -98,6 +102,10 @@ class QueuePublisher:
             'batch_id': batch_id,
             'created_at': datetime.now().isoformat()
         }
+        
+        print(f"📤 Publishing to queue: {OUTREACH_QUEUE}")
+        print(f"   Message: {message}")
+        
         return self.publish(OUTREACH_QUEUE, message)
 
 
