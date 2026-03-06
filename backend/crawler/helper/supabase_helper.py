@@ -105,7 +105,7 @@ class SupabaseManager:
     
     def update_outreach_status(self, profile_url, note_sent, status='success'):
         """
-        Update lead after outreach (status + note)
+        Update lead after outreach (status + note + timestamp)
         
         Args:
             profile_url: LinkedIn profile URL
@@ -125,16 +125,17 @@ class SupabaseManager:
             
             print(f"  ✓ Found profile: {lead.get('name', 'Unknown')}")
             
-            # Update both status and note
+            # Update status, note, and sent_at timestamp
             result = self.client.table('leads_list')\
                 .update({
                     'note_sent': note_sent,
-                    'connection_status': status
+                    'connection_status': status,
+                    'sent_at': datetime.now().isoformat()
                 })\
                 .eq('profile_url', profile_url)\
                 .execute()
             
-            print(f"  ✓ Updated outreach status: {status}")
+            print(f"  ✓ Updated outreach status: {status} at {datetime.now().isoformat()}")
             return True
             
         except Exception as e:

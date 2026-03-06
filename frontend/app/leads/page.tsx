@@ -392,7 +392,7 @@ function LeadsPageContent() {
       }
 
       console.log('✅ API Response:', result);
-      toast.success(`Outreach queued for ${result.count} lead(s)!`);
+      toast.success(`Outreach queued for ${result.queued || result.valid_leads} lead(s)!`);
       
       // Clear selection after successful send
       setSelectedLeads([]);
@@ -834,6 +834,7 @@ function LeadsPageContent() {
                       <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Status</th>
                       <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Score</th>
                       <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Processed At</th>
+                      <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Sent At</th>
                       <th className="px-6 py-4 text-left text-sm font-medium text-gray-400">Actions</th>
                     </tr>
                   </thead>
@@ -861,6 +862,9 @@ function LeadsPageContent() {
                               <div className="h-4 w-24 animate-pulse rounded bg-gray-700" />
                             </td>
                             <td className="px-6 py-4">
+                              <div className="h-4 w-24 animate-pulse rounded bg-gray-700" />
+                            </td>
+                            <td className="px-6 py-4">
                               <div className="h-4 w-20 animate-pulse rounded bg-gray-700" />
                             </td>
                           </tr>
@@ -868,7 +872,7 @@ function LeadsPageContent() {
                       </>
                     ) : leads.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="px-6 py-20">
+                        <td colSpan={8} className="px-6 py-20">
                           <div className="flex flex-col items-center justify-center">
                             <div className="mb-6">
                               <img 
@@ -938,6 +942,19 @@ function LeadsPageContent() {
                                     day: 'numeric', 
                                     month: 'short', 
                                     year: 'numeric'
+                                  })
+                                ) : (
+                                  <span className="text-gray-500">-</span>
+                                )}
+                              </td>
+                              <td className="px-6 py-4 text-gray-400 text-sm">
+                                {lead.sent_at ? (
+                                  new Date(lead.sent_at).toLocaleDateString('en-GB', { 
+                                    day: 'numeric', 
+                                    month: 'short', 
+                                    year: 'numeric',
+                                    hour: '2-digit',
+                                    minute: '2-digit'
                                   })
                                 ) : (
                                   <span className="text-gray-500">-</span>
@@ -1213,8 +1230,25 @@ function LeadsPageContent() {
                 {expandedSections.outreachMessage && (
                   <>
                     {selectedLead.note_sent ? (
-                      <div className="rounded-lg border border-gray-700 bg-[#141C33] p-4">
-                        <p className="text-sm text-gray-300 whitespace-pre-wrap">{selectedLead.note_sent}</p>
+                      <div className="space-y-3">
+                        {selectedLead.sent_at && (
+                          <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3">
+                            <p className="text-xs text-gray-400">Sent at</p>
+                            <p className="text-sm text-white font-medium">
+                              {new Date(selectedLead.sent_at).toLocaleString('en-GB', {
+                                day: 'numeric',
+                                month: 'short',
+                                year: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                second: '2-digit'
+                              })}
+                            </p>
+                          </div>
+                        )}
+                        <div className="rounded-lg border border-gray-700 bg-[#141C33] p-4">
+                          <p className="text-sm text-gray-300 whitespace-pre-wrap">{selectedLead.note_sent}</p>
+                        </div>
                       </div>
                     ) : (
                       <div className="rounded-lg border border-gray-700 bg-[#141C33] p-6">

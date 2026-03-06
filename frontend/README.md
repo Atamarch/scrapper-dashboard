@@ -43,6 +43,10 @@ npm run dev
 - search_url (text)
 - profile_url (text)
 - connection_status (text)
+- score (numeric) - Lead qualification score
+- scored_at (timestamp) - When the lead was scored
+- processed_at (timestamp) - When the lead was processed
+- sent_at (timestamp) - When the outreach message was sent to the lead
 
 ### Table: search_templates
 - id (uuid, primary key)

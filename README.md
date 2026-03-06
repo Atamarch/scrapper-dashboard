@@ -1114,3 +1114,136 @@ The hook automatically cleans up on unmount:
 - Clears all timeouts
 
 This prevents memory leaks and ensures proper cleanup when the component is removed from the DOM.
+
+## 🔍 RabbitMQ Debugging (API Helper)
+
+The RabbitMQ helper in `backend/api/helper/rabbitmq_helper.py` includes enhanced debugging features for troubleshooting queue connectivity and message publishing issues.
+
+### Debug Output
+
+When publishing messages to RabbitMQ queues, the helper now provides detailed console output:
+
+**Connection Phase:**
+```
+🔗 Connecting to RabbitMQ...
+   Host: leopard.lmq.cloudamqp.com:5671
+   VHost: fexihtwb
+   Queue: linkedin_profiles
+```
+
+**Success Phase:**
+```
+✅ Queue declared: linkedin_profiles
+✅ Message published to queue: linkedin_profiles
+```
+
+**Error Phase:**
+```
+❌ Queue publish failed: [Errno 111] Connection refused
+Traceback (most recent call last):
+  File "backend/api/helper/rabbitmq_helper.py", line 43, in publish
+    connection = pika.BlockingConnection(self.parameters)
+  ...
+```
+
+### Features
+
+- **Connection Details**: Displays host, port, vhost, and target queue before attempting connection
+- **Queue Declaration Confirmation**: Confirms successful queue declaration
+- **Publish Confirmation**: Confirms message was successfully published
+- **Full Stack Traces**: On error, prints complete traceback for debugging
+- **Emoji Indicators**: Visual indicators for quick status identification (🔗 connecting, ✅ success, ❌ error)
+
+### Use Cases
+
+**Debugging Connection Issues:**
+- Verify correct host, port, and vhost are being used
+- Identify network connectivity problems
+- Detect authentication failures
+
+**Debugging Queue Issues:**
+- Confirm queue names match between publisher and consumer
+- Verify queue declaration succeeds
+- Track message publishing success
+
+**Production Monitoring:**
+- Monitor queue health in real-time
+- Identify intermittent connection issues
+- Track message flow through the system
+
+### Environment Variables
+
+The debug output uses these environment variables from `.env`:
+- `RABBITMQ_HOST`: RabbitMQ server hostname
+- `RABBITMQ_PORT`: RabbitMQ server port (5672 for AMQP, 5671 for AMQPS)
+- `RABBITMQ_VHOST`: Virtual host name
+- `RABBITMQ_QUEUE`: Default crawler queue name
+- `OUTREACH_QUEUE`: Outreach queue name
+
+### Affected Methods
+
+The enhanced debugging applies to:
+- `publish(queue_name, message)`: Base publish method
+- `publish_crawler_job(profile_url, template_id)`: Crawler job publishing
+- `publish_outreach_job(lead, message_text, dry_run, batch_id)`: Outreach job publishing
+
+All methods now provide detailed logging for troubleshooting queue operations.
+
+
+## 🔍 RabbitMQ Debugging (API Helper)
+
+The RabbitMQ helper in `backend/api/helper/rabbitmq_helper.py` includes enhanced debugging features for troubleshooting queue connectivity and message publishing issues.
+
+### Debug Output
+
+When publishing messages to RabbitMQ queues, the helper now provides detailed console output:
+
+**Connection Phase:**
+```
+🔗 Connecting to RabbitMQ...
+   Host: leopard.lmq.cloudamqp.com:5671
+   VHost: fexihtwb
+   Queue: linkedin_profiles
+```
+
+**Success Phase:**
+```
+✅ Queue declared: linkedin_profiles
+✅ Message published to queue: linkedin_profiles
+```
+
+**Error Phase:**
+
+
+## 🔧 Environment Variable Loading (API)
+
+The API backend (`backend/api/main.py`) now explicitly loads environment variables using `python-dotenv` at startup.
+
+### Implementation
+
+```python
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+```
+
+### Benefits
+
+- **Explicit Loading**: Environment variables are loaded before any service initialization
+- **Development Consistency**: Ensures `.env` files are read in all execution contexts
+- **Debugging**: Makes it clear when and where environment configuration is loaded
+- **Reliability**: Prevents issues where environment variables might not be available during early initialization
+
+### Affected Services
+
+This change ensures environment variables are available for:
+- Database connections (Supabase)
+- RabbitMQ/LavinMQ configuration
+- CORS settings
+- API keys and secrets
+- All other environment-dependent configurations
+
+### Note
+
+While many Python frameworks auto-load `.env` files, this explicit call ensures consistent behavior across different deployment environments and execution methods (direct Python, Docker, systemd, etc.).

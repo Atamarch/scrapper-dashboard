@@ -2515,3 +2515,66 @@ The crawler logs the selected mode on startup:
 - Included smart URL validation and cleaning
 - Built-in rate limiting and error handling
 - Session persistence using saved cookies
+
+
+## RabbitMQ Connection Debugging
+
+The RabbitMQ helper now includes enhanced debug logging to help troubleshoot connection issues. When connecting to RabbitMQ, the system outputs detailed connection information to the console.
+
+### Debug Output
+
+When establishing a connection, you'll see:
+
+```
+🔗 Attempting to connect to RabbitMQ...
+   Host: your-host.lmq.cloudamqp.com
+   Port: 5671
+   VHost: your-vhost
+   User: your-username
+   SSL: Enabled
+   Connecting...
+   Declaring queue: linkedin_profiles
+✓ Connected to RabbitMQ at your-host.lmq.cloudamqp.com:5671 (SSL: True)
+```
+
+### Connection Failure Details
+
+If connection fails, the system provides detailed error information:
+
+```
+✗ Failed to connect to RabbitMQ: [Error message]
+   Error type: ConnectionError
+[Full stack trace]
+```
+
+### What's Logged
+
+The debug output includes:
+- **Host**: RabbitMQ server hostname
+- **Port**: Connection port (5671 for SSL, 5672 for plain)
+- **VHost**: Virtual host path
+- **User**: Authentication username
+- **SSL Status**: Whether SSL/TLS is enabled
+- **Queue Declaration**: Confirmation of queue setup
+- **Error Type**: Exception class name on failure
+- **Stack Trace**: Full traceback for debugging
+
+### Use Cases
+
+This enhanced logging helps diagnose:
+- Incorrect credentials or host configuration
+- SSL/TLS connection issues
+- Network connectivity problems
+- Queue declaration failures
+- Authentication errors
+- Firewall or port blocking
+
+### Configuration
+
+No additional configuration needed - debug logging is enabled by default in the `RabbitMQManager` class.
+
+**Recent Update: March 6, 2026**
+- Added comprehensive connection debug logging
+- Included SSL status in connection output
+- Added error type identification for faster troubleshooting
+- Enhanced queue declaration confirmation

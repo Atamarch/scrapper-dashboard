@@ -10,7 +10,7 @@ from typing import Dict, Optional
 
 # LavinMQ Configuration
 RABBITMQ_HOST = os.getenv('RABBITMQ_HOST')
-RABBITMQ_PORT = int(os.getenv('RABBITMQ_PORT'))
+RABBITMQ_PORT = int(os.getenv('RABBITMQ_PORT', '5672'))
 RABBITMQ_USER = os.getenv('RABBITMQ_USER')
 RABBITMQ_PASS = os.getenv('RABBITMQ_PASS')
 RABBITMQ_VHOST = os.getenv('RABBITMQ_VHOST')
@@ -23,14 +23,29 @@ class QueuePublisher:
     
     def __init__(self):
         self.credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
-        self.parameters = pika.ConnectionParameters(
-            host=RABBITMQ_HOST,
-            port=RABBITMQ_PORT,
-            virtual_host=RABBITMQ_VHOST,
-            credentials=self.credentials,
-            heartbeat=600,
-            blocked_connection_timeout=300
-        )
+        
+        # SSL/TLS support for port 5671
+        if RABBITMQ_PORT == 5671:
+            import ssl
+            ssl_options = pika.SSLOptions(ssl.create_default_context())
+            self.parameters = pika.ConnectionParameters(
+                host=RABBITMQ_HOST,
+                port=RABBITMQ_PORT,
+                virtual_host=RABBITMQ_VHOST,
+                credentials=self.credentials,
+                ssl_options=ssl_options,
+                heartbeat=600,
+                blocked_connection_timeout=300
+            )
+        else:
+            self.parameters = pika.ConnectionParameters(
+                host=RABBITMQ_HOST,
+                port=RABBITMQ_PORT,
+                virtual_host=RABBITMQ_VHOST,
+                credentials=self.credentials,
+                heartbeat=600,
+                blocked_connection_timeout=300
+            )
     
     def publish(self, queue_name: str, message: Dict) -> bool:
         """Publish message to queue"""
@@ -57,6 +72,8 @@ class QueuePublisher:
             
         except Exception as e:
             print(f"❌ Queue publish failed: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def publish_crawler_job(self, profile_url: str, template_id: Optional[str] = None) -> bool:
