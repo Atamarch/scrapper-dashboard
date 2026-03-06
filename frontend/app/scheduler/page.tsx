@@ -31,10 +31,10 @@ export default function SchedulerPage() {
   async function loadTemplates() {
     try {
       const response = await crawlerAPI.getTemplates()
+      console.log('Templates response:', response)
       setTemplates(response.templates || [])
     } catch (error) {
-      console.error('Failed to load templates:', error)
-      // Set empty array if failed to load
+      console.error('Failed to load templates:', JSON.stringify(error, null, 2))
       setTemplates([])
     }
   }
@@ -42,9 +42,10 @@ export default function SchedulerPage() {
   async function loadScheduledJobs() {
     try {
       const response = await crawlerAPI.getSchedules()
+      console.log('Schedules response:', response)
       setJobs(response.schedules || [])
     } catch (error) {
-      console.error('Failed to load schedules:', error)
+      console.error('Failed to load schedules:', JSON.stringify(error, null, 2))
       setJobs([])
     } finally {
       setLoading(false)
@@ -291,7 +292,7 @@ export default function SchedulerPage() {
                           </td>
                           <td className="px-6 py-4">
                             <div className="text-sm text-gray-300">
-                              {template ? template.position : job.template_id}
+                              {template ? template.name : 'Unknown Template'}
                             </div>
                           </td>
                           <td className="px-6 py-4">
@@ -408,7 +409,7 @@ export default function SchedulerPage() {
                   <option value="">Select a template</option>
                   {templates.map((template) => (
                     <option key={template.id} value={template.id}>
-                      {template.position}
+                      {template.name}
                     </option>
                   ))}
                 </select>
@@ -511,7 +512,7 @@ export default function SchedulerPage() {
                   <option value="">Select a template</option>
                   {templates.map((template) => (
                     <option key={template.id} value={template.id}>
-                      {template.position}
+                      {template.name}
                     </option>
                   ))}
                 </select>

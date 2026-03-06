@@ -353,7 +353,7 @@ async def create_schedule(schedule: CrawlerScheduleCreate):
     """Create new schedule"""
     try:
         # Validate template exists
-        template_result = supabase.table('search_templates').select('id, position').eq('id', schedule.template_id).execute()
+        template_result = supabase.table('search_templates').select('id, name').eq('id', schedule.template_id).execute()
         if not template_result.data:
             raise HTTPException(status_code=404, detail=f"Template with ID {schedule.template_id} not found")
         
@@ -397,7 +397,7 @@ async def update_schedule(schedule_id: str, schedule: CrawlerScheduleUpdate):
         
         # Validate template if provided
         if 'template_id' in update_data:
-            template_result = supabase.table('search_templates').select('id, position').eq('id', update_data['template_id']).execute()
+            template_result = supabase.table('search_templates').select('id, name').eq('id', update_data['template_id']).execute()
             if not template_result.data:
                 raise HTTPException(status_code=404, detail=f"Template with ID {update_data['template_id']} not found")
         
@@ -625,7 +625,7 @@ async def execute_schedule_manually(schedule_id: str):
             raise HTTPException(status_code=400, detail="Schedule does not have a template_id configured")
         
         # Validate template exists
-        template_result = supabase.table('search_templates').select('id, position').eq('id', schedule['template_id']).execute()
+        template_result = supabase.table('search_templates').select('id, name').eq('id', schedule['template_id']).execute()
         if not template_result.data:
             raise HTTPException(status_code=404, detail=f"Template with ID {schedule['template_id']} not found")
         
@@ -1040,7 +1040,7 @@ def classify_requirement(text: str, req_id: int) -> Dict:
 async def get_templates():
     """Get all requirements templates"""
     try:
-        result = supabase.table('search_templates').select('id, position, created_at').execute()
+        result = supabase.table('search_templates').select('id, name, created_at').execute()
         return {
             "success": True,
             "templates": result.data
