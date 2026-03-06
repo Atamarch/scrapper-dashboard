@@ -476,6 +476,14 @@ async def get_queue_status():
         except:
             scoring_queue_size = 0
         
+        # Check outreach queue
+        outreach_queue = os.getenv('OUTREACH_QUEUE', 'outreach_queue')
+        try:
+            outreach_queue_state = channel.queue_declare(queue=outreach_queue, durable=True, passive=True)
+            outreach_queue_size = outreach_queue_state.method.message_count
+        except:
+            outreach_queue_size = 0
+        
         connection.close()
         
         # Check if consumer is running (simplified check)
@@ -503,13 +511,22 @@ async def get_queue_status():
                 "scoring_queue": {
                     "name": scoring_queue,
                     "messages": scoring_queue_size
+                },
+                "outreach_queue": {
+                    "name": outreach_queue,
+                    "messages": outreach_queue_size
                 }
             },
             "consumer_status": {
                 "crawler_consumer_running": consumer_running,
                 "can_check_consumer": consumer_running is not None
             },
-            "total_pending": main_queue_size + scoring_queue_size
+            "environment": {
+                "OUTREACH_QUEUE": outreach_queue,
+                "RABBITMQ_HOST": os.getenv('RABBITMQ_HOST'),
+                "RABBITMQ_VHOST": os.getenv('RABBITMQ_VHOST')
+            },
+            "total_pending": main_queue_size + scoring_queue_size + outreach_queue_size
         }
         
     except Exception as e:
@@ -1165,6 +1182,13 @@ async def send_outreach(request: OutreachRequest):
         print("="*60)
         print(f"Total leads: {len(request.leads)}")
         print(f"Dry run: {request.dry_run}")
+        print(f"Message: {request.message}")
+        
+        # Debug environment variables
+        outreach_queue = os.getenv('OUTREACH_QUEUE')
+        rabbitmq_host = os.getenv('RABBITMQ_HOST')
+        print(f"OUTREACH_QUEUE env: {outreach_queue}")
+        print(f"RABBITMQ_HOST env: {rabbitmq_host}")
         
         # Validate leads
         valid_leads = [
@@ -1177,11 +1201,17 @@ async def send_outreach(request: OutreachRequest):
         
         print(f"✅ Valid leads: {len(valid_leads)}/{len(request.leads)}")
         
+        # Debug each lead
+        for i, lead in enumerate(valid_leads[:3]):  # Show first 3 leads
+            print(f"  Lead {i+1}: {lead.get('name')} - {lead.get('profile_url')}")
+        
         # Send each lead as separate message
         batch_id = datetime.now().strftime('%Y%m%d_%H%M%S')
         queued_count = 0
+        failed_count = 0
         
         for lead in valid_leads:
+            print(f"\n📤 Attempting to queue: {lead['name']}")
             success = queue_publisher.publish_outreach_job(
                 lead=lead,
                 message_text=request.message,
@@ -1193,9 +1223,15 @@ async def send_outreach(request: OutreachRequest):
                 queued_count += 1
                 print(f"  ✓ Queued: {lead['name']}")
             else:
+                failed_count += 1
                 print(f"  ✗ Failed: {lead['name']}")
         
-        print(f"\n✅ Successfully queued {queued_count}/{len(valid_leads)} messages")
+        print(f"\n📊 OUTREACH SUMMARY:")
+        print(f"   Total leads: {len(request.leads)}")
+        print(f"   Valid leads: {len(valid_leads)}")
+        print(f"   Successfully queued: {queued_count}")
+        print(f"   Failed to queue: {failed_count}")
+        print(f"   Batch ID: {batch_id}")
         print("="*60 + "\n")
         
         return {
@@ -1204,14 +1240,18 @@ async def send_outreach(request: OutreachRequest):
             "total_leads": len(request.leads),
             "valid_leads": len(valid_leads),
             "queued": queued_count,
+            "failed": failed_count,
             "batch_id": batch_id,
-            "dry_run": request.dry_run
+            "dry_run": request.dry_run,
+            "queue": outreach_queue
         }
     
     except HTTPException:
         raise
     except Exception as e:
         print(f"❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 

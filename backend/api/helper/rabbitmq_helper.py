@@ -49,13 +49,32 @@ class QueuePublisher:
     
     def publish(self, queue_name: str, message: Dict) -> bool:
         """Publish message to queue"""
+        print(f"🔄 Attempting to publish to queue: {queue_name}")
+        print(f"   Host: {RABBITMQ_HOST}")
+        print(f"   User: {RABBITMQ_USER}")
+        print(f"   VHost: {RABBITMQ_VHOST}")
+        
+        if not queue_name:
+            print(f"❌ Queue name is None or empty")
+            return False
+            
+        if not RABBITMQ_HOST or not RABBITMQ_USER or not RABBITMQ_PASS:
+            print(f"❌ Missing RabbitMQ credentials:")
+            print(f"   RABBITMQ_HOST: {RABBITMQ_HOST}")
+            print(f"   RABBITMQ_USER: {RABBITMQ_USER}")
+            print(f"   RABBITMQ_PASS: {'***' if RABBITMQ_PASS else 'None'}")
+            return False
+        
         try:
+            print(f"🔌 Connecting to LavinMQ...")
             connection = pika.BlockingConnection(self.parameters)
             channel = connection.channel()
             
+            print(f"📋 Declaring queue: {queue_name}")
             # Declare queue
             channel.queue_declare(queue=queue_name, durable=True)
             
+            print(f"📤 Publishing message...")
             # Publish message
             channel.basic_publish(
                 exchange='',
@@ -68,10 +87,13 @@ class QueuePublisher:
             )
             
             connection.close()
+            print(f"✅ Message published successfully to {queue_name}")
             return True
             
         except Exception as e:
             print(f"❌ Queue publish failed: {e}")
+            print(f"   Queue: {queue_name}")
+            print(f"   Error type: {type(e).__name__}")
             import traceback
             traceback.print_exc()
             return False
@@ -88,8 +110,14 @@ class QueuePublisher:
     
     def publish_outreach_job(self, lead: Dict, message_text: str, dry_run: bool = True, batch_id: str = None) -> bool:
         """Publish outreach job to queue"""
+        print(f"🎯 publish_outreach_job called:")
+        print(f"   OUTREACH_QUEUE env var: {OUTREACH_QUEUE}")
+        print(f"   Lead: {lead.get('name')} - {lead.get('profile_url')}")
+        print(f"   Dry run: {dry_run}")
+        
         if not OUTREACH_QUEUE:
             print(f"❌ OUTREACH_QUEUE not configured in environment variables")
+            print(f"   Current value: {OUTREACH_QUEUE}")
             return False
             
         message = {
@@ -104,9 +132,11 @@ class QueuePublisher:
         }
         
         print(f"📤 Publishing to queue: {OUTREACH_QUEUE}")
-        print(f"   Message: {message}")
+        print(f"   Message keys: {list(message.keys())}")
         
-        return self.publish(OUTREACH_QUEUE, message)
+        result = self.publish(OUTREACH_QUEUE, message)
+        print(f"📊 Publish result: {result}")
+        return result
 
 
 # Global instance
