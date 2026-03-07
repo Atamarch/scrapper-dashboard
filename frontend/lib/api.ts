@@ -165,6 +165,16 @@ class CrawlerAPI {
     }>('/api/scraping/status');
   }
 
+  async stopScraping() {
+    return this.request<{
+      success: boolean;
+      message: string;
+      jobs_removed: number;
+    }>('/api/scraping/stop', {
+      method: 'POST',
+    });
+  }
+
   // ===== COMPANY MANAGEMENT =====
   async getCompanies(platform?: string) {
     const params = platform ? `?platform=${encodeURIComponent(platform)}` : '';

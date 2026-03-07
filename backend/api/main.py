@@ -1372,6 +1372,33 @@ async def get_crawler_status():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/scraping/stop")
+@handle_api_errors
+async def stop_scraping():
+    """Stop scraping by purging the RabbitMQ queue"""
+    try:
+        print("🛑 Stop scraping requested - purging queue")
+        
+        # Get current queue size before purging
+        queue_info = queue_publisher.get_queue_info()
+        queue_size = queue_info.get('messages', 0) if queue_info else 0
+        
+        # Purge the queue
+        success = queue_publisher.purge_queue()
+        
+        if success:
+            return {
+                "success": True,
+                "message": f"Crawler stopped. {queue_size} jobs removed from queue.",
+                "jobs_removed": queue_size
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to purge queue")
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============================================================================
 # OUTREACH ENDPOINTS
 # ============================================================================

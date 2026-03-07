@@ -58,11 +58,24 @@ export default function CrawlerPage() {
     const pollStatus = async () => {
       try {
         const status = await crawlerAPI.getCrawlerStatus();
-        setCrawlerStatus({
-          isRunning: status.is_running,
-          currentTemplate: status.template_name,
-          processedCount: status.queue_size,
-          startedAt: crawlerStatus.startedAt // Keep the original start time
+        setCrawlerStatus(prev => {
+          // If crawler stopped (queue empty), clear template info
+          if (!status.is_running && prev.isRunning) {
+            return {
+              isRunning: false,
+              currentTemplate: undefined,
+              processedCount: 0,
+              startedAt: undefined
+            };
+          }
+          
+          // Otherwise, keep template info and update queue size
+          return {
+            isRunning: status.is_running,
+            currentTemplate: prev.currentTemplate,
+            processedCount: status.queue_size,
+            startedAt: prev.startedAt
+          };
         });
       } catch (error) {
         console.error('Error polling status:', error);
@@ -76,7 +89,7 @@ export default function CrawlerPage() {
     const interval = setInterval(pollStatus, 3000);
 
     return () => clearInterval(interval);
-  }, [crawlerStatus.startedAt]);
+  }, []); // Empty dependency - only run once on mount
 
   const fetchTemplates = async () => {
     try {
@@ -140,11 +153,25 @@ export default function CrawlerPage() {
   };
 
   const stopCrawler = async () => {
-    setCrawlerStatus({
-      isRunning: false,
-      processedCount: 0
-    });
-    toast.success('Crawler stopped');
+    try {
+      const result = await crawlerAPI.stopScraping();
+      
+      if (result.success) {
+        setCrawlerStatus({
+          isRunning: false,
+          processedCount: 0,
+          currentTemplate: undefined,
+          startedAt: undefined
+        });
+        toast.success(result.message);
+      } else {
+        toast.error('Failed to stop crawler');
+      }
+    } catch (error) {
+      console.error('Error stopping crawler:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      toast.error(`Failed to stop crawler: ${errorMessage}`);
+    }
   };
 
   const getStatusColor = (status: 'idle' | 'running' | 'stopping') => {

@@ -162,6 +162,27 @@ class QueuePublisher:
         except Exception as e:
             print(f"❌ Failed to get queue info: {e}")
             return None
+    
+    def purge_queue(self, queue_name: str = None) -> bool:
+        """Purge (delete all messages) from queue"""
+        if not queue_name:
+            queue_name = RABBITMQ_QUEUE
+        
+        try:
+            connection = pika.BlockingConnection(self.parameters)
+            channel = connection.channel()
+            
+            # Purge the queue
+            method = channel.queue_purge(queue=queue_name)
+            purged_count = method.method.message_count
+            
+            connection.close()
+            print(f"✅ Purged {purged_count} messages from queue: {queue_name}")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Failed to purge queue: {e}")
+            return False
 
 
 # Global instance
