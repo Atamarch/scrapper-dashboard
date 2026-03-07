@@ -1,14 +1,23 @@
 """
 Scheduler service using APScheduler
-Handles cron-based job scheduling
+Handles cron-based job scheduling with optimizations
 """
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from datetime import datetime
 import json
+import random
+import time
 
 
 class SchedulerService:
+    # Configuration constants
+    BATCH_SIZE = 50  # Queue 50 leads at a time
+    MAX_QUEUE_PER_SCHEDULE = 200  # Max 200 leads per schedule run
+    MAX_QUEUE_SIZE = 500  # Don't queue if already 500+ jobs in queue
+    MAX_RETRIES = 3  # Retry failed schedule execution
+    STAGGER_MAX_DELAY = 30  # Max 30 seconds random delay for concurrent schedules
+    
     def __init__(self, database):
         self.db = database
         self.scheduler = BackgroundScheduler()
@@ -44,7 +53,7 @@ class SchedulerService:
                 print(f"✗ Failed to load schedule {schedule['name']}: {e}")
     
     def add_job(self, schedule_id: str):
-        """Add job to scheduler"""
+        """Add job to scheduler with conflict detection"""
         schedule = self.db.get_schedule(schedule_id)
         if not schedule:
             raise ValueError(f"Schedule {schedule_id} not found")
@@ -52,12 +61,20 @@ class SchedulerService:
         if schedule['status'] != 'active':
             return
         
+        # OPTIMIZATION: Schedule conflict detection
+        template_id = schedule.get('template_id')
+        if template_id:
+            self._check_schedule_conflicts(schedule_id, template_id, schedule['start_schedule'])
+        
         # Parse cron expression
         cron_parts = schedule['start_schedule'].split()
         if len(cron_parts) != 5:
             raise ValueError(f"Invalid cron expression: {schedule['start_schedule']}")
         
         minute, hour, day, month, day_of_week = cron_parts
+        
+        # OPTIMIZATION: Smart scheduling validation
+        self._validate_smart_scheduling(hour, day_of_week)
         
         # Create trigger
         trigger = CronTrigger(
@@ -79,6 +96,58 @@ class SchedulerService:
         )
         
         print(f"✓ Added job: {schedule['name']} ({schedule['start_schedule']})")
+    
+    def _check_schedule_conflicts(self, schedule_id: str, template_id: str, cron_expression: str):
+        """Check for schedule conflicts with same template"""
+        # Get all active schedules
+        all_schedules = self.db.get_active_schedules()
+        
+        conflicts = []
+        for sched in all_schedules:
+            if sched['id'] == schedule_id:
+                continue
+            
+            # Check if same template
+            if sched.get('template_id') == template_id:
+                # Check if same time
+                if sched.get('start_schedule') == cron_expression:
+                    conflicts.append(sched['name'])
+        
+        if conflicts:
+            print(f"⚠️ SCHEDULE CONFLICT DETECTED:")
+            print(f"   Schedule: {schedule_id}")
+            print(f"   Template: {template_id}")
+            print(f"   Conflicts with: {', '.join(conflicts)}")
+            print(f"   Multiple schedules for same template at same time may cause issues")
+            print(f"   Consider consolidating or staggering execution times")
+    
+    def _validate_smart_scheduling(self, hour: str, day_of_week: str):
+        """Validate and suggest optimal scheduling times"""
+        # Parse hour (can be */2, 9, 9-17, etc)
+        try:
+            if hour.isdigit():
+                hour_int = int(hour)
+                
+                # Check if outside business hours
+                if hour_int < 6 or hour_int > 22:
+                    print(f"⚠️ SCHEDULING SUGGESTION:")
+                    print(f"   Scheduled at {hour_int}:00 (outside typical business hours)")
+                    print(f"   LinkedIn is less active during late night/early morning")
+                    print(f"   Consider scheduling between 8 AM - 6 PM for better results")
+                
+                # Optimal times
+                optimal_hours = [9, 14, 17]  # 9 AM, 2 PM, 5 PM
+                if hour_int in optimal_hours:
+                    print(f"✅ Optimal scheduling time: {hour_int}:00")
+        except:
+            pass  # Complex hour expression, skip validation
+        
+        # Check if weekend
+        if day_of_week in ['6', '7', 'sat', 'sun']:
+            print(f"⚠️ SCHEDULING SUGGESTION:")
+            print(f"   Scheduled on weekend (day_of_week: {day_of_week})")
+            print(f"   LinkedIn activity is lower on weekends")
+            print(f"   Consider scheduling on weekdays (1-5) for better results")
     
     def remove_job(self, schedule_id: str):
         """Remove job from scheduler"""
@@ -110,11 +179,16 @@ class SchedulerService:
         self.add_job(schedule_id)
     
     def _execute_crawl(self, schedule_id: str):
-        """Execute crawl task by queueing leads to RabbitMQ"""
+        """Execute crawl task by queueing leads to RabbitMQ with all optimizations"""
         print(f"\n{'='*60}")
         print(f"⏰ SCHEDULED CRAWL TRIGGERED: {datetime.now()}")
         print(f"Schedule ID: {schedule_id}")
         print(f"{'='*60}")
+        
+        # OPTIMIZATION: Concurrent schedule handling - Stagger execution
+        stagger_delay = random.uniform(0, self.STAGGER_MAX_DELAY)
+        print(f"⏱️ Staggering execution by {stagger_delay:.1f}s to avoid concurrent overload")
+        time.sleep(stagger_delay)
         
         schedule = self.db.get_schedule(schedule_id)
         if not schedule:
@@ -131,44 +205,120 @@ class SchedulerService:
             return
         
         print(f"📋 Template ID: {template_id}")
+        print(f"📝 Schedule Name: {schedule.get('name', 'Unnamed')}")
         
         # Import here to avoid circular dependency
         from helper.supabase_helper import SupabaseManager
         from helper.rabbitmq_helper import queue_publisher
         
-        try:
-            # Get leads for this template
-            supabase_manager = SupabaseManager()
-            leads = supabase_manager.get_leads_by_template_id(template_id)
-            
-            if not leads:
-                print("⚠ No leads found for template")
-                return
-            
-            # Filter leads that need processing
-            needs_processing = [lead for lead in leads if lead.get('needs_processing', False)]
-            
-            if not needs_processing:
-                print("✓ All leads already complete, nothing to queue")
-                return
-            
-            print(f"📊 Found {len(needs_processing)} leads that need processing")
-            
-            # Queue leads to RabbitMQ
-            queued_count = 0
-            for lead in needs_processing:
-                success = queue_publisher.publish_crawler_job(
-                    profile_url=lead['profile_url'],
-                    template_id=template_id
-                )
-                if success:
-                    queued_count += 1
-            
-            print(f"✅ Successfully queued {queued_count}/{len(needs_processing)} leads to RabbitMQ")
-            print(f"{'='*60}\n")
-            
-        except Exception as e:
-            print(f"❌ Error executing scheduled crawl: {e}")
-            import traceback
-            traceback.print_exc()
-            print(f"{'='*60}\n")
+        # OPTIMIZATION: Error handling with retry
+        retry_count = 0
+        last_error = None
+        
+        while retry_count < self.MAX_RETRIES:
+            try:
+                # OPTIMIZATION: Queue size check - Prevent overload
+                print(f"🔍 Checking current queue size...")
+                queue_info = queue_publisher.get_queue_info()
+                current_queue_size = queue_info.get('messages', 0) if queue_info else 0
+                print(f"📊 Current queue size: {current_queue_size} jobs")
+                
+                if current_queue_size > self.MAX_QUEUE_SIZE:
+                    print(f"⚠️ Queue too large ({current_queue_size} > {self.MAX_QUEUE_SIZE})")
+                    print(f"   Skipping this schedule run to prevent overload")
+                    print(f"   Will retry in next scheduled time")
+                    print(f"{'='*60}\n")
+                    return
+                
+                # Get leads for this template
+                print(f"🔍 Fetching leads from database...")
+                supabase_manager = SupabaseManager()
+                leads = supabase_manager.get_leads_by_template_id(template_id)
+                
+                if not leads:
+                    print("⚠ No leads found for template")
+                    print(f"{'='*60}\n")
+                    return
+                
+                # Filter leads that need processing
+                needs_processing = [lead for lead in leads if lead.get('needs_processing', False)]
+                
+                if not needs_processing:
+                    print("✓ All leads already complete, nothing to queue")
+                    print(f"{'='*60}\n")
+                    return
+                
+                print(f"📊 Found {len(needs_processing)} leads that need processing")
+                
+                # OPTIMIZATION: Batching - Limit total leads per run
+                leads_to_queue = needs_processing[:self.MAX_QUEUE_PER_SCHEDULE]
+                
+                if len(needs_processing) > self.MAX_QUEUE_PER_SCHEDULE:
+                    print(f"⚠️ Limiting to {self.MAX_QUEUE_PER_SCHEDULE} leads per run")
+                    print(f"   Total leads: {len(needs_processing)}")
+                    print(f"   Remaining: {len(needs_processing) - self.MAX_QUEUE_PER_SCHEDULE} (will be queued in next run)")
+                
+                # Queue in batches
+                queued_count = 0
+                failed_count = 0
+                total_batches = (len(leads_to_queue) + self.BATCH_SIZE - 1) // self.BATCH_SIZE
+                
+                print(f"� Queueing {len(leads_to_queue)} leads in {total_batches} batches...")
+                
+                for i in range(0, len(leads_to_queue), self.BATCH_SIZE):
+                    batch = leads_to_queue[i:i + self.BATCH_SIZE]
+                    batch_num = i // self.BATCH_SIZE + 1
+                    print(f"   Batch {batch_num}/{total_batches}: {len(batch)} leads...", end=' ')
+                    
+                    batch_success = 0
+                    for lead in batch:
+                        success = queue_publisher.publish_crawler_job(
+                            profile_url=lead['profile_url'],
+                            template_id=template_id
+                        )
+                        if success:
+                            queued_count += 1
+                            batch_success += 1
+                        else:
+                            failed_count += 1
+                    
+                    print(f"✓ {batch_success} queued")
+                    
+                    # Small delay between batches to avoid overwhelming queue
+                    if i + self.BATCH_SIZE < len(leads_to_queue):
+                        time.sleep(0.5)  # 500ms delay between batches
+                
+                # Success summary
+                print(f"\n{'='*60}")
+                print(f"✅ SCHEDULE EXECUTION COMPLETED")
+                print(f"   Successfully queued: {queued_count} leads")
+                if failed_count > 0:
+                    print(f"   Failed to queue: {failed_count} leads")
+                if len(needs_processing) > self.MAX_QUEUE_PER_SCHEDULE:
+                    remaining = len(needs_processing) - self.MAX_QUEUE_PER_SCHEDULE
+                    print(f"   Remaining for next run: {remaining} leads")
+                print(f"   Execution time: {datetime.now()}")
+                print(f"{'='*60}\n")
+                
+                # Success - break retry loop
+                break
+                
+            except Exception as e:
+                retry_count += 1
+                last_error = e
+                
+                if retry_count < self.MAX_RETRIES:
+                    print(f"\n⚠️ ERROR OCCURRED - Retry {retry_count}/{self.MAX_RETRIES}")
+                    print(f"   Error: {str(e)}")
+                    print(f"   Waiting 5 seconds before retry...")
+                    time.sleep(5)
+                else:
+                    print(f"\n❌ SCHEDULE EXECUTION FAILED")
+                    print(f"   Failed after {self.MAX_RETRIES} retries")
+                    print(f"   Last error: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+                    print(f"{'='*60}\n")
+                    
+                    # TODO: Send alert/notification to admin
+                    # self._send_failure_alert(schedule_id, str(e))
