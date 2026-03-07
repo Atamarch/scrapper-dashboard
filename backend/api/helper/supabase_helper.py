@@ -275,17 +275,21 @@ class SupabaseManager:
     This allows the API to use crawler's lead management functions
     """
     def __init__(self):
-        # Import crawler's SupabaseManager dynamically
+        # Import crawler's SupabaseManager using importlib to avoid circular import
         import sys
+        import importlib.util
         from pathlib import Path
         
-        # Add crawler to path
-        crawler_path = str(Path(__file__).parent.parent.parent / "crawler")
-        if crawler_path not in sys.path:
-            sys.path.insert(0, crawler_path)
+        # Get path to crawler's supabase_helper
+        crawler_helper_path = Path(__file__).parent.parent.parent / "crawler" / "helper" / "supabase_helper.py"
         
-        # Import from crawler's helper
-        from helper.supabase_helper import SupabaseManager as CrawlerSupabaseManager
+        # Load module dynamically
+        spec = importlib.util.spec_from_file_location("crawler_supabase_helper", crawler_helper_path)
+        crawler_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(crawler_module)
+        
+        # Get the SupabaseManager class from crawler module
+        CrawlerSupabaseManager = crawler_module.SupabaseManager
         self._crawler_manager = CrawlerSupabaseManager()
     
     def get_leads_by_template_id(self, template_id: str, limit=None):
