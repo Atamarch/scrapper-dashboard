@@ -271,35 +271,91 @@ class ReQueueManager:
 
 class SupabaseManager:
     """
-    Wrapper for crawler's SupabaseManager
-    This allows the API to use crawler's lead management functions
+    Lead management for API
+    Simplified version without importing from crawler
     """
     def __init__(self):
-        # Import crawler's SupabaseManager using importlib to avoid circular import
-        import sys
-        import importlib.util
-        from pathlib import Path
-        
-        # Get path to crawler's supabase_helper
-        crawler_helper_path = Path(__file__).parent.parent.parent / "crawler" / "helper" / "supabase_helper.py"
-        
-        # Load module dynamically
-        spec = importlib.util.spec_from_file_location("crawler_supabase_helper", crawler_helper_path)
-        crawler_module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(crawler_module)
-        
-        # Get the SupabaseManager class from crawler module
-        CrawlerSupabaseManager = crawler_module.SupabaseManager
-        self._crawler_manager = CrawlerSupabaseManager()
+        self.supabase = supabase
     
     def get_leads_by_template_id(self, template_id: str, limit=None):
         """Get leads for a template with processing status"""
-        return self._crawler_manager.get_leads_by_template_id(template_id, limit)
+        try:
+            query = self.supabase.table('leads_list').select('*').eq('template_id', template_id)
+            
+            if limit:
+                query = query.limit(limit)
+            
+            response = query.execute()
+            leads = response.data or []
+            
+            # Add needs_processing flag based on validation logic
+            for lead in leads:
+                profile_data = lead.get('profile_data')
+                scoring_data = lead.get('scoring_data')
+                connection_status = lead.get('connection_status', '')
+                score = lead.get('score', 0)
+                
+                needs_processing = False
+                
+                # Validation logic:
+                # 1. Status pending → queue
+                if connection_status == 'pending':
+                    needs_processing = True
+                    lead['status_reason'] = 'status_pending'
+                
+                # 2. Status scraped → check data
+                elif connection_status == 'scraped':
+                    # Check if profile_data or scoring_data is empty
+                    if not profile_data or profile_data in [None, '', {}, '{}']:
+                        needs_processing = True
+                        lead['status_reason'] = 'profile_data_empty'
+                    elif not scoring_data or scoring_data in [None, '', {}, '{}']:
+                        needs_processing = True
+                        lead['status_reason'] = 'scoring_data_empty'
+                    elif score == 0 or score is None:
+                        # Score 0 with no scoring_data → needs scoring
+                        if not scoring_data or scoring_data in [None, '', {}, '{}']:
+                            needs_processing = True
+                            lead['status_reason'] = 'score_zero_no_data'
+                        # Score 0 with scoring_data → valid (candidate not suitable), skip
+                        else:
+                            needs_processing = False
+                            lead['status_reason'] = 'score_zero_valid'
+                    else:
+                        needs_processing = False
+                        lead['status_reason'] = 'complete'
+                
+                # 3. Other status → check if data is empty
+                else:
+                    if not profile_data or profile_data in [None, '', {}, '{}']:
+                        needs_processing = True
+                        lead['status_reason'] = 'profile_data_empty'
+                    elif not scoring_data or scoring_data in [None, '', {}, '{}']:
+                        needs_processing = True
+                        lead['status_reason'] = 'scoring_data_empty'
+                
+                lead['needs_processing'] = needs_processing
+            
+            return leads
+            
+        except Exception as e:
+            print(f"Error getting leads: {e}")
+            raise e
     
     def get_template_by_id(self, template_id: str):
         """Get template by ID"""
-        return self._crawler_manager.get_template_by_id(template_id)
+        try:
+            response = self.supabase.table('search_templates').select('*').eq('id', template_id).execute()
+            return response.data[0] if response.data else None
+        except Exception as e:
+            print(f"Error getting template: {e}")
+            return None
     
     def get_all_templates(self):
         """Get all templates"""
-        return self._crawler_manager.get_all_templates()
+        try:
+            response = self.supabase.table('search_templates').select('*').order('created_at', desc=True).execute()
+            return response.data or []
+        except Exception as e:
+            print(f"Error getting templates: {e}")
+            return []
