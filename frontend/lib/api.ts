@@ -165,6 +165,20 @@ class CrawlerAPI {
     }>('/api/scraping/status');
   }
 
+  async getCrawlSession() {
+    return this.request<{
+      is_active: boolean;
+      source: 'manual' | 'scheduled' | null;
+      schedule_id?: string;
+      schedule_name?: string;
+      template_id?: string;
+      template_name?: string;
+      started_at?: string;
+      leads_queued: number;
+      current_queue_size: number;
+    }>('/api/scraping/session');
+  }
+
   async stopScraping() {
     return this.request<{
       success: boolean;

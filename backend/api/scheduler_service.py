@@ -300,6 +300,26 @@ class SchedulerService:
                 print(f"   Execution time: {datetime.now()}")
                 print(f"{'='*60}\n")
                 
+                # Update global crawl session (SCHEDULED trigger)
+                try:
+                    import main
+                    template = supabase_manager.get_template_by_id(template_id)
+                    template_name = template.get('name', 'Unknown Template') if template else 'Unknown Template'
+                    
+                    main.current_crawl_session = {
+                        'is_active': True,
+                        'source': 'scheduled',
+                        'schedule_id': schedule_id,
+                        'schedule_name': schedule.get('name', 'Unknown Schedule'),
+                        'template_id': template_id,
+                        'template_name': template_name,
+                        'started_at': datetime.now().isoformat(),
+                        'leads_queued': queued_count
+                    }
+                    print(f"✅ Updated crawl session for scheduled run")
+                except Exception as e:
+                    print(f"⚠️ Failed to update crawl session: {e}")
+                
                 # Success - break retry loop
                 break
                 

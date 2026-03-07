@@ -25,6 +25,9 @@ interface CrawlerStatus {
   currentTemplate?: string;
   startedAt?: string;
   processedCount: number;
+  source?: 'manual' | 'scheduled' | null;
+  scheduleName?: string;
+  leadsQueued?: number;
 }
 
 export default function CrawlerPage() {
@@ -53,30 +56,23 @@ export default function CrawlerPage() {
     }
   }, [selectedTemplate]);
 
-  // Poll crawler status every 3 seconds
+  // Poll crawler status and session every 3 seconds
   useEffect(() => {
     const pollStatus = async () => {
       try {
-        const status = await crawlerAPI.getCrawlerStatus();
-        setCrawlerStatus(prev => {
-          // If crawler stopped (queue empty), clear template info
-          if (!status.is_running && prev.isRunning) {
-            return {
-              isRunning: false,
-              currentTemplate: undefined,
-              processedCount: 0,
-              startedAt: undefined
-            };
-          }
-          
-          // Otherwise, keep template info and update queue size
-          return {
-            isRunning: status.is_running,
-            currentTemplate: prev.currentTemplate,
-            processedCount: status.queue_size,
-            startedAt: prev.startedAt
-          };
-        });
+        // Get session data (includes schedule info)
+        const session = await crawlerAPI.getCrawlSession();
+        
+        setCrawlerStatus({
+          isRunning: session.is_active && session.current_queue_size > 0,
+          currentTemplate: session.is_active ? session.template_name : undefined,
+          processedCount: session.current_queue_size,
+          startedAt: session.is_active ? session.started_at : undefined,
+          // Add extra info for display
+          source: session.source,
+          scheduleName: session.schedule_name,
+          leadsQueued: session.leads_queued
+        } as any);
       } catch (error) {
         console.error('Error polling status:', error);
       }
@@ -230,31 +226,52 @@ export default function CrawlerPage() {
                 </div>
 
                 {crawlerStatus.isRunning && (
-                  <div className="grid gap-4 md:grid-cols-3 mb-6">
-                    <div className="bg-[#141C33] rounded-lg p-4">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Zap className="h-4 w-4 text-blue-500" />
-                        <span className="text-sm text-gray-400">Current Template</span>
+                  <>
+                    {/* Show schedule info if triggered by schedule */}
+                    {crawlerStatus.source === 'scheduled' && crawlerStatus.scheduleName && (
+                      <div className="mb-4 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <Clock className="h-4 w-4 text-blue-400" />
+                          <span className="text-sm text-blue-400 font-medium">
+                            Triggered by Schedule: {crawlerStatus.scheduleName}
+                          </span>
+                        </div>
                       </div>
-                      <p className="text-white font-medium">{crawlerStatus.currentTemplate}</p>
-                    </div>
-                    <div className="bg-[#141C33] rounded-lg p-4">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Clock className="h-4 w-4 text-green-500" />
-                        <span className="text-sm text-gray-400">Started At</span>
+                    )}
+
+                    <div className="grid gap-4 md:grid-cols-4 mb-6">
+                      <div className="bg-[#141C33] rounded-lg p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Zap className="h-4 w-4 text-blue-500" />
+                          <span className="text-sm text-gray-400">Template</span>
+                        </div>
+                        <p className="text-white font-medium">{crawlerStatus.currentTemplate || '-'}</p>
                       </div>
-                      <p className="text-white font-medium">
-                        {crawlerStatus.startedAt ? new Date(crawlerStatus.startedAt).toLocaleTimeString() : '-'}
-                      </p>
-                    </div>
-                    <div className="bg-[#141C33] rounded-lg p-4">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Users className="h-4 w-4 text-purple-500" />
-                        <span className="text-sm text-gray-400">Queue Size</span>
+                      <div className="bg-[#141C33] rounded-lg p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Clock className="h-4 w-4 text-green-500" />
+                          <span className="text-sm text-gray-400">Started At</span>
+                        </div>
+                        <p className="text-white font-medium">
+                          {crawlerStatus.startedAt ? new Date(crawlerStatus.startedAt).toLocaleTimeString() : '-'}
+                        </p>
                       </div>
-                      <p className="text-white font-medium">{crawlerStatus.processedCount} leads</p>
+                      <div className="bg-[#141C33] rounded-lg p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <CheckCircle2 className="h-4 w-4 text-yellow-500" />
+                          <span className="text-sm text-gray-400">Queued</span>
+                        </div>
+                        <p className="text-white font-medium">{crawlerStatus.leadsQueued || 0} leads</p>
+                      </div>
+                      <div className="bg-[#141C33] rounded-lg p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Users className="h-4 w-4 text-purple-500" />
+                          <span className="text-sm text-gray-400">Remaining</span>
+                        </div>
+                        <p className="text-white font-medium">{crawlerStatus.processedCount} leads</p>
+                      </div>
                     </div>
-                  </div>
+                  </>
                 )}
 
                 <div className="flex gap-4">

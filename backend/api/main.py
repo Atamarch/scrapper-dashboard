@@ -22,6 +22,18 @@ from database import Database
 from helper.rabbitmq_helper import queue_publisher
 from helper.supabase_helper import ScheduleManager, CompanyManager, LeadsManager, ReQueueManager, SupabaseManager, supabase
 
+# Global variable to track current crawl session
+current_crawl_session = {
+    'is_active': False,
+    'source': None,  # 'manual' or 'scheduled'
+    'schedule_id': None,
+    'schedule_name': None,
+    'template_id': None,
+    'template_name': None,
+    'started_at': None,
+    'leads_queued': 0
+}
+
 # Error handling decorator
 def handle_api_errors(func):
     """Decorator to handle common API errors"""
@@ -1293,14 +1305,20 @@ async def analyze_leads(template_id: str):
 @handle_api_errors
 async def start_scraping(request: ScrapingRequest):
     """Start scraping for template ID by queueing leads to RabbitMQ"""
+    global current_crawl_session
+    
     try:
         print(f"📥 Start scraping for template: {request.template_id}")
         
         if not db:
             raise HTTPException(status_code=503, detail="Database not available")
         
-        # Get leads for this template
+        # Get template info
         supabase_manager = SupabaseManager()
+        template = supabase_manager.get_template_by_id(request.template_id)
+        template_name = template.get('name', 'Unknown Template') if template else 'Unknown Template'
+        
+        # Get leads for this template
         leads = supabase_manager.get_leads_by_template_id(request.template_id)
         
         if not leads:
@@ -1329,6 +1347,20 @@ async def start_scraping(request: ScrapingRequest):
             if success:
                 queued_count += 1
         
+        # Update global session metadata (MANUAL trigger)
+        current_crawl_session = {
+            'is_active': True,
+            'source': 'manual',
+            'schedule_id': None,
+            'schedule_name': None,
+            'template_id': request.template_id,
+            'template_name': template_name,
+            'started_at': datetime.now().isoformat(),
+            'leads_queued': queued_count
+        }
+        
+        print(f"✅ Updated crawl session: {current_crawl_session}")
+        
         return ScrapingResponse(
             success=True,
             message=f"{queued_count} leads queued for scraping",
@@ -1345,7 +1377,9 @@ async def start_scraping(request: ScrapingRequest):
 @app.get("/api/scraping/status", response_model=CrawlerStatusResponse)
 @handle_api_errors
 async def get_crawler_status():
-    """Get current crawler status by checking RabbitMQ queue"""
+    """Get current crawler status by checking RabbitMQ queue with session metadata"""
+    global current_crawl_session
+    
     try:
         # Check RabbitMQ queue size
         queue_size = 0
@@ -1360,16 +1394,34 @@ async def get_crawler_status():
         except Exception as e:
             print(f"Error getting queue info: {e}")
         
+        # If queue is empty, clear session
+        if queue_size == 0 and current_crawl_session['is_active']:
+            print("📊 Queue empty, clearing crawl session")
+            current_crawl_session['is_active'] = False
+        
+        # Return status with session metadata
         return CrawlerStatusResponse(
             is_running=is_running,
             queue_size=queue_size,
-            template_id=None,
-            template_name=None,
+            template_id=current_crawl_session.get('template_id') if current_crawl_session['is_active'] else None,
+            template_name=current_crawl_session.get('template_name') if current_crawl_session['is_active'] else None,
             processed_count=0
         )
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/scraping/session")
+@handle_api_errors
+async def get_crawl_session():
+    """Get detailed crawl session information"""
+    global current_crawl_session
+    
+    return {
+        **current_crawl_session,
+        'current_queue_size': queue_publisher.get_queue_info().get('messages', 0) if queue_publisher.get_queue_info() else 0
+    }
 
 
 @app.post("/api/scraping/stop")
