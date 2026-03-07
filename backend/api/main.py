@@ -10,6 +10,8 @@ import os
 import sys
 import json
 import re
+import subprocess
+import signal
 from pathlib import Path
 import requests
 from bs4 import BeautifulSoup
@@ -21,6 +23,9 @@ from scheduler_service import SchedulerService
 from database import Database
 from helper.rabbitmq_helper import queue_publisher
 from helper.supabase_helper import ScheduleManager, CompanyManager, LeadsManager, ReQueueManager, SupabaseManager, supabase
+
+# Global variable to track crawler consumer process
+crawler_consumer_process = None
 
 # Error handling decorator
 def handle_api_errors(func):
@@ -36,6 +41,81 @@ def handle_api_errors(func):
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
     return wrapper
+
+# Helper functions for crawler consumer process management
+def start_crawler_consumer():
+    """Start the crawler consumer process"""
+    global crawler_consumer_process
+    
+    # Check if already running
+    if crawler_consumer_process and crawler_consumer_process.poll() is None:
+        print("⚠️ Crawler consumer already running")
+        return True
+    
+    try:
+        # Path to crawler_consumer.py
+        crawler_dir = Path(__file__).parent.parent / "crawler"
+        consumer_script = crawler_dir / "crawler_consumer.py"
+        
+        if not consumer_script.exists():
+            print(f"❌ Crawler consumer script not found: {consumer_script}")
+            return False
+        
+        # Start the process
+        print(f"🚀 Starting crawler consumer: {consumer_script}")
+        crawler_consumer_process = subprocess.Popen(
+            [sys.executable, str(consumer_script)],
+            cwd=str(crawler_dir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        
+        print(f"✅ Crawler consumer started with PID: {crawler_consumer_process.pid}")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Failed to start crawler consumer: {e}")
+        return False
+
+
+def stop_crawler_consumer():
+    """Stop the crawler consumer process"""
+    global crawler_consumer_process
+    
+    if not crawler_consumer_process or crawler_consumer_process.poll() is not None:
+        print("⚠️ Crawler consumer not running")
+        return True
+    
+    try:
+        print(f"🛑 Stopping crawler consumer (PID: {crawler_consumer_process.pid})")
+        
+        # Try graceful shutdown first
+        crawler_consumer_process.terminate()
+        
+        # Wait up to 5 seconds for graceful shutdown
+        try:
+            crawler_consumer_process.wait(timeout=5)
+            print("✅ Crawler consumer stopped gracefully")
+        except subprocess.TimeoutExpired:
+            # Force kill if not stopped
+            print("⚠️ Forcing crawler consumer to stop")
+            crawler_consumer_process.kill()
+            crawler_consumer_process.wait()
+            print("✅ Crawler consumer force stopped")
+        
+        crawler_consumer_process = None
+        return True
+        
+    except Exception as e:
+        print(f"❌ Failed to stop crawler consumer: {e}")
+        return False
+
+
+def is_crawler_consumer_running():
+    """Check if crawler consumer process is running"""
+    global crawler_consumer_process
+    return crawler_consumer_process is not None and crawler_consumer_process.poll() is None
 
 app = FastAPI(title="LinkedIn Crawler API", version="1.0.0")
 
@@ -261,10 +341,15 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """Stop scheduler gracefully"""
+    """Stop scheduler and crawler consumer gracefully"""
     if scheduler:
         scheduler.stop()
         print("✓ Scheduler stopped")
+    
+    # Stop crawler consumer if running
+    if is_crawler_consumer_running():
+        stop_crawler_consumer()
+        print("✓ Crawler consumer stopped")
 
 
 # Health check
@@ -1292,12 +1377,21 @@ async def analyze_leads(template_id: str):
 @app.post("/api/scraping/start", response_model=ScrapingResponse)
 @handle_api_errors
 async def start_scraping(request: ScrapingRequest):
-    """Start scraping for template ID"""
+    """Start scraping for template ID and start crawler consumer"""
     try:
         print(f"📥 Start scraping for template: {request.template_id}")
         
         if not db:
             raise HTTPException(status_code=503, detail="Database not available")
+        
+        # Start crawler consumer if not already running
+        if not is_crawler_consumer_running():
+            print("🚀 Starting crawler consumer...")
+            consumer_started = start_crawler_consumer()
+            if not consumer_started:
+                print("⚠️ Warning: Failed to start crawler consumer, but continuing with queueing")
+        else:
+            print("✅ Crawler consumer already running")
         
         # Get leads for this template
         supabase_manager = SupabaseManager()
@@ -1375,21 +1469,28 @@ async def get_crawler_status():
 @app.post("/api/scraping/stop")
 @handle_api_errors
 async def stop_scraping():
-    """Stop scraping by purging the RabbitMQ queue"""
+    """Stop scraping by purging the RabbitMQ queue and stopping crawler consumer"""
     try:
-        print("🛑 Stop scraping requested - purging queue")
+        print("🛑 Stop scraping requested - purging queue and stopping consumer")
         
         # Get current queue size before purging
         queue_info = queue_publisher.get_queue_info()
         queue_size = queue_info.get('messages', 0) if queue_info else 0
         
         # Purge the queue
-        success = queue_publisher.purge_queue()
+        queue_purged = queue_publisher.purge_queue()
         
-        if success:
+        # Stop crawler consumer
+        consumer_stopped = stop_crawler_consumer()
+        
+        if queue_purged:
+            message = f"Crawler stopped. {queue_size} jobs removed from queue."
+            if consumer_stopped:
+                message += " Consumer process terminated."
+            
             return {
                 "success": True,
-                "message": f"Crawler stopped. {queue_size} jobs removed from queue.",
+                "message": message,
                 "jobs_removed": queue_size
             }
         else:
