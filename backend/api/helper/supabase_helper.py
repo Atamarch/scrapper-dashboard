@@ -267,3 +267,35 @@ class ReQueueManager:
                 failed_leads.append(lead_info)
         
         return failed_leads
+
+
+class SupabaseManager:
+    """
+    Wrapper for crawler's SupabaseManager
+    This allows the API to use crawler's lead management functions
+    """
+    def __init__(self):
+        # Import crawler's SupabaseManager dynamically
+        import sys
+        from pathlib import Path
+        
+        # Add crawler to path
+        crawler_path = str(Path(__file__).parent.parent.parent / "crawler")
+        if crawler_path not in sys.path:
+            sys.path.insert(0, crawler_path)
+        
+        # Import from crawler's helper
+        from helper.supabase_helper import SupabaseManager as CrawlerSupabaseManager
+        self._crawler_manager = CrawlerSupabaseManager()
+    
+    def get_leads_by_template_id(self, template_id: str, limit=None):
+        """Get leads for a template with processing status"""
+        return self._crawler_manager.get_leads_by_template_id(template_id, limit)
+    
+    def get_template_by_id(self, template_id: str):
+        """Get template by ID"""
+        return self._crawler_manager.get_template_by_id(template_id)
+    
+    def get_all_templates(self):
+        """Get all templates"""
+        return self._crawler_manager.get_all_templates()

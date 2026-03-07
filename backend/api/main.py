@@ -20,14 +20,7 @@ sys.path.append(str(Path(__file__).parent.parent / "crawler"))
 from scheduler_service import SchedulerService
 from database import Database
 from helper.rabbitmq_helper import queue_publisher
-
-# Import from API's helper
-sys.path.insert(0, str(Path(__file__).parent))
-from helper.supabase_helper import ScheduleManager, CompanyManager, LeadsManager, ReQueueManager, supabase
-
-# Import SupabaseManager from crawler's helper (different from API's helper)
-sys.path.insert(0, str(Path(__file__).parent.parent / "crawler"))
-from helper.supabase_helper import SupabaseManager as CrawlerSupabaseManager
+from helper.supabase_helper import ScheduleManager, CompanyManager, LeadsManager, ReQueueManager, SupabaseManager, supabase
 
 # Error handling decorator
 def handle_api_errors(func):
@@ -1261,7 +1254,7 @@ async def crawl_instant(request: InstantCrawlRequest):
 async def analyze_leads(template_id: str):
     """Analyze leads for a template to see completion status"""
     try:
-        supabase_manager = CrawlerSupabaseManager()
+        supabase_manager = SupabaseManager()
         leads = supabase_manager.get_leads_by_template_id(template_id)
         
         if not leads:
@@ -1298,7 +1291,7 @@ async def start_scraping(request: ScrapingRequest):
             raise HTTPException(status_code=503, detail="Database not available")
         
         # Get leads for this template
-        supabase_manager = CrawlerSupabaseManager()
+        supabase_manager = SupabaseManager()
         leads = supabase_manager.get_leads_by_template_id(request.template_id)
         
         if not leads:
