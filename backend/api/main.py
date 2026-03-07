@@ -57,25 +57,42 @@ def start_crawler_consumer():
         crawler_dir = Path(__file__).parent.parent / "crawler"
         consumer_script = crawler_dir / "crawler_consumer.py"
         
+        print(f"📂 Crawler directory: {crawler_dir}")
+        print(f"📄 Consumer script: {consumer_script}")
+        print(f"✓ Script exists: {consumer_script.exists()}")
+        
         if not consumer_script.exists():
             print(f"❌ Crawler consumer script not found: {consumer_script}")
             return False
         
-        # Start the process
+        # Start the process (don't pipe stdout/stderr so we can see output)
         print(f"🚀 Starting crawler consumer: {consumer_script}")
+        print(f"🐍 Python executable: {sys.executable}")
+        print(f"📁 Working directory: {crawler_dir}")
+        
         crawler_consumer_process = subprocess.Popen(
             [sys.executable, str(consumer_script)],
             cwd=str(crawler_dir),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
+            # Don't pipe - let output go to console
+            stdout=None,
+            stderr=None
         )
         
         print(f"✅ Crawler consumer started with PID: {crawler_consumer_process.pid}")
+        
+        # Check if process is still running after a moment
+        import time
+        time.sleep(0.5)
+        if crawler_consumer_process.poll() is not None:
+            print(f"❌ Crawler consumer exited immediately with code: {crawler_consumer_process.returncode}")
+            return False
+        
         return True
         
     except Exception as e:
         print(f"❌ Failed to start crawler consumer: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
@@ -1454,6 +1471,10 @@ async def get_crawler_status():
         except Exception as e:
             print(f"Error getting queue info: {e}")
         
+        # Also log consumer process status
+        consumer_running = is_crawler_consumer_running()
+        print(f"📊 Status check - Queue: {queue_size}, Consumer running: {consumer_running}")
+        
         return CrawlerStatusResponse(
             is_running=is_running,
             queue_size=queue_size,
@@ -1498,6 +1519,25 @@ async def stop_scraping():
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/scraping/consumer-status")
+@handle_api_errors
+async def get_consumer_status():
+    """Debug endpoint to check crawler consumer process status"""
+    global crawler_consumer_process
+    
+    is_running = is_crawler_consumer_running()
+    
+    status = {
+        "consumer_running": is_running,
+        "process_exists": crawler_consumer_process is not None,
+        "pid": crawler_consumer_process.pid if crawler_consumer_process else None,
+        "poll_result": crawler_consumer_process.poll() if crawler_consumer_process else None
+    }
+    
+    print(f"🔍 Consumer status check: {status}")
+    return status
 
 
 # ============================================================================
