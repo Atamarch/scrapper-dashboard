@@ -137,6 +137,31 @@ class QueuePublisher:
         result = self.publish(OUTREACH_QUEUE, message)
         print(f"📊 Publish result: {result}")
         return result
+    
+    def get_queue_info(self, queue_name: str = None) -> Optional[Dict]:
+        """Get queue information (message count, etc.)"""
+        if not queue_name:
+            queue_name = RABBITMQ_QUEUE
+        
+        try:
+            connection = pika.BlockingConnection(self.parameters)
+            channel = connection.channel()
+            
+            # Passive declare to get queue info without creating it
+            method = channel.queue_declare(queue=queue_name, passive=True)
+            
+            info = {
+                'queue': queue_name,
+                'messages': method.method.message_count,
+                'consumers': method.method.consumer_count
+            }
+            
+            connection.close()
+            return info
+            
+        except Exception as e:
+            print(f"❌ Failed to get queue info: {e}")
+            return None
 
 
 # Global instance

@@ -53,6 +53,31 @@ export default function CrawlerPage() {
     }
   }, [selectedTemplate]);
 
+  // Poll crawler status every 3 seconds
+  useEffect(() => {
+    const pollStatus = async () => {
+      try {
+        const status = await crawlerAPI.getCrawlerStatus();
+        setCrawlerStatus({
+          isRunning: status.is_running,
+          currentTemplate: status.template_name,
+          processedCount: status.queue_size,
+          startedAt: crawlerStatus.startedAt // Keep the original start time
+        });
+      } catch (error) {
+        console.error('Error polling status:', error);
+      }
+    };
+
+    // Poll immediately
+    pollStatus();
+
+    // Then poll every 3 seconds
+    const interval = setInterval(pollStatus, 3000);
+
+    return () => clearInterval(interval);
+  }, [crawlerStatus.startedAt]);
+
   const fetchTemplates = async () => {
     try {
       const response = await crawlerAPI.getTemplates();
@@ -198,9 +223,9 @@ export default function CrawlerPage() {
                     <div className="bg-[#141C33] rounded-lg p-4">
                       <div className="flex items-center gap-2 mb-2">
                         <Users className="h-4 w-4 text-purple-500" />
-                        <span className="text-sm text-gray-400">Processed</span>
+                        <span className="text-sm text-gray-400">Queue Size</span>
                       </div>
-                      <p className="text-white font-medium">{crawlerStatus.processedCount}</p>
+                      <p className="text-white font-medium">{crawlerStatus.processedCount} leads</p>
                     </div>
                   </div>
                 )}

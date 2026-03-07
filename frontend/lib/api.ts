@@ -155,6 +155,16 @@ class CrawlerAPI {
     }>(`/api/scraping/analyze/${templateId}`);
   }
 
+  async getCrawlerStatus() {
+    return this.request<{
+      is_running: boolean;
+      queue_size: number;
+      template_id?: string;
+      template_name?: string;
+      processed_count: number;
+    }>('/api/scraping/status');
+  }
+
   // ===== COMPANY MANAGEMENT =====
   async getCompanies(platform?: string) {
     const params = platform ? `?platform=${encodeURIComponent(platform)}` : '';

@@ -239,6 +239,15 @@ class ScrapingResponse(BaseModel):
     batch_id: str = Field(..., description="Batch ID", example="20260305_143022")
 
 
+class CrawlerStatusResponse(BaseModel):
+    """Crawler status response"""
+    is_running: bool = Field(..., description="Whether crawler is currently processing")
+    queue_size: int = Field(..., description="Number of items in queue")
+    template_id: Optional[str] = Field(None, description="Current template being processed")
+    template_name: Optional[str] = Field(None, description="Current template name")
+    processed_count: int = Field(0, description="Number of leads processed in current batch")
+
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize database and start scheduler"""
@@ -1329,6 +1338,36 @@ async def start_scraping(request: ScrapingRequest):
     
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/scraping/status", response_model=CrawlerStatusResponse)
+@handle_api_errors
+async def get_crawler_status():
+    """Get current crawler status by checking RabbitMQ queue"""
+    try:
+        # Check RabbitMQ queue size
+        queue_size = 0
+        is_running = False
+        
+        try:
+            # Get queue info from RabbitMQ
+            queue_info = queue_publisher.get_queue_info()
+            if queue_info:
+                queue_size = queue_info.get('messages', 0)
+                is_running = queue_size > 0
+        except Exception as e:
+            print(f"Error getting queue info: {e}")
+        
+        return CrawlerStatusResponse(
+            is_running=is_running,
+            queue_size=queue_size,
+            template_id=None,
+            template_name=None,
+            processed_count=0
+        )
+    
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
