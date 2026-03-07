@@ -110,9 +110,9 @@ class SchedulerService:
         self.add_job(schedule_id)
     
     def _execute_crawl(self, schedule_id: str):
-        """Execute crawl task by sending to queue"""
+        """Execute crawl task by queueing leads to RabbitMQ"""
         print(f"\n{'='*60}")
-        print(f"SCHEDULED CRAWL STARTED: {datetime.now()}")
+        print(f"⏰ SCHEDULED CRAWL TRIGGERED: {datetime.now()}")
         print(f"Schedule ID: {schedule_id}")
         print(f"{'='*60}")
         
@@ -121,24 +121,54 @@ class SchedulerService:
             print(f"✗ Schedule {schedule_id} not found")
             return
         
-        # Update last run
+        # Update last run timestamp
         self.db.update_last_run(schedule_id)
         
-        # Get profile URLs
-        profile_urls = schedule.get('profile_urls', [])
-        
-        if not profile_urls:
-            print("⚠ No profile URLs configured")
+        # Get template_id from schedule
+        template_id = schedule.get('template_id')
+        if not template_id:
+            print("⚠ No template_id configured in schedule")
             return
         
-        # Send to queue (implement queue logic here)
-        # For now, just log
-        print(f"→ Sending {len(profile_urls)} profiles to crawler queue")
+        print(f"📋 Template ID: {template_id}")
         
-        # TODO: Implement queue sending
-        # Example:
-        # for url in profile_urls:
-        #     queue.send_message('crawler_queue', {'url': url, 'schedule_id': schedule_id})
+        # Import here to avoid circular dependency
+        from helper.supabase_helper import SupabaseManager
+        from helper.rabbitmq_helper import queue_publisher
         
-        print(f"✓ Sent {len(profile_urls)} profiles to queue")
-        print(f"{'='*60}\n")
+        try:
+            # Get leads for this template
+            supabase_manager = SupabaseManager()
+            leads = supabase_manager.get_leads_by_template_id(template_id)
+            
+            if not leads:
+                print("⚠ No leads found for template")
+                return
+            
+            # Filter leads that need processing
+            needs_processing = [lead for lead in leads if lead.get('needs_processing', False)]
+            
+            if not needs_processing:
+                print("✓ All leads already complete, nothing to queue")
+                return
+            
+            print(f"📊 Found {len(needs_processing)} leads that need processing")
+            
+            # Queue leads to RabbitMQ
+            queued_count = 0
+            for lead in needs_processing:
+                success = queue_publisher.publish_crawler_job(
+                    profile_url=lead['profile_url'],
+                    template_id=template_id
+                )
+                if success:
+                    queued_count += 1
+            
+            print(f"✅ Successfully queued {queued_count}/{len(needs_processing)} leads to RabbitMQ")
+            print(f"{'='*60}\n")
+            
+        except Exception as e:
+            print(f"❌ Error executing scheduled crawl: {e}")
+            import traceback
+            traceback.print_exc()
+            print(f"{'='*60}\n")

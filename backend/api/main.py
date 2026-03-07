@@ -10,8 +10,6 @@ import os
 import sys
 import json
 import re
-import subprocess
-import signal
 from pathlib import Path
 import requests
 from bs4 import BeautifulSoup
@@ -23,9 +21,6 @@ from scheduler_service import SchedulerService
 from database import Database
 from helper.rabbitmq_helper import queue_publisher
 from helper.supabase_helper import ScheduleManager, CompanyManager, LeadsManager, ReQueueManager, SupabaseManager, supabase
-
-# Global variable to track crawler consumer process
-crawler_consumer_process = None
 
 # Error handling decorator
 def handle_api_errors(func):
@@ -41,98 +36,6 @@ def handle_api_errors(func):
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
     return wrapper
-
-# Helper functions for crawler consumer process management
-def start_crawler_consumer():
-    """Start the crawler consumer process"""
-    global crawler_consumer_process
-    
-    # Check if already running
-    if crawler_consumer_process and crawler_consumer_process.poll() is None:
-        print("⚠️ Crawler consumer already running")
-        return True
-    
-    try:
-        # Path to crawler_consumer.py
-        crawler_dir = Path(__file__).parent.parent / "crawler"
-        consumer_script = crawler_dir / "crawler_consumer.py"
-        
-        print(f"📂 Crawler directory: {crawler_dir}")
-        print(f"📄 Consumer script: {consumer_script}")
-        print(f"✓ Script exists: {consumer_script.exists()}")
-        
-        if not consumer_script.exists():
-            print(f"❌ Crawler consumer script not found: {consumer_script}")
-            return False
-        
-        # Start the process (don't pipe stdout/stderr so we can see output)
-        print(f"🚀 Starting crawler consumer: {consumer_script}")
-        print(f"🐍 Python executable: {sys.executable}")
-        print(f"📁 Working directory: {crawler_dir}")
-        
-        crawler_consumer_process = subprocess.Popen(
-            [sys.executable, str(consumer_script)],
-            cwd=str(crawler_dir),
-            # Don't pipe - let output go to console
-            stdout=None,
-            stderr=None
-        )
-        
-        print(f"✅ Crawler consumer started with PID: {crawler_consumer_process.pid}")
-        
-        # Check if process is still running after a moment
-        import time
-        time.sleep(0.5)
-        if crawler_consumer_process.poll() is not None:
-            print(f"❌ Crawler consumer exited immediately with code: {crawler_consumer_process.returncode}")
-            return False
-        
-        return True
-        
-    except Exception as e:
-        print(f"❌ Failed to start crawler consumer: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-
-
-def stop_crawler_consumer():
-    """Stop the crawler consumer process"""
-    global crawler_consumer_process
-    
-    if not crawler_consumer_process or crawler_consumer_process.poll() is not None:
-        print("⚠️ Crawler consumer not running")
-        return True
-    
-    try:
-        print(f"🛑 Stopping crawler consumer (PID: {crawler_consumer_process.pid})")
-        
-        # Try graceful shutdown first
-        crawler_consumer_process.terminate()
-        
-        # Wait up to 5 seconds for graceful shutdown
-        try:
-            crawler_consumer_process.wait(timeout=5)
-            print("✅ Crawler consumer stopped gracefully")
-        except subprocess.TimeoutExpired:
-            # Force kill if not stopped
-            print("⚠️ Forcing crawler consumer to stop")
-            crawler_consumer_process.kill()
-            crawler_consumer_process.wait()
-            print("✅ Crawler consumer force stopped")
-        
-        crawler_consumer_process = None
-        return True
-        
-    except Exception as e:
-        print(f"❌ Failed to stop crawler consumer: {e}")
-        return False
-
-
-def is_crawler_consumer_running():
-    """Check if crawler consumer process is running"""
-    global crawler_consumer_process
-    return crawler_consumer_process is not None and crawler_consumer_process.poll() is None
 
 app = FastAPI(title="LinkedIn Crawler API", version="1.0.0")
 
@@ -358,15 +261,10 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """Stop scheduler and crawler consumer gracefully"""
+    """Stop scheduler gracefully"""
     if scheduler:
         scheduler.stop()
         print("✓ Scheduler stopped")
-    
-    # Stop crawler consumer if running
-    if is_crawler_consumer_running():
-        stop_crawler_consumer()
-        print("✓ Crawler consumer stopped")
 
 
 # Health check
@@ -1394,21 +1292,12 @@ async def analyze_leads(template_id: str):
 @app.post("/api/scraping/start", response_model=ScrapingResponse)
 @handle_api_errors
 async def start_scraping(request: ScrapingRequest):
-    """Start scraping for template ID and start crawler consumer"""
+    """Start scraping for template ID by queueing leads to RabbitMQ"""
     try:
         print(f"📥 Start scraping for template: {request.template_id}")
         
         if not db:
             raise HTTPException(status_code=503, detail="Database not available")
-        
-        # Start crawler consumer if not already running
-        if not is_crawler_consumer_running():
-            print("🚀 Starting crawler consumer...")
-            consumer_started = start_crawler_consumer()
-            if not consumer_started:
-                print("⚠️ Warning: Failed to start crawler consumer, but continuing with queueing")
-        else:
-            print("✅ Crawler consumer already running")
         
         # Get leads for this template
         supabase_manager = SupabaseManager()
@@ -1428,7 +1317,7 @@ async def start_scraping(request: ScrapingRequest):
                 batch_id=""
             )
         
-        # Queue leads
+        # Queue leads to RabbitMQ
         batch_id = datetime.now().strftime('%Y%m%d_%H%M%S')
         queued_count = 0
         
@@ -1471,10 +1360,6 @@ async def get_crawler_status():
         except Exception as e:
             print(f"Error getting queue info: {e}")
         
-        # Also log consumer process status
-        consumer_running = is_crawler_consumer_running()
-        print(f"📊 Status check - Queue: {queue_size}, Consumer running: {consumer_running}")
-        
         return CrawlerStatusResponse(
             is_running=is_running,
             queue_size=queue_size,
@@ -1490,9 +1375,9 @@ async def get_crawler_status():
 @app.post("/api/scraping/stop")
 @handle_api_errors
 async def stop_scraping():
-    """Stop scraping by purging the RabbitMQ queue and stopping crawler consumer"""
+    """Stop scraping by purging the RabbitMQ queue"""
     try:
-        print("🛑 Stop scraping requested - purging queue and stopping consumer")
+        print("🛑 Stop scraping requested - purging queue")
         
         # Get current queue size before purging
         queue_info = queue_publisher.get_queue_info()
@@ -1501,13 +1386,8 @@ async def stop_scraping():
         # Purge the queue
         queue_purged = queue_publisher.purge_queue()
         
-        # Stop crawler consumer
-        consumer_stopped = stop_crawler_consumer()
-        
         if queue_purged:
             message = f"Crawler stopped. {queue_size} jobs removed from queue."
-            if consumer_stopped:
-                message += " Consumer process terminated."
             
             return {
                 "success": True,
@@ -1519,25 +1399,6 @@ async def stop_scraping():
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/scraping/consumer-status")
-@handle_api_errors
-async def get_consumer_status():
-    """Debug endpoint to check crawler consumer process status"""
-    global crawler_consumer_process
-    
-    is_running = is_crawler_consumer_running()
-    
-    status = {
-        "consumer_running": is_running,
-        "process_exists": crawler_consumer_process is not None,
-        "pid": crawler_consumer_process.pid if crawler_consumer_process else None,
-        "poll_result": crawler_consumer_process.poll() if crawler_consumer_process else None
-    }
-    
-    print(f"🔍 Consumer status check: {status}")
-    return status
 
 
 # ============================================================================
