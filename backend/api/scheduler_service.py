@@ -45,8 +45,11 @@ class SchedulerService:
     def _load_schedules(self):
         """Load all active schedules from database"""
         schedules = self.db.get_active_schedules()
+        print(f"📋 Loading {len(schedules)} active schedules...")
+        
         for schedule in schedules:
             try:
+                print(f"   Loading schedule: {schedule.get('name', 'Unknown')} (ID: {schedule['id']})")
                 self.add_job(schedule['id'])
                 print(f"✓ Loaded schedule: {schedule['name']}")
             except Exception as e:
@@ -77,13 +80,19 @@ class SchedulerService:
         self._validate_smart_scheduling(hour, day_of_week)
         
         # Create trigger with timezone
-        from datetime import timezone
-        import pytz
-        
-        # Use local timezone (adjust to your timezone)
-        # For Indonesia: 'Asia/Jakarta'
-        # For UTC: 'UTC'
-        local_tz = pytz.timezone('Asia/Jakarta')  # Change this to your timezone
+        try:
+            import pytz
+            # Use local timezone (adjust to your timezone)
+            # For Indonesia: 'Asia/Jakarta'
+            local_tz = pytz.timezone('Asia/Jakarta')
+            print(f"   Using timezone: Asia/Jakarta")
+        except ImportError:
+            print(f"   ⚠️ pytz not installed, using UTC timezone")
+            print(f"   Install pytz: pip install pytz")
+            local_tz = None
+        except Exception as e:
+            print(f"   ⚠️ Timezone error: {e}, using UTC")
+            local_tz = None
         
         trigger = CronTrigger(
             minute=minute,
@@ -95,20 +104,28 @@ class SchedulerService:
         )
         
         # Add job
-        self.scheduler.add_job(
-            func=self._execute_crawl,
-            trigger=trigger,
-            id=schedule_id,
-            args=[schedule_id],
-            replace_existing=True,
-            name=schedule['name']
-        )
+        try:
+            self.scheduler.add_job(
+                func=self._execute_crawl,
+                trigger=trigger,
+                id=schedule_id,
+                args=[schedule_id],
+                replace_existing=True,
+                name=schedule['name']
+            )
+            print(f"   ✓ Job added successfully")
+        except Exception as e:
+            print(f"   ❌ Failed to add job: {e}")
+            raise
         
         # Show next run time
-        job = self.scheduler.get_job(schedule_id)
-        next_run = job.next_run_time.strftime('%Y-%m-%d %H:%M:%S %Z') if job and job.next_run_time else 'Unknown'
-        print(f"✓ Added job: {schedule['name']} ({schedule['start_schedule']})")
-        print(f"  Next run: {next_run}")
+        try:
+            job = self.scheduler.get_job(schedule_id)
+            next_run = job.next_run_time.strftime('%Y-%m-%d %H:%M:%S %Z') if job and job.next_run_time else 'Unknown'
+            print(f"   ✓ Added job: {schedule['name']} ({schedule['start_schedule']})")
+            print(f"   📅 Next run: {next_run}")
+        except Exception as e:
+            print(f"   ⚠️ Could not get next run time: {e}")
     
     def _check_schedule_conflicts(self, schedule_id: str, template_id: str, cron_expression: str):
         """Check for schedule conflicts with same template"""
