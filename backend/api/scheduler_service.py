@@ -76,13 +76,22 @@ class SchedulerService:
         # OPTIMIZATION: Smart scheduling validation
         self._validate_smart_scheduling(hour, day_of_week)
         
-        # Create trigger
+        # Create trigger with timezone
+        from datetime import timezone
+        import pytz
+        
+        # Use local timezone (adjust to your timezone)
+        # For Indonesia: 'Asia/Jakarta'
+        # For UTC: 'UTC'
+        local_tz = pytz.timezone('Asia/Jakarta')  # Change this to your timezone
+        
         trigger = CronTrigger(
             minute=minute,
             hour=hour,
             day=day,
             month=month,
-            day_of_week=day_of_week
+            day_of_week=day_of_week,
+            timezone=local_tz
         )
         
         # Add job
@@ -95,7 +104,11 @@ class SchedulerService:
             name=schedule['name']
         )
         
+        # Show next run time
+        job = self.scheduler.get_job(schedule_id)
+        next_run = job.next_run_time.strftime('%Y-%m-%d %H:%M:%S %Z') if job and job.next_run_time else 'Unknown'
         print(f"✓ Added job: {schedule['name']} ({schedule['start_schedule']})")
+        print(f"  Next run: {next_run}")
     
     def _check_schedule_conflicts(self, schedule_id: str, template_id: str, cron_expression: str):
         """Check for schedule conflicts with same template"""
