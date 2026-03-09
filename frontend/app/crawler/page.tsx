@@ -41,6 +41,7 @@ export default function CrawlerPage() {
   const [loading, setLoading] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [justStopped, setJustStopped] = useState(false);
 
   // Fetch templates on component mount
   useEffect(() => {
@@ -59,20 +60,56 @@ export default function CrawlerPage() {
   // Poll crawler status and session every 3 seconds
   useEffect(() => {
     const pollStatus = async () => {
+      // Skip polling if we just stopped the crawler
+      if (justStopped) {
+        console.log('⏸️ Skipping poll - just stopped crawler (justStopped flag active)');
+        return;
+      }
+      
       try {
         // Get session data (includes schedule info)
         const session = await crawlerAPI.getCrawlSession();
         
+        console.log('📊 Session poll response:', {
+          is_active: session.is_active,
+          template_id: session.template_id,
+          template_name: session.template_name,
+          queue_size: session.current_queue_size,
+          source: session.source,
+          justStopped: justStopped
+        });
+        
+        // Only consider running if session is explicitly active
+        // Don't rely on queue size alone as it might not be cleared immediately
+        const isRunning = session.is_active;
+        
+        console.log(`   → Setting isRunning to: ${isRunning}`);
+        
         setCrawlerStatus({
-          isRunning: session.is_active && session.current_queue_size > 0,
+          isRunning: isRunning,
           currentTemplate: session.is_active ? session.template_name : undefined,
-          processedCount: session.current_queue_size,
+          processedCount: session.current_queue_size || 0,
           startedAt: session.is_active ? session.started_at : undefined,
           // Add extra info for display
           source: session.source,
           scheduleName: session.schedule_name,
-          leadsQueued: session.leads_queued
+          leadsQueued: session.leads_queued || 0
         } as any);
+
+        // Auto-select template if session is active
+        if (session.is_active && session.template_id) {
+          // Only auto-select if different from current selection
+          if (selectedTemplate !== session.template_id) {
+            console.log('🔄 Auto-selecting template from active session:', session.template_id, session.template_name);
+            setSelectedTemplate(session.template_id);
+          }
+        }
+        
+        // Clear selection if session becomes inactive and queue is empty
+        if (!session.is_active && session.current_queue_size === 0 && selectedTemplate) {
+          console.log('🔄 Session ended - keeping template selected for review');
+          // Don't clear selection - let user see the results
+        }
       } catch (error) {
         console.error('Error polling status:', error);
       }
@@ -85,7 +122,7 @@ export default function CrawlerPage() {
     const interval = setInterval(pollStatus, 3000);
 
     return () => clearInterval(interval);
-  }, []); // Empty dependency - only run once on mount
+  }, [selectedTemplate, justStopped]); // Depend on justStopped flag
 
   const fetchTemplates = async () => {
     try {
@@ -153,13 +190,29 @@ export default function CrawlerPage() {
       const result = await crawlerAPI.stopScraping();
       
       if (result.success) {
+        console.log('🛑 Stop successful, setting status to idle');
+        
+        // Set flag to prevent polling from overriding for longer period
+        setJustStopped(true);
+        
+        // Force update status immediately
         setCrawlerStatus({
           isRunning: false,
           processedCount: 0,
           currentTemplate: undefined,
-          startedAt: undefined
+          startedAt: undefined,
+          source: null,
+          scheduleName: undefined,
+          leadsQueued: 0
         });
+        
         toast.success(result.message);
+        
+        // Clear the flag after 5 seconds to allow normal polling
+        setTimeout(() => {
+          console.log('✅ Re-enabling polling after stop');
+          setJustStopped(false);
+        }, 5000);
       } else {
         toast.error('Failed to stop crawler');
       }
@@ -327,11 +380,11 @@ export default function CrawlerPage() {
                       ))}
                     </select>
                     
-                    {selectedTemplate && (
-                      <div className="text-sm text-gray-400">
-                        Selected template will be used to filter and process leads
-                      </div>
-                    )}
+                    <div className="text-sm text-gray-400">
+                      {selectedTemplate 
+                        ? 'Selected template will be used to filter and process leads'
+                        : 'Choose a template to start analyzing and processing leads'}
+                    </div>
                   </div>
                 )}
               </div>

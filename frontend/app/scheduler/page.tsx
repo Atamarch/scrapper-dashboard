@@ -22,6 +22,11 @@ export default function SchedulerPage() {
     status: 'active'
   })
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [updating, setUpdating] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [toggling, setToggling] = useState<string | null>(null)
+  const [executing, setExecuting] = useState<string | null>(null)
 
   useEffect(() => {
     loadScheduledJobs()
@@ -67,6 +72,9 @@ export default function SchedulerPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     
+    if (submitting) return
+    
+    setSubmitting(true)
     try {
       await crawlerAPI.createSchedule({
         name: formData.name,
@@ -92,6 +100,8 @@ export default function SchedulerPage() {
       console.error('Failed to create schedule:', error)
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
       toast.error(`Failed to create schedule: ${errorMessage}`)
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -109,8 +119,9 @@ export default function SchedulerPage() {
   async function handleUpdate(e: React.FormEvent) {
     e.preventDefault()
     
-    if (!editingJob) return
+    if (!editingJob || updating) return
 
+    setUpdating(true)
     try {
       await crawlerAPI.updateSchedule(editingJob.id, {
         name: formData.name,
@@ -137,10 +148,15 @@ export default function SchedulerPage() {
       console.error('Failed to update schedule:', error)
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
       toast.error(`Failed to update schedule: ${errorMessage}`)
+    } finally {
+      setUpdating(false)
     }
   }
 
   async function handleToggleStatus(jobId: string) {
+    if (toggling) return
+    
+    setToggling(jobId)
     try {
       await crawlerAPI.toggleSchedule(jobId)
       await loadScheduledJobs()
@@ -149,10 +165,15 @@ export default function SchedulerPage() {
       console.error('Failed to toggle schedule:', error)
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
       toast.error(`Failed to toggle schedule: ${errorMessage}`)
+    } finally {
+      setToggling(null)
     }
   }
 
   async function handleExecuteNow(jobId: string) {
+    if (executing) return
+    
+    setExecuting(jobId)
     try {
       await crawlerAPI.executeScheduleManually(jobId)
       await loadScheduledJobs()
@@ -161,10 +182,15 @@ export default function SchedulerPage() {
       console.error('Failed to execute schedule:', error)
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
       toast.error(`Failed to execute schedule: ${errorMessage}`)
+    } finally {
+      setExecuting(null)
     }
   }
 
   async function handleRemove(jobId: string) {
+    if (deleting) return
+    
+    setDeleting(true)
     try {
       await crawlerAPI.deleteSchedule(jobId)
       await loadScheduledJobs()
@@ -174,6 +200,8 @@ export default function SchedulerPage() {
       console.error('Failed to delete schedule:', error)
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
       toast.error(`Failed to delete schedule: ${errorMessage}`)
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -335,32 +363,36 @@ export default function SchedulerPage() {
                             <div className="flex items-center justify-end gap-2">
                               <button
                                 onClick={() => handleExecuteNow(job.id)}
-                                className="rounded-md border border-gray-700 p-2 transition-colors hover:bg-green-700 text-white"
+                                disabled={executing === job.id}
+                                className="rounded-md border border-gray-700 p-2 transition-colors hover:bg-green-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                                 title="Execute Now"
                               >
-                                <PlayCircle className="h-4 w-4" />
+                                <PlayCircle className={`h-4 w-4 ${executing === job.id ? 'animate-spin' : ''}`} />
                               </button>
                               <button
                                 onClick={() => handleEdit(job)}
-                                className="rounded-md border border-gray-700 p-2 transition-colors hover:bg-gray-700 text-white"
+                                disabled={executing === job.id || toggling === job.id}
+                                className="rounded-md border border-gray-700 p-2 transition-colors hover:bg-gray-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                                 title="Edit"
                               >
                                 <Edit className="h-4 w-4" />
                               </button>
                               <button
                                 onClick={() => handleToggleStatus(job.id)}
-                                className="rounded-md border border-gray-700 p-2 transition-colors hover:bg-gray-700 text-white"
+                                disabled={toggling === job.id || executing === job.id}
+                                className="rounded-md border border-gray-700 p-2 transition-colors hover:bg-gray-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                                 title={job.status === 'active' ? 'Pause' : 'Resume'}
                               >
                                 {job.status === 'active' ? (
-                                  <Pause className="h-4 w-4" />
+                                  <Pause className={`h-4 w-4 ${toggling === job.id ? 'animate-pulse' : ''}`} />
                                 ) : (
-                                  <Play className="h-4 w-4" />
+                                  <Play className={`h-4 w-4 ${toggling === job.id ? 'animate-pulse' : ''}`} />
                                 )}
                               </button>
                               <button
                                 onClick={() => setDeleteConfirm(job.id)}
-                                className="rounded-md border border-gray-700 p-2 transition-colors hover:border-red-800 hover:bg-red-950 text-white"
+                                disabled={executing === job.id || toggling === job.id}
+                                className="rounded-md border border-gray-700 p-2 transition-colors hover:border-red-800 hover:bg-red-950 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                                 title="Remove"
                               >
                                 <Trash2 className="h-4 w-4" />
@@ -463,15 +495,23 @@ export default function SchedulerPage() {
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="rounded-md border border-gray-700 px-4 py-2 text-sm font-medium text-gray-300 transition-colors hover:bg-gray-700"
+                  disabled={submitting}
+                  className="rounded-md border border-gray-700 px-4 py-2 text-sm font-medium text-gray-300 transition-colors hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="rounded-md bg-white px-4 py-2 text-sm font-medium text-black transition-colors hover:bg-gray-200"
+                  disabled={submitting}
+                  className="rounded-md bg-white px-4 py-2 text-sm font-medium text-black transition-colors hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
-                  Create Schedule
+                  {submitting && (
+                    <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                  )}
+                  {submitting ? 'Creating...' : 'Create Schedule'}
                 </button>
               </div>
             </form>
@@ -569,15 +609,23 @@ export default function SchedulerPage() {
                     setShowEditModal(false)
                     setEditingJob(null)
                   }}
-                  className="rounded-md border border-gray-700 px-4 py-2 text-sm font-medium text-gray-300 transition-colors hover:bg-gray-700"
+                  disabled={updating}
+                  className="rounded-md border border-gray-700 px-4 py-2 text-sm font-medium text-gray-300 transition-colors hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="rounded-md bg-white px-4 py-2 text-sm font-medium text-black transition-colors hover:bg-gray-200"
+                  disabled={updating}
+                  className="rounded-md bg-white px-4 py-2 text-sm font-medium text-black transition-colors hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
-                  Update Schedule
+                  {updating && (
+                    <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                  )}
+                  {updating ? 'Updating...' : 'Update Schedule'}
                 </button>
               </div>
             </form>
@@ -597,15 +645,23 @@ export default function SchedulerPage() {
               <div className="flex justify-end gap-3">
                 <button
                   onClick={() => setDeleteConfirm(null)}
-                  className="rounded-md border border-gray-700 px-4 py-2 text-sm font-medium text-gray-300 transition-colors hover:bg-gray-700"
+                  disabled={deleting}
+                  className="rounded-md border border-gray-700 px-4 py-2 text-sm font-medium text-gray-300 transition-colors hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={() => handleRemove(deleteConfirm)}
-                  className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700"
+                  disabled={deleting}
+                  className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
-                  Delete
+                  {deleting && (
+                    <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                  )}
+                  {deleting ? 'Deleting...' : 'Delete'}
                 </button>
               </div>
             </div>

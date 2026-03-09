@@ -151,6 +151,21 @@ All routes except the following are protected:
 - `/logo_sarana_ai.jpg` - Logo image
 - Static assets (`.svg`, `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`)
 
+#### Protected Routes Configuration
+
+The middleware applies to the following routes (defined in `config.matcher`):
+
+- `/` - Dashboard home
+- `/login` - Authentication page
+- `/company/:path*` - Company management pages
+- `/crawler/:path*` - Crawler management pages
+- `/leads/:path*` - Leads management pages
+- `/profile/:path*` - Profile pages
+- `/requirements/:path*` - Requirements pages
+- `/scheduler/:path*` - Scheduler pages
+
+All other routes and static assets are excluded from middleware checks.
+
 #### Implementation Details
 
 ```typescript

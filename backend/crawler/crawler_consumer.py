@@ -102,7 +102,6 @@ stats = {
     'sent_to_scoring': 0,
     'saved_to_supabase': 0,
     'supabase_failed': 0,
-    'requeued_from_db': 0,
     'lock': threading.Lock()
 }
 
@@ -119,7 +118,6 @@ def print_stats():
     print(f"Sent to Scoring: {stats['sent_to_scoring']}")
     print(f"Saved to Supabase: {stats['saved_to_supabase']}")
     print(f"Supabase Failed: {stats['supabase_failed']}")
-    print(f"Re-queued from DB: {stats['requeued_from_db']}")
     if stats['completed'] + stats['failed'] > 0:
         success_rate = stats['completed'] / (stats['completed'] + stats['failed']) * 100
         print(f"Success Rate: {success_rate:.1f}%")
@@ -127,8 +125,10 @@ def print_stats():
 
 
 # ============================================================================
-# TEMPLATE-BASED QUEUE MANAGEMENT FUNCTIONS
+# TEMPLATE-BASED QUEUE MANAGEMENT FUNCTIONS (DEPRECATED - UI handles queueing)
 # ============================================================================
+# These functions are kept for reference but no longer used in main flow
+# Messages are now published directly from UI instead of template selection
 
 def check_template_has_requirements(template_id):
     """Check if template has requirements file"""
@@ -286,9 +286,6 @@ def queue_leads_by_template(template_id, mq_config):
                     print(f"   ❌ Failed to queue {lead['name']}: {e}")
             
             print(f"\n✅ Successfully queued {queued_count}/{len(needs_processing)} leads")
-            
-            with stats['lock']:
-                stats['requeued_from_db'] += queued_count
             
         finally:
             mq.close()
@@ -556,14 +553,8 @@ def main():
     print("="*60)
     print("LINKEDIN CRAWLER CONSUMER")
     print("="*60)
-    print("Template-based LinkedIn Profile Scraper")
+    print("Consuming messages from UI-published queue")
     print("="*60)
-    
-    # Step 1: Template Selection
-    template_id = select_template_interactive()
-    if not template_id:
-        print("No template selected. Exiting...")
-        return
     
     # Number of workers
     num_workers = int(os.getenv('MAX_WORKERS', '3'))
@@ -602,13 +593,9 @@ def main():
     
     mq.close()
     
-    # Step 2: Queue leads for selected template
-    queued_count = queue_leads_by_template(template_id, mq_config)
-    
-    if queued_count == 0:
-        print("\n🎉 No leads need processing for this template!")
-        print("All leads are already complete (have profile data and scoring > 0%)")
-        return
+    if queue_size == 0:
+        print("\n⚠ Queue is empty. Waiting for messages from UI...")
+        print("  Workers will start processing once messages are published from UI")
     
     print(f"\n→ Starting {num_workers} crawler workers...")
     print("  Workers will:")
@@ -616,8 +603,6 @@ def main():
     print("  2. Scrape LinkedIn profiles")
     print("  3. Update Supabase")
     print("  4. Send to scoring queue")
-    print(f"\n  Template: {template_id}")
-    print(f"  Queued leads: {queued_count}")
     print("\n  Press Ctrl+C to stop")
     print(f"  LavinMQ Dashboard: https://leopard.lmq.cloudamqp.com")
     
@@ -635,7 +620,7 @@ def main():
     
     print(f"\n✓ All {num_workers} workers are running!")
     print("\n💡 How it works:")
-    print("  1. Selected template leads → Queued for processing")
+    print("  1. UI publishes messages → Queue receives leads")
     print("  2. Crawler workers → Scrape profiles")
     print("  3. Supabase → Updated with profile data")
     print("  4. Scoring service → Calculates scores")
@@ -691,7 +676,6 @@ def main():
         print(f"📤 Sent to Scoring: {stats['sent_to_scoring']}")
         print(f"💾 Updated Supabase: {stats['saved_to_supabase']}")
         print(f"⚠ Supabase Failed: {stats['supabase_failed']}")
-        print(f"🔄 Re-queued from DB: {stats['requeued_from_db']}")
         if stats['completed'] + stats['failed'] > 0:
             success_rate = stats['completed'] / (stats['completed'] + stats['failed']) * 100
             print(f"📊 Success Rate: {success_rate:.1f}%")

@@ -94,7 +94,9 @@ export async function middleware(req: NextRequest) {
 export const config = {
   matcher: [
     '/',
+    '/login',
     '/company/:path*',
+    '/crawler/:path*',
     '/leads/:path*',
     '/profile/:path*',
     '/requirements/:path*',
