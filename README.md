@@ -223,6 +223,14 @@ Contoh: `desk_collection.json`
 5. **Score disimpan** ke Supabase dan file JSON
 6. **Admin melihat hasil** di dashboard
 
+### Scheduler Behavior
+
+When creating a new schedule through the API:
+- **Active schedules** are immediately registered with the scheduler service (no restart required)
+- **Inactive schedules** are stored in the database but not registered until activated
+- If scheduler registration fails, the schedule is still created and will be loaded on next API restart
+- Manual schedule execution is available via the `/api/schedules/{schedule_id}/execute` endpoint
+
 ## 🐛 Troubleshooting
 
 ### LavinMQ/RabbitMQ tidak bisa connect
@@ -1321,3 +1329,127 @@ pip install pytz
 ```
 
 This ensures accurate timezone handling for scheduled crawler jobs and timestamp operations throughout the API.
+
+
+## 🚀 API Startup Diagnostics
+
+The API backend (`backend/api/main.py`) now includes enhanced startup logging to help diagnose initialization issues.
+
+### Startup Output
+
+When the API starts, you'll see detailed diagnostic information:
+
+```
+🚀 Starting up API...
+   Database init: ✓ Success
+   Initializing database tables...
+   Starting scheduler service...
+✓ Scheduler started and running
+   Scheduler is_running: True
+```
+
+### Diagnostic Information
+
+The startup sequence now logs:
+- **Database Initialization**: Success/failure status of service initialization
+- **Table Creation**: Confirmation of database table initialization
+- **Scheduler Status**: Whether the scheduler service started successfully
+- **Scheduler State**: Real-time verification that the scheduler is running
+
+### Troubleshooting
+
+If startup fails, the enhanced logging will show:
+
+**Database Connection Issues:**
+```
+🚀 Starting up API...
+   Database init: ✗ Failed
+⚠ Running without scheduler (database not available)
+   db object: None
+   scheduler object: None
+```
+
+**Scheduler Issues:**
+```
+🚀 Starting up API...
+   Database init: ✓ Success
+   Initializing database tables...
+   Starting scheduler service...
+⚠ Running without scheduler (database not available)
+   db object: <Database instance>
+   scheduler object: None
+```
+
+### Benefits
+
+- **Quick Diagnosis**: Immediately identify which component failed during startup
+- **Service Verification**: Confirm all services initialized correctly
+- **Debug Information**: Object state inspection for troubleshooting
+- **Visual Indicators**: Emoji-based status indicators for quick scanning
+
+### Related Services
+
+The startup diagnostics cover initialization of:
+- Supabase database connection
+- APScheduler service
+- RabbitMQ/LavinMQ connection
+- Database table creation
+
+This enhanced logging makes it easier to identify configuration issues, missing environment variables, or service connectivity problems during API startup.
+
+
+## 🔒 Schedule Template Validation (Database Layer)
+
+The database layer (`backend/api/database.py`) now includes validation to ensure all schedules have a valid `template_id` before being used by the scheduler.
+
+### Validation Rules
+
+**Schedule Retrieval (`get_schedule_by_id`):**
+- Checks if `template_id` exists in the schedule record
+- Returns `None` if `template_id` is missing or empty
+- Logs warning: `⚠️ Schedule {schedule_id} missing template_id`
+
+**Active Schedules (`get_active_schedules`):**
+- Filters out schedules without `template_id` from active schedule list
+- Only returns schedules with valid `template_id` values
+- Logs count of filtered schedules: `⚠️ Filtered out {count} schedules without template_id`
+
+### Why This Matters
+
+The scheduler requires `template_id` to:
+- Determine which search template to use for crawling
+- Link crawled leads to the correct template
+- Maintain data integrity between schedules and templates
+
+Without `template_id`, the scheduler cannot execute the crawl job properly, so these schedules are excluded from execution.
+
+### Impact
+
+**Before:**
+- Schedules without `template_id` would be passed to the scheduler
+- Scheduler would fail or behave unpredictably
+- Error handling would occur at execution time
+
+**After:**
+- Invalid schedules are filtered at the database layer
+- Scheduler only receives valid, executable schedules
+- Clear warnings logged for debugging
+- Prevents runtime errors in scheduler
+
+### Console Output
+
+When schedules are missing `template_id`, you'll see:
+
+```
+⚠️ Schedule abc-123-def missing template_id
+⚠️ Filtered out 2 schedules without template_id
+```
+
+### Affected Methods
+
+- `get_schedule_by_id(schedule_id)` - Returns `None` if no `template_id`
+- `get_active_schedules()` - Filters out schedules without `template_id`
+
+### Database Schema Requirement
+
+This validation assumes the `crawler_schedules` table includes a `template_id` column that should be populated when creating schedules. Ensure your schedule creation logic sets this field properly.

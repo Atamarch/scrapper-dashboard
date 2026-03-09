@@ -107,7 +107,14 @@ class Database:
         if not result.data:
             return None
         
-        return result.data[0]
+        schedule = result.data[0]
+        
+        # Ensure template_id exists (required for scheduler)
+        if 'template_id' not in schedule or not schedule['template_id']:
+            print(f"⚠️ Schedule {schedule_id} missing template_id")
+            return None
+        
+        return schedule
     
     def get_all_schedules(self) -> List[Dict[str, Any]]:
         """Get all schedules"""
@@ -117,7 +124,15 @@ class Database:
     def get_active_schedules(self) -> List[Dict[str, Any]]:
         """Get only active schedules"""
         result = self.client.table("crawler_schedules").select("*").eq("status", "active").execute()
-        return result.data or []
+        schedules = result.data or []
+        
+        # Filter out schedules without template_id
+        valid_schedules = [s for s in schedules if s.get('template_id')]
+        
+        if len(schedules) != len(valid_schedules):
+            print(f"⚠️ Filtered out {len(schedules) - len(valid_schedules)} schedules without template_id")
+        
+        return valid_schedules
     
     def update_schedule(self, schedule_id: str, updates: Dict[str, Any]):
         """Update schedule"""

@@ -264,13 +264,21 @@ class CrawlerStatusResponse(BaseModel):
 @app.on_event("startup")
 async def startup_event():
     """Initialize database and start scheduler"""
-    init_services()
+    print("🚀 Starting up API...")
+    init_success = init_services()
+    print(f"   Database init: {'✓ Success' if init_success else '✗ Failed'}")
+    
     if db and scheduler:
+        print("   Initializing database tables...")
         db.init_db()
+        print("   Starting scheduler service...")
         scheduler.start()
-        print("✓ Scheduler started")
+        print("✓ Scheduler started and running")
+        print(f"   Scheduler is_running: {scheduler.is_running()}")
     else:
         print("⚠ Running without scheduler (database not available)")
+        print(f"   db object: {db}")
+        print(f"   scheduler object: {scheduler}")
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -395,6 +403,15 @@ async def create_schedule(schedule: CrawlerScheduleCreate):
         if not created:
             raise HTTPException(status_code=500, detail="Failed to create schedule")
         
+        # CRITICAL: Add new schedule to scheduler service
+        if scheduler and created['status'] == 'active':
+            try:
+                scheduler.add_job(created['id'])
+                print(f"✅ Added schedule to scheduler: {created['name']}")
+            except Exception as e:
+                print(f"⚠️ Failed to add schedule to scheduler: {e}")
+                # Don't fail the request, schedule will be loaded on next restart
+        
         return {
             "success": True,
             "message": "Schedule created successfully",
@@ -431,6 +448,15 @@ async def update_schedule(schedule_id: str, schedule: CrawlerScheduleUpdate):
         if not updated:
             raise HTTPException(status_code=500, detail="Failed to update schedule")
         
+        # CRITICAL: Reschedule job if cron or status changed
+        if scheduler:
+            try:
+                if 'start_schedule' in update_data or 'status' in update_data:
+                    scheduler.reschedule_job(schedule_id)
+                    print(f"✅ Rescheduled job: {schedule_id}")
+            except Exception as e:
+                print(f"⚠️ Failed to reschedule job: {e}")
+        
         return {
             "success": True,
             "message": "Schedule updated successfully",
@@ -450,6 +476,14 @@ async def delete_schedule(schedule_id: str):
         schedule = ScheduleManager.get_by_id(schedule_id)
         if not schedule:
             raise HTTPException(status_code=404, detail="Schedule not found")
+        
+        # CRITICAL: Remove from scheduler first
+        if scheduler:
+            try:
+                scheduler.remove_job(schedule_id)
+                print(f"✅ Removed job from scheduler: {schedule_id}")
+            except Exception as e:
+                print(f"⚠️ Failed to remove job from scheduler: {e}")
         
         # Delete schedule
         success = ScheduleManager.delete(schedule_id)
@@ -482,6 +516,25 @@ async def toggle_schedule(schedule_id: str):
         
         # Update status
         updated = ScheduleManager.update(schedule_id, {'status': new_status})
+        
+        # CRITICAL: Pause/resume job in scheduler
+        if scheduler:
+            try:
+                if new_status == 'active':
+                    # Resume or add job
+                    try:
+                        scheduler.resume_job(schedule_id)
+                        print(f"✅ Resumed job: {schedule_id}")
+                    except:
+                        # Job doesn't exist, add it
+                        scheduler.add_job(schedule_id)
+                        print(f"✅ Added job: {schedule_id}")
+                else:
+                    # Pause job
+                    scheduler.pause_job(schedule_id)
+                    print(f"✅ Paused job: {schedule_id}")
+            except Exception as e:
+                print(f"⚠️ Failed to toggle job in scheduler: {e}")
         
         return {
             "success": True,
