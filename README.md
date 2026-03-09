@@ -1247,3 +1247,77 @@ This change ensures environment variables are available for:
 ### Note
 
 While many Python frameworks auto-load `.env` files, this explicit call ensures consistent behavior across different deployment environments and execution methods (direct Python, Docker, systemd, etc.).
+
+
+## 🐛 Crawler Session Management Fix
+
+The API's stop scraping endpoint (`POST /api/crawler/stop`) has been fixed to properly clear the crawler session state.
+
+### Issue
+
+Previously, when stopping the crawler via the API, the queue would be purged but the `current_crawl_session` global state remained active (`is_active: True`). This caused the crawler status to incorrectly show as "running" even after stopping.
+
+### Fix
+
+The stop endpoint now explicitly resets the `current_crawl_session` to idle state after purging the queue:
+
+```python
+current_crawl_session = {
+    'is_active': False,
+    'source': None,
+    'schedule_id': None,
+    'schedule_name': None,
+    'template_id': None,
+    'template_name': None,
+    'started_at': None,
+    'leads_queued': 0
+}
+```
+
+### Impact
+
+- **Status Accuracy**: Crawler status now correctly reflects "idle" after stopping
+- **UI Consistency**: Dashboard shows accurate crawler state
+- **Session Tracking**: Prevents stale session data from persisting
+- **Queue Sync**: Session state now stays in sync with queue state
+
+### Affected Endpoint
+
+- `POST /api/crawler/stop` - Stop scraping and clear session
+
+### Console Output
+
+When stopping the crawler, you'll now see:
+```
+🛑 Stop scraping requested - purging queue
+✅ Crawler session cleared - status now idle
+```
+
+This ensures the crawler session state is properly synchronized with the queue state for accurate status reporting.
+
+
+## 🕐 Timezone Support (API)
+
+The API backend now includes timezone support via the `pytz` library for handling datetime operations across different timezones.
+
+### Dependency
+
+- **pytz**: Python timezone library for accurate timezone calculations and conversions
+
+### Usage
+
+The `pytz` library is imported in `backend/api/main.py` and can be used for:
+- Converting timestamps to specific timezones
+- Handling schedule execution times across regions
+- Ensuring consistent datetime formatting in API responses
+- Managing timezone-aware datetime objects
+
+### Installation
+
+The `pytz` library should be included in `backend/api/requirements.txt`. If not already present, install it:
+
+```bash
+pip install pytz
+```
+
+This ensures accurate timezone handling for scheduled crawler jobs and timestamp operations throughout the API.

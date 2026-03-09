@@ -5,6 +5,7 @@ Handles cron-based job scheduling with optimizations
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from datetime import datetime
+import pytz
 import json
 import random
 import time
@@ -336,6 +337,10 @@ class SchedulerService:
                     template = supabase_manager.get_template_by_id(template_id)
                     template_name = template.get('name', 'Unknown Template') if template else 'Unknown Template'
                     
+                    # Use Asia/Jakarta timezone for started_at
+                    jakarta_tz = pytz.timezone('Asia/Jakarta')
+                    started_at_jakarta = datetime.now(jakarta_tz).isoformat()
+                    
                     main.current_crawl_session = {
                         'is_active': True,
                         'source': 'scheduled',
@@ -343,7 +348,7 @@ class SchedulerService:
                         'schedule_name': schedule.get('name', 'Unknown Schedule'),
                         'template_id': template_id,
                         'template_name': template_name,
-                        'started_at': datetime.now().isoformat(),
+                        'started_at': started_at_jakarta,
                         'leads_queued': queued_count
                     }
                     print(f"✅ Updated crawl session for scheduled run")

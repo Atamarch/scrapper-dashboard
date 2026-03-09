@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict
 from datetime import datetime
+import pytz
 import os
 import sys
 import json
@@ -1347,6 +1348,10 @@ async def start_scraping(request: ScrapingRequest):
             if success:
                 queued_count += 1
         
+        # Use Asia/Jakarta timezone for started_at
+        jakarta_tz = pytz.timezone('Asia/Jakarta')
+        started_at_jakarta = datetime.now(jakarta_tz).isoformat()
+        
         # Update global session metadata (MANUAL trigger)
         current_crawl_session = {
             'is_active': True,
@@ -1355,7 +1360,7 @@ async def start_scraping(request: ScrapingRequest):
             'schedule_name': None,
             'template_id': request.template_id,
             'template_name': template_name,
-            'started_at': datetime.now().isoformat(),
+            'started_at': started_at_jakarta,
             'leads_queued': queued_count
         }
         
@@ -1428,6 +1433,8 @@ async def get_crawl_session():
 @handle_api_errors
 async def stop_scraping():
     """Stop scraping by purging the RabbitMQ queue"""
+    global current_crawl_session
+    
     try:
         print("🛑 Stop scraping requested - purging queue")
         
@@ -1439,6 +1446,20 @@ async def stop_scraping():
         queue_purged = queue_publisher.purge_queue()
         
         if queue_purged:
+            # CRITICAL FIX: Clear the crawl session to set is_active = False
+            current_crawl_session = {
+                'is_active': False,
+                'source': None,
+                'schedule_id': None,
+                'schedule_name': None,
+                'template_id': None,
+                'template_name': None,
+                'started_at': None,
+                'leads_queued': 0
+            }
+            
+            print(f"✅ Crawler session cleared - status now idle")
+            
             message = f"Crawler stopped. {queue_size} jobs removed from queue."
             
             return {
