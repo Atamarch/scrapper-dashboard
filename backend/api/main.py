@@ -348,12 +348,48 @@ class CrawlerScheduleUpdate(BaseModel):
         None,
         example="38a1699d-ad54-4f05-9483-e3d35142d35f",
         description="Template ID to use for scraping"
-    )
-    status: Optional[str] = Field(
-        None,
-        example="inactive",
-        description="Schedule status: 'active' or 'inactive'"
-    )
+class CronValidationRequest(BaseModel):
+    cron_expression: str = Field(..., example="0 9 * * *", description="Cron expression to validate")
+
+
+@app.post("/api/schedules/validate-cron")
+async def validate_cron_expression(request: CronValidationRequest):
+    """Validate cron expression and show next run times"""
+    try:
+        if not scheduler:
+            raise HTTPException(status_code=503, detail="Scheduler not available")
+        
+        validation = scheduler.validate_cron_expression(request.cron_expression)
+        
+        return {
+            "success": True,
+            "cron_expression": request.cron_expression,
+            **validation
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/schedules/timezone")
+async def get_scheduler_timezone():
+    """Get current scheduler timezone and time"""
+    try:
+        if not scheduler:
+            raise HTTPException(status_code=503, detail="Scheduler not available")
+        
+        tz = scheduler.get_scheduler_timezone()
+        current_time = datetime.now(tz)
+        
+        return {
+            "success": True,
+            "timezone": str(tz),
+            "current_time": current_time.isoformat(),
+            "utc_offset": current_time.strftime('%z'),
+            "formatted_time": current_time.strftime('%Y-%m-%d %H:%M:%S %Z')
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/api/schedules")
 async def get_schedules():
@@ -383,8 +419,17 @@ async def get_schedule(schedule_id: str):
 
 @app.post("/api/schedules")
 async def create_schedule(schedule: CrawlerScheduleCreate):
-    """Create new schedule"""
+    """Create new schedule with validation"""
     try:
+        # Validate cron expression first
+        if scheduler:
+            validation = scheduler.validate_cron_expression(schedule.start_schedule)
+            if not validation['valid']:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Invalid cron expression '{schedule.start_schedule}': {validation['error']}"
+                )
+        
         # Validate template exists
         template_result = supabase.table('search_templates').select('id, name').eq('id', schedule.template_id).execute()
         if not template_result.data:
@@ -412,11 +457,20 @@ async def create_schedule(schedule: CrawlerScheduleCreate):
                 print(f"⚠️ Failed to add schedule to scheduler: {e}")
                 # Don't fail the request, schedule will be loaded on next restart
         
+        # Get next run times for confirmation
+        next_runs = []
+        if scheduler:
+            validation = scheduler.validate_cron_expression(schedule.start_schedule)
+            if validation.get('valid') and validation.get('next_runs'):
+                next_runs = validation['next_runs'][:3]  # Show next 3 runs
+        
         return {
             "success": True,
             "message": "Schedule created successfully",
             "schedule_id": created['id'],
-            "schedule": created
+            "schedule": created,
+            "next_runs": next_runs,
+            "timezone": str(scheduler.get_scheduler_timezone()) if scheduler else "Unknown"
         }
     except HTTPException:
         raise
@@ -639,6 +693,43 @@ async def get_queue_status():
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get queue status: {str(e)}")
+
+
+@app.get("/api/schedules/logs")
+async def get_scheduler_logs(
+    schedule_id: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0
+):
+    """Get scheduler execution logs"""
+    try:
+        query = supabase.table('scheduler_logs').select('''
+            *,
+            crawler_schedules (
+                name,
+                start_schedule
+            )
+        ''')
+        
+        # Apply filters
+        if schedule_id:
+            query = query.eq('schedule_id', schedule_id)
+        if status:
+            query = query.eq('status', status)
+        
+        # Order and paginate
+        result = query.order('created_at', desc=True).range(offset, offset + limit - 1).execute()
+        
+        return {
+            "success": True,
+            "logs": result.data or [],
+            "count": len(result.data) if result.data else 0,
+            "limit": limit,
+            "offset": offset
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/schedules/consumer/start")

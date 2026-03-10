@@ -4,11 +4,13 @@ Handles cron-based job scheduling with optimizations
 """
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
 from datetime import datetime
 import pytz
 import json
 import random
 import time
+import os
 
 
 class SchedulerService:
@@ -25,12 +27,27 @@ class SchedulerService:
         self.running = False
     
     def start(self):
-        """Start the scheduler"""
+        """Start the scheduler with proper timezone and event listeners"""
         if not self.running:
+            # Get timezone from environment
+            tz = self.get_scheduler_timezone()
+            
+            if tz:
+                print(f"🌍 Using timezone: {tz}")
+                self.scheduler.configure(timezone=tz)
+            else:
+                print("⚠️ Using UTC timezone (pytz not available)")
+            
+            # Add event listeners for monitoring
+            self.scheduler.add_listener(self._job_executed, EVENT_JOB_EXECUTED)
+            self.scheduler.add_listener(self._job_error, EVENT_JOB_ERROR)
+            
             self.scheduler.start()
             self.running = True
             
-            # Load existing scheduless
+            print(f"✅ Scheduler started (timezone: {tz or 'UTC'})")
+            
+            # Load existing schedules
             self._load_schedules()
     
     def stop(self):
@@ -78,30 +95,29 @@ class SchedulerService:
         if template_id:
             self._check_schedule_conflicts(schedule_id, template_id, schedule['start_schedule'])
         
-        # Parse cron expression
+        # Parse cron expression with validation
         cron_parts = schedule['start_schedule'].split()
         if len(cron_parts) != 5:
             raise ValueError(f"Invalid cron expression: {schedule['start_schedule']}")
+        
+        # Validate cron expression using croniter
+        validation = self.validate_cron_expression(schedule['start_schedule'])
+        if not validation['valid']:
+            raise ValueError(f"Invalid cron expression '{schedule['start_schedule']}': {validation['error']}")
         
         minute, hour, day, month, day_of_week = cron_parts
         
         # OPTIMIZATION: Smart scheduling validation
         self._validate_smart_scheduling(hour, day_of_week)
         
-        # Create trigger with timezone
-        try:
-            import pytz
-            # Use local timezone (adjust to your timezone)
-            # For Indonesia: 'Asia/Jakarta'
-            local_tz = pytz.timezone('Asia/Jakarta')
-            print(f"   Using timezone: Asia/Jakarta")
-        except ImportError:
-            print(f"   ⚠️ pytz not installed, using UTC timezone")
+        # Create trigger with timezone from environment
+        tz = self.get_scheduler_timezone()
+        if tz:
+            print(f"   Using timezone: {tz}")
+        else:
+            print(f"   ⚠️ pytz not installed or timezone error, using UTC")
             print(f"   Install pytz: pip install pytz")
-            local_tz = None
-        except Exception as e:
-            print(f"   ⚠️ Timezone error: {e}, using UTC")
-            local_tz = None
+            print(f"   Set SCHEDULER_TIMEZONE environment variable")
         
         trigger = CronTrigger(
             minute=minute,
@@ -109,7 +125,7 @@ class SchedulerService:
             day=day,
             month=month,
             day_of_week=day_of_week,
-            timezone=local_tz
+            timezone=tz
         )
         
         # Add job
@@ -217,12 +233,144 @@ class SchedulerService:
         self.remove_job(schedule_id)
         self.add_job(schedule_id)
     
+    def _job_executed(self, event):
+        """Event listener for successful job execution"""
+        job_id = event.job_id
+        print(f"✅ Job executed successfully: {job_id}")
+    
+    def _job_error(self, event):
+        """Event listener for job execution errors"""
+        job_id = event.job_id
+        exception = event.exception
+        print(f"❌ Job execution failed: {job_id}")
+        print(f"   Error: {exception}")
+        
+        # Log the error to database
+        try:
+            self.log_execution(job_id, 'failed', 0, str(exception))
+        except Exception as e:
+            print(f"⚠️ Failed to log job error: {e}")
+    
+    def validate_cron_expression(self, cron_expression: str) -> dict:
+        """Validate cron expression and return next run times"""
+        try:
+            from croniter import croniter
+            import pytz
+            
+            # Get timezone
+            tz = self.get_scheduler_timezone()
+            
+            # Validate cron expression
+            if not croniter.is_valid(cron_expression):
+                return {
+                    'valid': False,
+                    'error': 'Invalid cron expression format'
+                }
+            
+            # Get next run times
+            now = datetime.now(tz)
+            cron = croniter(cron_expression, now)
+            
+            next_runs = []
+            for _ in range(5):  # Get next 5 runs
+                next_run = cron.get_next(datetime)
+                next_runs.append(next_run.strftime('%Y-%m-%d %H:%M:%S %Z'))
+            
+            return {
+                'valid': True,
+                'next_runs': next_runs,
+                'timezone': str(tz)
+            }
+            
+        except ImportError:
+            return {
+                'valid': False,
+                'error': 'croniter library not installed. Run: pip install croniter'
+            }
+        except Exception as e:
+            return {
+                'valid': False,
+                'error': f'Validation error: {str(e)}'
+            }
+    
+    def get_scheduler_timezone(self):
+        """Get scheduler timezone from environment or default to Asia/Jakarta"""
+        try:
+            import pytz
+            import os
+            
+            # Get timezone from environment variable
+            tz_name = os.getenv('SCHEDULER_TIMEZONE', 'Asia/Jakarta')
+            return pytz.timezone(tz_name)
+            
+        except ImportError:
+            print("⚠️ pytz not installed, using UTC")
+            return None
+        except Exception as e:
+            print(f"⚠️ Timezone error: {e}, using UTC")
+            return None
+    
+    def log_execution(self, schedule_id: str, status: str, leads_queued: int = 0, error_message: str = None):
+        """Simple logging to database"""
+        try:
+            from helper.supabase_helper import supabase
+            
+            supabase.table('scheduler_logs').insert({
+                'schedule_id': schedule_id,
+                'status': status,
+                'leads_queued': leads_queued,
+                'error_message': error_message
+            }).execute()
+            
+            print(f"📝 Logged: {status} - {leads_queued} leads")
+            
+        except Exception as e:
+            print(f"⚠️ Failed to log (non-critical): {e}")
+    
+    def _execute_crawl_with_retry(self, schedule_id: str):
+        """Execute crawl with proper retry logic and logging"""
+        max_retries = self.MAX_RETRIES
+        base_delay = 5  # seconds
+        
+        for attempt in range(max_retries + 1):
+            try:
+                start_time = time.time()
+                print(f"\n{'='*80}")
+                print(f"🔥 SCHEDULER TRIGGERED - ATTEMPT {attempt + 1}/{max_retries + 1}")
+                print(f"{'='*80}")
+                
+                result = self._execute_crawl_internal(schedule_id)
+                
+                # Log success
+                self.log_execution(schedule_id, 'success', result.get('leads_queued', 0))
+                print(f"✅ Schedule execution completed successfully")
+                return result
+                
+            except Exception as e:
+                if attempt == max_retries:
+                    # Final failure
+                    error_msg = f"Failed after {max_retries + 1} attempts: {str(e)}"
+                    self.log_execution(schedule_id, 'failed', 0, error_msg)
+                    print(f"❌ FINAL FAILURE: {error_msg}")
+                    
+                    # TODO: Send alert (implement in Phase 3)
+                    # self.send_failure_alert(schedule_id, error_msg)
+                    
+                    return {"success": False, "error": error_msg}
+                else:
+                    # Retry with exponential backoff
+                    delay = base_delay * (2 ** attempt)
+                    print(f"⚠️ Attempt {attempt + 1} failed, retrying in {delay}s: {e}")
+                    time.sleep(delay)
+    
     def _execute_crawl(self, schedule_id: str):
-        """Execute crawl task by queueing leads to RabbitMQ with all optimizations"""
-        print(f"\n{'='*60}")
-        print(f"⏰ SCHEDULED CRAWL TRIGGERED: {datetime.now()}")
-        print(f"Schedule ID: {schedule_id}")
-        print(f"{'='*60}")
+        """Main entry point - delegates to retry wrapper"""
+        return self._execute_crawl_with_retry(schedule_id)
+    
+    def _execute_crawl_internal(self, schedule_id: str):
+        """Internal execution logic (called by retry wrapper)"""
+        print(f"⏰ Execution Time: {datetime.now()}")
+        print(f"📋 Schedule ID: {schedule_id}")
         
         # OPTIMIZATION: Concurrent schedule handling - Stagger execution
         stagger_delay = random.uniform(0, self.STAGGER_MAX_DELAY)
@@ -240,7 +388,7 @@ class SchedulerService:
         schedule = supabase_manager.supabase.table('crawler_schedules').select('*').eq('id', schedule_id).execute()
         if not schedule.data:
             print(f"✗ Schedule {schedule_id} not found")
-            return
+            return {"success": False, "error": "Schedule not found"}
         
         schedule = schedule.data[0]
         
@@ -256,192 +404,137 @@ class SchedulerService:
         template_id = schedule.get('template_id')
         if not template_id:
             print("⚠ No template_id configured in schedule")
-            return
+            return {"success": False, "error": "No template_id configured"}
         
         print(f"📋 Template ID: {template_id}")
         print(f"📝 Schedule Name: {schedule.get('name', 'Unnamed')}")
-        from helper.rabbitmq_helper import queue_publisher
         
-        # OPTIMIZATION: Error handling with retry
-        retry_count = 0
-        last_error = None
+        # OPTIMIZATION: Queue size check - Prevent overload
+        print(f"🔍 Checking current queue size...")
+        queue_info = queue_publisher.get_queue_info()
+        current_queue_size = queue_info.get('messages', 0) if queue_info else 0
+        print(f"📊 Current queue size: {current_queue_size} jobs")
         
-        while retry_count < self.MAX_RETRIES:
-            try:
-                # OPTIMIZATION: Queue size check - Prevent overload
-                print(f"🔍 Checking current queue size...")
-                queue_info = queue_publisher.get_queue_info()
-                current_queue_size = queue_info.get('messages', 0) if queue_info else 0
-                print(f"📊 Current queue size: {current_queue_size} jobs")
-                
-                if current_queue_size > self.MAX_QUEUE_SIZE:
-                    print(f"⚠️ Queue too large ({current_queue_size} > {self.MAX_QUEUE_SIZE})")
-                    print(f"   Skipping this schedule run to prevent overload")
-                    print(f"   Will retry in next scheduled time")
-                    print(f"{'='*60}\n")
-                    return
-                
-                # Get leads for this template
-                print(f"🔍 Fetching leads from database...")
-                supabase_manager = SupabaseManager()
-                leads = supabase_manager.get_leads_by_template_id(template_id)
-                
-                if not leads:
-                    print("⚠ No leads found for template")
-                    print(f"{'='*60}\n")
-                    return
-                
-                # Filter leads that need processing
-                needs_processing = [lead for lead in leads if lead.get('needs_processing', False)]
-                
-                if not needs_processing:
-                    print("✓ All leads already complete, nothing to queue")
-                    print(f"{'='*60}\n")
-                    return
-                
-                print(f"📊 Found {len(needs_processing)} leads that need processing")
-                
-                # OPTIMIZATION: Batching - Limit total leads per run
-                leads_to_queue = needs_processing[:self.MAX_QUEUE_PER_SCHEDULE]
-                
-                if len(needs_processing) > self.MAX_QUEUE_PER_SCHEDULE:
-                    print(f"⚠️ Limiting to {self.MAX_QUEUE_PER_SCHEDULE} leads per run")
-                    print(f"   Total leads: {len(needs_processing)}")
-                    print(f"   Remaining: {len(needs_processing) - self.MAX_QUEUE_PER_SCHEDULE} (will be queued in next run)")
-                
-                # Queue in batches
-                queued_count = 0
-                failed_count = 0
-                total_batches = (len(leads_to_queue) + self.BATCH_SIZE - 1) // self.BATCH_SIZE
-                
-                print(f"� Queueing {len(leads_to_queue)} leads in {total_batches} batches...")
-                
-                for i in range(0, len(leads_to_queue), self.BATCH_SIZE):
-                    batch = leads_to_queue[i:i + self.BATCH_SIZE]
-                    batch_num = i // self.BATCH_SIZE + 1
-                    print(f"   Batch {batch_num}/{total_batches}: {len(batch)} leads...", end=' ')
-                    
-                    batch_success = 0
-                    for lead in batch:
-                        success = queue_publisher.publish_crawler_job(
-                            profile_url=lead['profile_url'],
-                            template_id=template_id
-                        )
-                        if success:
-                            queued_count += 1
-                            batch_success += 1
-                        else:
-                            failed_count += 1
-                    
-                    print(f"✓ {batch_success} queued")
-                    
-                    # Small delay between batches to avoid overwhelming queue
-                    if i + self.BATCH_SIZE < len(leads_to_queue):
-                        time.sleep(0.5)  # 500ms delay between batches
-                
-                # Success summary
-                print(f"\n{'='*60}")
-                print(f"✅ SCHEDULE EXECUTION COMPLETED")
-                print(f"   Successfully queued: {queued_count} leads")
-                if failed_count > 0:
-                    print(f"   Failed to queue: {failed_count} leads")
-                if len(needs_processing) > self.MAX_QUEUE_PER_SCHEDULE:
-                    remaining = len(needs_processing) - self.MAX_QUEUE_PER_SCHEDULE
-                    print(f"   Remaining for next run: {remaining} leads")
-                print(f"   Execution time: {datetime.now()}")
-                print(f"{'='*60}\n")
-                
-                # Update global crawl session (SCHEDULED trigger)
-                try:
-                    import sys
-                    # Get main module from sys.modules (already loaded)
-                    # Try both 'main' and '__main__' (depends on how API is started)
-                    main_module = None
-                    if 'main' in sys.modules:
-                        main_module = sys.modules['main']
-                    elif '__main__' in sys.modules:
-                        main_module = sys.modules['__main__']
-                    
-                    if main_module and hasattr(main_module, 'current_crawl_session'):
-                        # Use Asia/Jakarta timezone for started_at
-                        jakarta_tz = pytz.timezone('Asia/Jakarta')
-                        started_at_jakarta = datetime.now(jakarta_tz).isoformat()
-                        
-                        # Get template name from database
-                        try:
-                            from helper.supabase_helper import SupabaseManager
-                            supabase_manager = SupabaseManager()
-                            template = supabase_manager.get_template_by_id(template_id)
-                            template_name = template.get('name', 'Unknown Template') if template else f"Template {template_id[:8]}"
-                        except Exception as e:
-                            print(f"⚠️ Failed to get template name: {e}")
-                            template_name = f"Template {template_id[:8]}"
-                        
-                        main_module.current_crawl_session = {
-                            'is_active': True,
-                            'source': 'scheduled',
-                            'schedule_id': schedule_id,
-                            'schedule_name': schedule.get('name', 'Unknown Schedule'),
-                            'template_id': template_id,
-                            'template_name': template_name,
-                            'started_at': started_at_jakarta,
-                            'leads_queued': queued_count
-                        }
-                        print(f"✅ Updated crawl session for scheduled run")
-                        print(f"   is_active: True")
-                        print(f"   source: scheduled")
-                        print(f"   leads_queued: {queued_count}")
-                    else:
-                        print(f"⚠️ Main module not found or no current_crawl_session attribute")
-                        print(f"   Available modules: {[k for k in sys.modules.keys() if 'main' in k.lower()]}")
-                except Exception as e:
-                    print(f"⚠️ Failed to update crawl session: {e}")
-                    jakarta_tz = pytz.timezone('Asia/Jakarta')
-                    started_at_jakarta = datetime.now(jakarta_tz).isoformat()
-                    
-                    # Get template name from database
-                    try:
-                        from helper.supabase_helper import SupabaseManager
-                        supabase_manager = SupabaseManager()
-                        template = supabase_manager.get_template_by_id(template_id)
-                        template_name = template.get('name', 'Unknown Template') if template else f"Template {template_id[:8]}"
-                    except Exception as e:
-                        print(f"⚠️ Failed to get template name: {e}")
-                        template_name = f"Template {template_id[:8]}"
-                    
-                    main.current_crawl_session = {
-                        'is_active': True,
-                        'source': 'scheduled',
-                        'schedule_id': schedule_id,
-                        'schedule_name': schedule.get('name', 'Unknown Schedule'),
-                        'template_id': template_id,
-                        'template_name': template_name,
-                        'started_at': started_at_jakarta,
-                        'leads_queued': queued_count
-                    }
-                    print(f"✅ Updated crawl session for scheduled run")
-                except Exception as e:
-                    print(f"⚠️ Failed to update crawl session: {e}")
-                
-                # Success - break retry loop
-                break
-                
-            except Exception as e:
-                retry_count += 1
-                last_error = e
-                
-                if retry_count < self.MAX_RETRIES:
-                    print(f"\n⚠️ ERROR OCCURRED - Retry {retry_count}/{self.MAX_RETRIES}")
-                    print(f"   Error: {str(e)}")
-                    print(f"   Waiting 5 seconds before retry...")
-                    time.sleep(5)
+        if current_queue_size > self.MAX_QUEUE_SIZE:
+            print(f"⚠️ Queue too large ({current_queue_size} > {self.MAX_QUEUE_SIZE})")
+            print(f"   Skipping this schedule run to prevent overload")
+            print(f"   Will retry in next scheduled time")
+            return {"success": False, "error": "Queue overload", "skipped": True}
+        
+        # Get leads for this template
+        print(f"🔍 Fetching leads from database...")
+        leads = supabase_manager.get_leads_by_template_id(template_id)
+        
+        if not leads:
+            print("⚠ No leads found for template")
+            return {"success": True, "leads_queued": 0, "message": "No leads found"}
+        
+        # Filter leads that need processing
+        needs_processing = [lead for lead in leads if lead.get('needs_processing', False)]
+        
+        if not needs_processing:
+            print("✓ All leads already complete, nothing to queue")
+            return {"success": True, "leads_queued": 0, "message": "All leads complete"}
+        
+        print(f"📊 Found {len(needs_processing)} leads that need processing")
+        
+        # OPTIMIZATION: Batching - Limit total leads per run
+        leads_to_queue = needs_processing[:self.MAX_QUEUE_PER_SCHEDULE]
+        
+        if len(needs_processing) > self.MAX_QUEUE_PER_SCHEDULE:
+            print(f"⚠️ Limiting to {self.MAX_QUEUE_PER_SCHEDULE} leads per run")
+            print(f"   Total leads: {len(needs_processing)}")
+            print(f"   Remaining: {len(needs_processing) - self.MAX_QUEUE_PER_SCHEDULE} (will be queued in next run)")
+        
+        # Queue in batches
+        queued_count = 0
+        failed_count = 0
+        total_batches = (len(leads_to_queue) + self.BATCH_SIZE - 1) // self.BATCH_SIZE
+        
+        print(f"📤 Queueing {len(leads_to_queue)} leads in {total_batches} batches...")
+        
+        for i in range(0, len(leads_to_queue), self.BATCH_SIZE):
+            batch = leads_to_queue[i:i + self.BATCH_SIZE]
+            batch_num = i // self.BATCH_SIZE + 1
+            print(f"   Batch {batch_num}/{total_batches}: {len(batch)} leads...", end=' ')
+            
+            batch_success = 0
+            for lead in batch:
+                success = queue_publisher.publish_crawler_job(
+                    profile_url=lead['profile_url'],
+                    template_id=template_id
+                )
+                if success:
+                    queued_count += 1
+                    batch_success += 1
                 else:
-                    print(f"\n❌ SCHEDULE EXECUTION FAILED")
-                    print(f"   Failed after {self.MAX_RETRIES} retries")
-                    print(f"   Last error: {str(e)}")
-                    import traceback
-                    traceback.print_exc()
-                    print(f"{'='*60}\n")
-                    
-                    # TODO: Send alert/notification to admin
-                    # self._send_failure_alert(schedule_id, str(e))
+                    failed_count += 1
+            
+            print(f"✓ {batch_success} queued")
+            
+            # Small delay between batches to avoid overwhelming queue
+            if i + self.BATCH_SIZE < len(leads_to_queue):
+                time.sleep(0.5)  # 500ms delay between batches
+        
+        # Success summary
+        print(f"\n{'='*60}")
+        print(f"✅ SCHEDULE EXECUTION COMPLETED")
+        print(f"   Successfully queued: {queued_count} leads")
+        if failed_count > 0:
+            print(f"   Failed to queue: {failed_count} leads")
+        if len(needs_processing) > self.MAX_QUEUE_PER_SCHEDULE:
+            remaining = len(needs_processing) - self.MAX_QUEUE_PER_SCHEDULE
+            print(f"   Remaining for next run: {remaining} leads")
+        print(f"   Execution time: {datetime.now()}")
+        print(f"{'='*60}\n")
+        
+        # Update global crawl session (SCHEDULED trigger)
+        try:
+            import sys
+            import pytz
+            
+            # Get Jakarta timezone for consistent timestamps
+            jakarta_tz = pytz.timezone('Asia/Jakarta')
+            started_at_jakarta = datetime.now(jakarta_tz).isoformat()
+            
+            # Try to find main module in sys.modules
+            main_module = None
+            for module_name in ['main', '__main__', 'backend.api.main']:
+                if module_name in sys.modules:
+                    main_module = sys.modules[module_name]
+                    if hasattr(main_module, 'current_crawl_session'):
+                        break
+            
+            if main_module and hasattr(main_module, 'current_crawl_session'):
+                # Get template name from database
+                try:
+                    template = supabase_manager.get_template_by_id(template_id)
+                    template_name = template.get('name', 'Unknown Template') if template else f"Template {template_id[:8]}"
+                except Exception as e:
+                    print(f"⚠️ Failed to get template name: {e}")
+                    template_name = f"Template {template_id[:8]}"
+                
+                main_module.current_crawl_session = {
+                    'is_active': True,
+                    'source': 'scheduled',
+                    'schedule_id': schedule_id,
+                    'schedule_name': schedule.get('name', 'Unknown Schedule'),
+                    'template_id': template_id,
+                    'template_name': template_name,
+                    'started_at': started_at_jakarta,
+                    'leads_queued': queued_count
+                }
+                print(f"✅ Updated crawl session for scheduled run")
+            else:
+                print(f"⚠️ Could not update crawl session - main module not accessible")
+                
+        except Exception as e:
+            print(f"⚠️ Failed to update crawl session: {e}")
+        
+        return {
+            "success": True,
+            "leads_queued": queued_count,
+            "failed_count": failed_count,
+            "total_leads": len(needs_processing),
+            "remaining_leads": max(0, len(needs_processing) - self.MAX_QUEUE_PER_SCHEDULE)
+        }
