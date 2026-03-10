@@ -729,38 +729,71 @@ async def execute_schedule_manually(schedule_id: str):
             raise HTTPException(status_code=404, detail="Schedule not found")
         
         schedule = result.data[0]
+        template_id = schedule["template_id"]
         
-        # Execute the crawl
+        # Get leads for this template
+        leads = supabase_manager.get_leads_by_template_id(template_id)
+        
+        if not leads:
+            return {
+                "success": True,
+                "message": f"No leads found for schedule '{schedule['name']}'",
+                "schedule_id": schedule_id,
+                "template_id": template_id,
+                "leads_queued": 0
+            }
+        
+        # Filter leads that need processing
+        needs_processing = [lead for lead in leads if lead.get('needs_processing', False)]
+        
+        if not needs_processing:
+            return {
+                "success": True,
+                "message": f"All leads already complete for schedule '{schedule['name']}'",
+                "schedule_id": schedule_id,
+                "template_id": template_id,
+                "leads_queued": 0
+            }
+        
+        # Use same method as scheduler for consistency
         from helper.rabbitmq_helper import queue_publisher
         
-        payload = {
-            "template_id": schedule["template_id"],
-            "source": "scheduled",  # Changed from "manual" to "scheduled"
-            "schedule_id": schedule_id,
-            "schedule_name": schedule["name"]
-        }
+        queued_count = 0
+        failed_count = 0
         
-        success = queue_publisher.publish("crawler_queue", payload)
+        print(f"📤 Manual execution: Queueing {len(needs_processing)} leads...")
         
-        if success:
-            # Update session to mark as scheduled execution
+        for lead in needs_processing:
+            success = queue_publisher.publish_crawler_job(
+                profile_url=lead['profile_url'],
+                template_id=template_id
+            )
+            if success:
+                queued_count += 1
+            else:
+                failed_count += 1
+        
+        if queued_count > 0:
+            # Update session to mark as manual execution
             current_crawl_session.update({
                 'is_active': True,
-                'source': 'scheduled',
+                'source': 'manual',
                 'schedule_id': schedule_id,
                 'schedule_name': schedule['name'],
-                'template_id': schedule['template_id'],
+                'template_id': template_id,
                 'template_name': schedule.get('name', 'Unknown Template'),
                 'started_at': datetime.now().isoformat(),
-                'leads_queued': 1  # Will be updated by actual scraping process
+                'leads_queued': queued_count
             })
-            print(f"✅ Updated session for scheduled execution: {schedule['name']} (ID: {schedule_id})")
+            print(f"✅ Updated session for manual execution: {schedule['name']} (ID: {schedule_id})")
         
         return {
             "success": True,
-            "message": f"Schedule '{schedule['name']}' executed manually",
+            "message": f"Schedule '{schedule['name']}' executed manually - {queued_count} leads queued",
             "schedule_id": schedule_id,
-            "template_id": schedule["template_id"]
+            "template_id": template_id,
+            "leads_queued": queued_count,
+            "failed_count": failed_count
         }
         
     except HTTPException:
@@ -871,21 +904,7 @@ async def get_crawl_session():
 
 @app.post("/api/scraping/stop")
 @handle_api_errors
-async def stop_scraping():
-    """Stop scraping process"""
-    try:
-        from helper.rabbitmq_helper import queue_publisher
-        success = queue_publisher.purge_queue("crawler_queue")
-        
-        return {
-            "success": success,
-            "message": "Scraping stopped successfully" if success else "Failed to stop scraping",
-            "jobs_removed": 0  # purge_queue doesn't return count in this implementation
-        }
-        
-    except Exception as e:
-        logger.error(f"Error stopping scraping: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+# Removed duplicate stop_scraping function - using the one at line 1816
 
 # ============================================================================
 # OUTREACH ENDPOINTS
@@ -1784,7 +1803,7 @@ async def check_and_complete_session():
             schedule_name = current_crawl_session.get('schedule_name')
             was_scheduled = current_crawl_session.get('source') == 'scheduled' and schedule_id
             
-            # If triggered by scheduler, deactivate the schedule
+            # If triggered by scheduler (automatic), deactivate the schedule
             if was_scheduled:
                 try:
                     schedule_manager = ScheduleManager()
@@ -1833,8 +1852,8 @@ async def stop_scraping():
         queue_purged = queue_publisher.purge_queue()
         
         if queue_purged:
-            # If triggered by scheduler, deactivate the schedule
-            if was_scheduled:
+            # Always deactivate schedule if it was running (both manual and automatic)
+            if schedule_id:
                 try:
                     schedule_manager = ScheduleManager()
                     schedule_manager.update_schedule_status(schedule_id, False)
@@ -1842,7 +1861,7 @@ async def stop_scraping():
                 except Exception as e:
                     print(f"⚠️ Failed to deactivate schedule {schedule_id}: {e}")
             
-            # CRITICAL FIX: Clear the crawl session to set is_active = False
+            # Clear the crawl session to set is_active = False
             current_crawl_session = {
                 'is_active': False,
                 'source': None,
@@ -1857,14 +1876,14 @@ async def stop_scraping():
             print(f"✅ Crawler session cleared - status now idle")
             
             message = f"Crawler stopped. {queue_size} jobs removed from queue."
-            if was_scheduled:
+            if schedule_id:
                 message += f" Schedule '{schedule_name}' has been deactivated."
             
             return {
                 "success": True,
                 "message": message,
                 "jobs_removed": queue_size,
-                "schedule_deactivated": was_scheduled
+                "schedule_deactivated": bool(schedule_id)
             }
         else:
             raise HTTPException(status_code=500, detail="Failed to purge queue")
