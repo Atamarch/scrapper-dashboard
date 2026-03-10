@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict
 from datetime import datetime
+import asyncio
 import pytz
 import os
 import sys
@@ -79,6 +80,26 @@ app.add_middleware(
 # Initialize services
 db = None
 scheduler = None
+background_task_running = False
+
+async def session_monitor_task():
+    """Background task to monitor session completion"""
+    global background_task_running
+    background_task_running = True
+    
+    print("🔄 Session monitor task started")
+    
+    try:
+        while background_task_running:
+            await asyncio.sleep(10)  # Check every 10 seconds
+            await check_and_complete_session()
+    except asyncio.CancelledError:
+        print("🛑 Session monitor task cancelled")
+    except Exception as e:
+        print(f"❌ Session monitor task error: {e}")
+    finally:
+        background_task_running = False
+        print("🔄 Session monitor task stopped")
 
 # Try to initialize database and scheduler, but continue without them if it fails
 def init_services():
@@ -238,6 +259,8 @@ class CrawlerStatusResponse(BaseModel):
 @app.on_event("startup")
 async def startup_event():
     """Initialize database and start scheduler"""
+    global background_task_running
+    
     print("🚀 Starting up API...")
     init_success = init_services()
     print(f"   Database init: {'✓ Success' if init_success else '✗ Failed'}")
@@ -253,10 +276,21 @@ async def startup_event():
         print("⚠ Running without scheduler (database not available)")
         print(f"   db object: {db}")
         print(f"   scheduler object: {scheduler}")
+    
+    # Start session monitor background task
+    if not background_task_running:
+        asyncio.create_task(session_monitor_task())
+        print("✓ Session monitor task started")
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Stop scheduler gracefully"""
+    global background_task_running
+    
+    # Stop session monitor task
+    background_task_running = False
+    print("✓ Session monitor task stopped")
+    
     if scheduler:
         scheduler.stop()
         print("✓ Scheduler stopped")
@@ -703,6 +737,8 @@ async def get_queue_status():
 @handle_api_errors
 async def execute_schedule_manually(schedule_id: str):
     """Execute schedule manually"""
+    global current_crawl_session
+    
     try:
         # Get schedule details
         result = supabase.table("crawler_schedules").select("*").eq("id", schedule_id).execute()
@@ -717,12 +753,26 @@ async def execute_schedule_manually(schedule_id: str):
         
         payload = {
             "template_id": schedule["template_id"],
-            "source": "manual",
+            "source": "scheduled",  # Changed from "manual" to "scheduled"
             "schedule_id": schedule_id,
             "schedule_name": schedule["name"]
         }
         
-        queue_publisher.publish("crawler_queue", payload)
+        success = queue_publisher.publish("crawler_queue", payload)
+        
+        if success:
+            # Update session to mark as scheduled execution
+            current_crawl_session.update({
+                'is_active': True,
+                'source': 'scheduled',
+                'schedule_id': schedule_id,
+                'schedule_name': schedule['name'],
+                'template_id': schedule['template_id'],
+                'template_name': schedule.get('name', 'Unknown Template'),
+                'started_at': datetime.now().isoformat(),
+                'leads_queued': 1  # Will be updated by actual scraping process
+            })
+            print(f"✅ Updated session for scheduled execution: {schedule['name']} (ID: {schedule_id})")
         
         return {
             "success": True,
@@ -734,7 +784,7 @@ async def execute_schedule_manually(schedule_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error executing schedule manually {schedule_id}: {str(e)}")
+        print(f"Error executing schedule manually {schedule_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1266,6 +1316,256 @@ async def create_external_schedule(request: ExternalScheduleRequest):
         raise
     except Exception as e:
         print(f"❌ External schedule creation failed: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/scraping/status", response_model=CrawlerStatusResponse)
+@handle_api_errors
+async def get_crawler_status():
+    """Get current crawler status by checking RabbitMQ queue with session metadata"""
+    global current_crawl_session
+    
+    try:
+        # Check RabbitMQ queue size
+        queue_size = 0
+        is_running = False
+        
+        try:
+            # Get queue info from RabbitMQ
+            queue_info = queue_publisher.get_queue_info()
+            if queue_info:
+                queue_size = queue_info.get('messages', 0)
+                is_running = queue_size > 0
+        except Exception as e:
+            print(f"Error getting queue info: {e}")
+        
+        # If queue is empty, clear session
+        if queue_size == 0 and current_crawl_session['is_active']:
+            print("📊 Queue empty, clearing crawl session")
+            current_crawl_session['is_active'] = False
+        
+        # Return status with session metadata
+        return CrawlerStatusResponse(
+            is_running=is_running,
+            queue_size=queue_size,
+            template_id=current_crawl_session.get('template_id') if current_crawl_session['is_active'] else None,
+            template_name=current_crawl_session.get('template_name') if current_crawl_session['is_active'] else None,
+            processed_count=0
+        )
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/scraping/session")
+@handle_api_errors
+async def get_crawl_session():
+    """Get detailed crawl session information"""
+    global current_crawl_session
+    
+    # Check if session should be auto-completed
+    await check_and_complete_session()
+    
+    return {
+        **current_crawl_session,
+        'current_queue_size': queue_publisher.get_queue_info().get('messages', 0) if queue_publisher.get_queue_info() else 0
+    }
+
+
+async def check_and_complete_session():
+    """Check if crawl session should be automatically completed"""
+    global current_crawl_session
+    
+    # Only check if session is currently active
+    if not current_crawl_session.get('is_active', False):
+        return
+    
+    try:
+        # Get current queue size
+        queue_info = queue_publisher.get_queue_info()
+        queue_size = queue_info.get('messages', 0) if queue_info else 0
+        
+        # If queue is empty, session should be completed
+        if queue_size == 0:
+            print("🏁 Queue is empty - completing crawl session")
+            
+            # Check if this was triggered by a schedule
+            schedule_id = current_crawl_session.get('schedule_id')
+            schedule_name = current_crawl_session.get('schedule_name')
+            was_scheduled = current_crawl_session.get('source') == 'scheduled' and schedule_id
+            
+            # If triggered by scheduler, deactivate the schedule
+            if was_scheduled:
+                try:
+                    schedule_manager = ScheduleManager()
+                    schedule_manager.update_schedule_status(schedule_id, False)
+                    print(f"✅ Auto-deactivated schedule: {schedule_name} (ID: {schedule_id}) - crawling completed")
+                except Exception as e:
+                    print(f"⚠️ Failed to auto-deactivate schedule {schedule_id}: {e}")
+            
+            # Clear the crawl session
+            current_crawl_session = {
+                'is_active': False,
+                'source': None,
+                'schedule_id': None,
+                'schedule_name': None,
+                'template_id': None,
+                'template_name': None,
+                'started_at': None,
+                'leads_queued': 0
+            }
+            
+            print(f"✅ Crawl session auto-completed - status now idle")
+            
+    except Exception as e:
+        print(f"❌ Error checking session completion: {e}")
+
+
+@app.post("/api/scraping/stop")
+@handle_api_errors
+async def stop_scraping():
+    """Stop scraping by purging the RabbitMQ queue"""
+    global current_crawl_session
+    
+    try:
+        print("🛑 Stop scraping requested - purging queue")
+        
+        # Get current queue size before purging
+        queue_info = queue_publisher.get_queue_info()
+        queue_size = queue_info.get('messages', 0) if queue_info else 0
+        
+        # Check if this was triggered by a schedule
+        schedule_id = current_crawl_session.get('schedule_id')
+        schedule_name = current_crawl_session.get('schedule_name')
+        was_scheduled = current_crawl_session.get('source') == 'scheduled' and schedule_id
+        
+        # Purge the queue
+        queue_purged = queue_publisher.purge_queue()
+        
+        if queue_purged:
+            # If triggered by scheduler, deactivate the schedule
+            if was_scheduled:
+                try:
+                    schedule_manager = ScheduleManager()
+                    schedule_manager.update_schedule_status(schedule_id, False)
+                    print(f"✅ Deactivated schedule: {schedule_name} (ID: {schedule_id})")
+                except Exception as e:
+                    print(f"⚠️ Failed to deactivate schedule {schedule_id}: {e}")
+            
+            # CRITICAL FIX: Clear the crawl session to set is_active = False
+            current_crawl_session = {
+                'is_active': False,
+                'source': None,
+                'schedule_id': None,
+                'schedule_name': None,
+                'template_id': None,
+                'template_name': None,
+                'started_at': None,
+                'leads_queued': 0
+            }
+            
+            print(f"✅ Crawler session cleared - status now idle")
+            
+            message = f"Crawler stopped. {queue_size} jobs removed from queue."
+            if was_scheduled:
+                message += f" Schedule '{schedule_name}' has been deactivated."
+            
+            return {
+                "success": True,
+                "message": message,
+                "jobs_removed": queue_size,
+                "schedule_deactivated": was_scheduled
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to purge queue")
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# OUTREACH ENDPOINTS
+# ============================================================================
+
+@app.post("/api/outreach/send")
+async def send_outreach(request: OutreachRequest):
+    """Send outreach request to LavinMQ queue"""
+    try:
+        print("\n" + "="*60)
+        print("📥 OUTREACH REQUEST RECEIVED")
+        print("="*60)
+        print(f"Total leads: {len(request.leads)}")
+        print(f"Dry run: {request.dry_run}")
+        print(f"Message: {request.message}")
+        
+        # Debug environment variables
+        outreach_queue = os.getenv('OUTREACH_QUEUE')
+        rabbitmq_host = os.getenv('RABBITMQ_HOST')
+        print(f"OUTREACH_QUEUE env: {outreach_queue}")
+        print(f"RABBITMQ_HOST env: {rabbitmq_host}")
+        
+        # Validate leads
+        valid_leads = [
+            lead for lead in request.leads
+            if lead.get('name') and lead.get('profile_url')
+        ]
+        
+        if not valid_leads:
+            raise HTTPException(status_code=400, detail="No valid leads provided")
+        
+        print(f"✅ Valid leads: {len(valid_leads)}/{len(request.leads)}")
+        
+        # Debug each lead
+        for i, lead in enumerate(valid_leads[:3]):  # Show first 3 leads
+            print(f"  Lead {i+1}: {lead.get('name')} - {lead.get('profile_url')}")
+        
+        # Send each lead as separate message
+        batch_id = datetime.now().strftime('%Y%m%d_%H%M%S')
+        queued_count = 0
+        failed_count = 0
+        
+        for lead in valid_leads:
+            print(f"\n📤 Attempting to queue: {lead['name']}")
+            success = queue_publisher.publish_outreach_job(
+                lead=lead,
+                message_text=request.message,
+                dry_run=request.dry_run,
+                batch_id=batch_id
+            )
+            
+            if success:
+                queued_count += 1
+                print(f"  ✓ Queued: {lead['name']}")
+            else:
+                failed_count += 1
+                print(f"  ✗ Failed: {lead['name']}")
+        
+        print(f"\n📊 OUTREACH SUMMARY:")
+        print(f"   Total leads: {len(request.leads)}")
+        print(f"   Valid leads: {len(valid_leads)}")
+        print(f"   Successfully queued: {queued_count}")
+        print(f"   Failed to queue: {failed_count}")
+        print(f"   Batch ID: {batch_id}")
+        print("="*60 + "\n")
+        
+        return {
+            "status": "success",
+            "message": "Outreach messages queued successfully",
+            "total_leads": len(request.leads),
+            "valid_leads": len(valid_leads),
+            "queued": queued_count,
+            "failed": failed_count,
+            "batch_id": batch_id,
+            "dry_run": request.dry_run,
+            "queue": outreach_queue
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))

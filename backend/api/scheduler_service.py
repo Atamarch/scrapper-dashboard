@@ -82,7 +82,7 @@ class SchedulerService:
         """Add job to scheduler with conflict detection"""
         # Use ScheduleManager instead of db to avoid connection issues
         from helper.supabase_helper import ScheduleManager
-        
+         
         schedule = ScheduleManager.get_by_id(schedule_id)
         if not schedule:
             raise ValueError(f"Schedule {schedule_id} not found")

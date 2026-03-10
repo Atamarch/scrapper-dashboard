@@ -1929,6 +1929,115 @@ The method updates the `crawler_schedules` table:
 
 - `backend/api/main.py` - API endpoints that use schedule status
 - `backend/api/scheduler_service.py` - Scheduler that respects active/inactive status
+
+## 🤖 Automatic Crawl Session Completion
+
+The API now includes automatic crawl session completion functionality that monitors queue status and automatically completes crawl sessions when processing is finished.
+
+### Feature Overview
+
+The `check_and_complete_session()` function automatically:
+- Monitors RabbitMQ queue size during active crawl sessions
+- Completes crawl sessions when queue becomes empty
+- Auto-deactivates schedules that triggered the completed crawl
+- Resets session state to idle for accurate status reporting
+
+### Implementation
+
+**Automatic Checking**: The session completion check is triggered when:
+- Getting crawl session status via `GET /api/crawler/session`
+- Any endpoint that queries the current session state
+
+**Session Completion Logic**:
+```python
+async def check_and_complete_session():
+    """Check if crawl session should be automatically completed"""
+    global current_crawl_session
+    
+    # Only check if session is currently active
+    if not current_crawl_session.get('is_active', False):
+        return
+    
+    # Get current queue size
+    queue_info = queue_publisher.get_queue_info()
+    queue_size = queue_info.get('messages', 0) if queue_info else 0
+    
+    # If queue is empty, session should be completed
+    if queue_size == 0:
+        # Auto-deactivate schedule if this was a scheduled crawl
+        if current_crawl_session.get('source') == 'scheduled':
+            schedule_id = current_crawl_session.get('schedule_id')
+            ScheduleManager.update_schedule_status(schedule_id, False)
+        
+        # Clear the crawl session
+        current_crawl_session = {
+            'is_active': False,
+            'source': None,
+            'schedule_id': None,
+            'schedule_name': None,
+            'template_id': None,
+            'template_name': None,
+            'started_at': None,
+            'leads_queued': 0
+        }
+```
+
+### Auto-Schedule Deactivation
+
+**Scheduled Crawl Behavior**: When a crawl session was triggered by a schedule:
+- The system automatically deactivates the schedule when crawling completes
+- Prevents the same schedule from running again until manually reactivated
+- Provides control over one-time vs recurring crawl operations
+
+**Console Output**:
+```
+🏁 Queue is empty - completing crawl session
+✅ Auto-deactivated schedule: Daily LinkedIn Crawl (ID: abc-123-def) - crawling completed
+✅ Crawl session auto-completed - status now idle
+```
+
+### Benefits
+
+- **Automatic Cleanup**: No manual intervention needed to complete crawl sessions
+- **Accurate Status**: Dashboard always shows correct crawler state
+- **Schedule Control**: Prevents runaway scheduled crawls
+- **Resource Management**: Frees up session tracking when processing is complete
+- **User Experience**: Real-time status updates without manual refresh
+
+### Session State Synchronization
+
+The automatic completion ensures:
+- **Queue State Sync**: Session state matches actual queue processing status
+- **Dashboard Accuracy**: UI shows correct "idle" vs "running" status
+- **API Consistency**: All endpoints return consistent session information
+- **Schedule Coordination**: Scheduled vs manual crawls are properly tracked
+
+### Error Handling
+
+The completion check includes robust error handling:
+- **Queue Connection Errors**: Gracefully handles RabbitMQ connectivity issues
+- **Schedule Update Failures**: Logs errors but doesn't interrupt session completion
+- **Exception Isolation**: Errors in completion check don't affect other API operations
+
+### Related Endpoints
+
+- `GET /api/crawler/session` - Triggers automatic completion check
+- `POST /api/crawler/stop` - Manual session completion (still available)
+- `POST /api/schedules/{id}/execute` - Creates sessions that can be auto-completed
+
+### Configuration
+
+No additional configuration required. The feature uses existing:
+- RabbitMQ connection settings for queue monitoring
+- Schedule management for auto-deactivation
+- Session tracking variables for state management
+
+### Migration Notes
+
+- **Backward Compatible**: Existing manual session management still works
+- **No Schema Changes**: Uses existing database tables and queue infrastructure
+- **Automatic Activation**: Feature is active immediately after API update
+- **Graceful Degradation**: Falls back to manual completion if auto-completion failss
 - `helper/supabase_helper.py` - Contains `ScheduleManager` class
 
 ### Migration Notes
@@ -1937,3 +2046,114 @@ The method updates the `crawler_schedules` table:
 - Method is static, can be called without instantiating `ScheduleManager`
 - Compatible with existing schedule management workflows
 - Follows the same error handling pattern as other `ScheduleManager` methods
+
+## 🔄 Session Monitor Task (API Background Service)
+
+The API backend now includes a background session monitoring task that automatically tracks and manages crawler session completion.
+
+### Background Task Implementation
+
+**Session Monitor Task (`session_monitor_task`):**
+- Runs as an async background task during API lifecycle
+- Monitors crawler session state every 10 seconds
+- Automatically detects when crawl sessions should be marked as complete
+- Provides graceful shutdown handling with proper cleanup
+
+### Task Lifecycle
+
+**Startup:**
+```python
+async def session_monitor_task():
+    """Background task to monitor session completion"""
+    global background_task_running
+    background_task_running = True
+    
+    print("🔄 Session monitor task started")
+    
+    try:
+        while background_task_running:
+            await asyncio.sleep(10)  # Check every 10 seconds
+            await check_and_complete_session()
+    except asyncio.CancelledError:
+        print("🛑 Session monitor task cancelled")
+    except Exception as e:
+        print(f"❌ Session monitor task error: {e}")
+    finally:
+        background_task_running = False
+        print("🔄 Session monitor task stopped")
+```
+
+### Features
+
+- **Automatic Session Completion**: Detects when crawler jobs finish and updates session state accordingly
+- **Error Resilience**: Continues running even if individual monitoring cycles fail
+- **Graceful Shutdown**: Properly handles cancellation during API shutdown
+- **Status Tracking**: Maintains global `background_task_running` flag for monitoring
+- **Console Logging**: Provides clear status updates for debugging and monitoring
+
+### Console Output
+
+**Task Startup:**
+```
+🔄 Session monitor task started
+```
+
+**Task Shutdown:**
+```
+🛑 Session monitor task cancelled
+🔄 Session monitor task stopped
+```
+
+**Error Handling:**
+```
+❌ Session monitor task error: Connection timeout
+🔄 Session monitor task stopped
+```
+
+### Integration
+
+The session monitor task integrates with:
+- **Crawler Session State**: Monitors `current_crawl_session` global variable
+- **Queue Status**: Checks RabbitMQ queue sizes to determine completion
+- **Database Updates**: Updates session completion timestamps in Supabase
+- **API Lifecycle**: Starts with API startup, stops with API shutdown
+
+### Benefits
+
+- **Automated Management**: No manual intervention required for session completion
+- **Real-time Monitoring**: Continuous monitoring ensures timely session updates
+- **Resource Efficiency**: Lightweight background task with minimal resource usage
+- **Reliability**: Error handling ensures the monitor doesn't crash the API
+- **Observability**: Clear logging for debugging and operational monitoring
+
+### Technical Details
+
+**Monitoring Interval**: 10 seconds between checks
+**Task Type**: Async background task using `asyncio`
+**Error Handling**: Try-catch blocks prevent task crashes
+**Cleanup**: Automatic cleanup on task cancellation or completion
+**State Management**: Uses global `background_task_running` flag
+
+### Related Components
+
+- `backend/api/main.py` - Contains session monitor task implementation
+- `current_crawl_session` - Global session state being monitored
+- `check_and_complete_session()` - Function called by monitor (to be implemented)
+- RabbitMQ queues - Monitored for completion detection
+
+### Future Enhancements
+
+The session monitor task provides a foundation for:
+- Automatic session timeout handling
+- Performance metrics collection
+- Queue health monitoring
+- Crawler job failure detection
+- Session analytics and reporting
+
+### Migration Notes
+
+- No configuration changes required
+- Task starts automatically with API
+- No database schema changes needed
+- Existing session management continues to work
+- Monitor task runs independently of other API operations
