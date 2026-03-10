@@ -231,6 +231,29 @@ When creating a new schedule through the API:
 - If scheduler registration fails, the schedule is still created and will be loaded on next API restart
 - Manual schedule execution is available via the `/api/schedules/{schedule_id}/execute` endpoint
 
+### Manual Schedule Execution Session Tracking
+
+When manually executing a schedule via the API endpoint `/api/schedules/{schedule_id}/execute`:
+- The global `current_crawl_session` is updated to track the execution source
+- Session is marked with `source: 'scheduled'` to distinguish from manual crawls
+- Includes schedule metadata (ID, name) for better monitoring and debugging
+- Session tracking only occurs if the scraping operation succeeds and queues leads
+- Provides real-time visibility into which schedule triggered the current crawl activity
+
+**Session Data Structure for Scheduled Execution:**
+```python
+{
+    'is_active': True,
+    'source': 'scheduled',           # Indicates scheduled trigger
+    'schedule_id': 'uuid',           # Schedule that triggered the crawl
+    'schedule_name': 'Daily Crawl',  # Human-readable schedule name
+    'template_id': 'uuid',           # Template being used
+    'template_name': 'Template Name', # Template name
+    'started_at': 'ISO timestamp',   # When crawl started
+    'leads_queued': 150              # Number of leads queued
+}
+```
+
 ### Scheduler Service Implementation
 
 The scheduler service (`backend/api/scheduler_service.py`) uses `ScheduleManager` for database operations to avoid connection issues:
@@ -1807,3 +1830,110 @@ The `current_crawl_session` now includes the resolved template name:
 - No configuration changes needed
 - Existing schedules automatically benefit from improved template name resolution
 - If `SupabaseManager.get_template_by_id()` doesn't exist, add it to `helper/supabase_helper.py`
+
+## 🔄 Schedule Status Management (Database Layer)
+
+The `ScheduleManager` class in `backend/api/helper/supabase_helper.py` now includes a method for updating schedule status programmatically.
+
+### Method: `update_schedule_status`
+
+Updates the status of a crawler schedule between 'active' and 'inactive' states.
+
+#### Signature
+```python
+@staticmethod
+def update_schedule_status(schedule_id: str, is_active: bool) -> bool
+```
+
+#### Parameters
+- `schedule_id` (str): UUID of the schedule to update
+- `is_active` (bool): `True` to set status to 'active', `False` to set to 'inactive'
+
+#### Returns
+- `bool`: `True` if update was successful, `False` if schedule not found or update failed
+
+#### Implementation
+```python
+@staticmethod
+def update_schedule_status(schedule_id: str, is_active: bool) -> bool:
+    """Update schedule status (active/inactive)"""
+    try:
+        status = 'active' if is_active else 'inactive'
+        response = supabase.table('crawler_schedules').update({
+            'status': status
+        }).eq('id', schedule_id).execute()
+        
+        if response.data:
+            print(f"✅ Schedule {schedule_id} status updated to: {status}")
+            return True
+        else:
+            print(f"⚠️ No schedule found with ID: {schedule_id}")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Error updating schedule status: {e}")
+        return False
+```
+
+### Console Output
+
+**Success:**
+```
+✅ Schedule abc-123-def status updated to: active
+```
+
+**Schedule Not Found:**
+```
+⚠️ No schedule found with ID: abc-123-def
+```
+
+**Error:**
+```
+❌ Error updating schedule status: Connection timeout
+```
+
+### Usage Examples
+
+```python
+from helper.supabase_helper import ScheduleManager
+
+# Activate a schedule
+success = ScheduleManager.update_schedule_status('schedule-uuid', True)
+if success:
+    print("Schedule activated successfully")
+
+# Deactivate a schedule
+success = ScheduleManager.update_schedule_status('schedule-uuid', False)
+if success:
+    print("Schedule deactivated successfully")
+```
+
+### Use Cases
+
+- **Programmatic Schedule Control**: Enable/disable schedules from code
+- **Batch Operations**: Update multiple schedule statuses in loops
+- **Integration**: Use in webhook handlers or external system integrations
+- **Automation**: Automatically activate/deactivate schedules based on conditions
+- **Error Recovery**: Deactivate problematic schedules programmatically
+
+### Database Schema
+
+The method updates the `crawler_schedules` table:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID | Primary key (used for lookup) |
+| `status` | String | Schedule status ('active' or 'inactive') |
+
+### Related Components
+
+- `backend/api/main.py` - API endpoints that use schedule status
+- `backend/api/scheduler_service.py` - Scheduler that respects active/inactive status
+- `helper/supabase_helper.py` - Contains `ScheduleManager` class
+
+### Migration Notes
+
+- No database schema changes required (assumes `status` column exists)
+- Method is static, can be called without instantiating `ScheduleManager`
+- Compatible with existing schedule management workflows
+- Follows the same error handling pattern as other `ScheduleManager` methods

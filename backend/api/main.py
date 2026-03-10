@@ -692,6 +692,8 @@ async def start_consumer():
 @app.post("/api/schedules/{schedule_id}/execute")
 async def execute_schedule_manually(schedule_id: str):
     """Manually execute a specific schedule"""
+    global current_crawl_session
+    
     try:
         # Get schedule
         schedule = ScheduleManager.get_by_id(schedule_id)
@@ -710,6 +712,15 @@ async def execute_schedule_manually(schedule_id: str):
         # Start scraping with the template_id from schedule
         scraping_request = ScrapingRequest(template_id=schedule['template_id'])
         scraping_result = await start_scraping(scraping_request)
+        
+        # Override session to mark as scheduled execution
+        if scraping_result.success and scraping_result.leads_queued > 0:
+            current_crawl_session.update({
+                'source': 'scheduled',
+                'schedule_id': schedule_id,
+                'schedule_name': schedule['name']
+            })
+            print(f"✅ Updated session for scheduled execution: {schedule['name']} (ID: {schedule_id})")
         
         # Update last_run timestamp
         ScheduleManager.update(schedule_id, {

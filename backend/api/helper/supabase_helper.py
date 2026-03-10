@@ -94,6 +94,26 @@ class ScheduleManager:
         """Check if template exists"""
         response = supabase.table('search_templates').select('id').eq('id', template_id).execute()
         return bool(response.data)
+    
+    @staticmethod
+    def update_schedule_status(schedule_id: str, is_active: bool) -> bool:
+        """Update schedule status (active/inactive)"""
+        try:
+            status = 'active' if is_active else 'inactive'
+            response = supabase.table('crawler_schedules').update({
+                'status': status
+            }).eq('id', schedule_id).execute()
+            
+            if response.data:
+                print(f"✅ Schedule {schedule_id} status updated to: {status}")
+                return True
+            else:
+                print(f"⚠️ No schedule found with ID: {schedule_id}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error updating schedule status: {e}")
+            return False
 
 
 class CompanyManager:

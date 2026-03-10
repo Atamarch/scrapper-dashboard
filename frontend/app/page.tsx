@@ -84,35 +84,37 @@ export default function DashboardPage() {
           return;
         }
 
-        // Leads by date (last 7 days) - Generate all 7 days
+        // Leads by date (last 4 months) - Generate all 4 months
         const today = new Date();
         today.setHours(23, 59, 59, 999); // End of today
         const dateMap = new Map<string, number>();
         
-        // Generate last 7 days (including today)
-        for (let i = 6; i >= 0; i--) {
+        // Generate last 4 months (including current month)
+        for (let i = 3; i >= 0; i--) {
           const date = new Date(today);
-          date.setDate(today.getDate() - i);
+          date.setMonth(today.getMonth() - i);
+          date.setDate(1); // First day of the month
           date.setHours(0, 0, 0, 0);
-          const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          const dateStr = date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
           dateMap.set(dateStr, 0); // Initialize with 0
         }
         
-        // Count actual leads for each date (using 'date' field for when lead was crawled)
-        const sevenDaysAgo = new Date(today);
-        sevenDaysAgo.setDate(today.getDate() - 6); // 7 days including today
-        sevenDaysAgo.setHours(0, 0, 0, 0);
+        // Count actual leads for each month (using 'date' field for when lead was crawled)
+        const fourMonthsAgo = new Date(today);
+        fourMonthsAgo.setMonth(today.getMonth() - 3); // 4 months including current month
+        fourMonthsAgo.setDate(1); // First day of the month
+        fourMonthsAgo.setHours(0, 0, 0, 0);
         
         console.log('=== LEADS TREND DEBUG ===');
         console.log('Today:', today.toISOString());
-        console.log('Seven days ago:', sevenDaysAgo.toISOString());
+        console.log('Four months ago:', fourMonthsAgo.toISOString());
         console.log('Total leads data:', leadsData.length);
         
         leadsData.forEach(lead => {
           if (lead.date) {
             const leadDate = new Date(lead.date);
-            if (leadDate >= sevenDaysAgo && leadDate <= today) {
-              const dateStr = leadDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            if (leadDate >= fourMonthsAgo && leadDate <= today) {
+              const dateStr = leadDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
               const currentCount = dateMap.get(dateStr) || 0;
               dateMap.set(dateStr, currentCount + 1);
               console.log(`Lead crawled on ${dateStr}:`, lead.date);
@@ -264,11 +266,11 @@ export default function DashboardPage() {
 
             {/* Charts Section */}
             <div className="grid gap-8 md:grid-cols-2 mb-8">
-              {/* Leads Trend (Last 7 Days) */}
+              {/* Leads Trend (Last 4 Months) */}
               <div className="rounded-lg border border-gray-700 bg-[#1a1f2e] p-6">
                 <div className="flex items-center gap-2 mb-6">
                   <TrendingUp className="h-5 w-5 text-blue-500" />
-                  <h2 className="text-lg font-semibold text-white">Leads Trend (Last 7 Days)</h2>
+                  <h2 className="text-lg font-semibold text-white">Leads Trend (Last 4 Months)</h2>
                 </div>
                 {chartsLoading ? (
                   <div className="h-48 animate-pulse rounded bg-[#141C33]" />

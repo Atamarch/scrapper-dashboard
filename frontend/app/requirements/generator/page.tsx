@@ -17,8 +17,6 @@ interface Template {
 
 export default function RequirementsGeneratorPage() {
   const [loading, setLoading] = useState(false)
-  const [mode, setMode] = useState<'url' | 'text'>('url')
-  const [url, setUrl] = useState('')
   const [jobDescription, setJobDescription] = useState('')
   const [selectedTemplate, setSelectedTemplate] = useState('')
   const [templates, setTemplates] = useState<Template[]>([])
@@ -67,12 +65,7 @@ export default function RequirementsGeneratorPage() {
       return
     }
 
-    if (mode === 'url' && !url) {
-      setError('URL is required')
-      return
-    }
-
-    if (mode === 'text' && !jobDescription) {
+    if (!jobDescription) {
       setError('Job description is required')
       return
     }
@@ -87,8 +80,7 @@ export default function RequirementsGeneratorPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          url: mode === 'url' ? url : undefined,
-          job_description: mode === 'text' ? jobDescription : undefined,
+          job_description: jobDescription,
           position
         })
       })
@@ -150,7 +142,7 @@ export default function RequirementsGeneratorPage() {
           <div className="px-8 py-8 md:px-20 md:py-8 xl:px-40 xl:py-16">
             <div className="mb-10">
               <h1 className="text-4xl font-bold text-white">Requirements Generator</h1>
-              <p className="mt-2 text-base text-gray-400">Generate job requirements from URL or text</p>
+              <p className="mt-2 text-base text-gray-400">Generate job requirements from job description text</p>
             </div>
 
           <div className="grid gap-6">
@@ -160,32 +152,6 @@ export default function RequirementsGeneratorPage() {
                 <h2 className="text-lg font-semibold mb-4 text-white">Input</h2>
                 
                 <div className="space-y-4">
-                  {/* Mode Selection */}
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setMode('url')}
-                      className={cn(
-                        'flex-1 px-4 py-2 rounded-md text-sm font-medium transition-colors',
-                        mode === 'url'
-                          ? 'bg-white text-black'
-                          : 'bg-[#141C33] text-gray-400 hover:bg-gray-700 hover:text-white'
-                      )}
-                    >
-                      From URL
-                    </button>
-                    <button
-                      onClick={() => setMode('text')}
-                      className={cn(
-                        'flex-1 px-4 py-2 rounded-md text-sm font-medium transition-colors',
-                        mode === 'text'
-                          ? 'bg-white text-black'
-                          : 'bg-[#141C33] text-gray-400 hover:bg-gray-700 hover:text-white'
-                      )}
-                    >
-                      From Text
-                    </button>
-                  </div>
-
                   {/* Template Selection Dropdown */}
                   <div>
                     <label className="block text-sm font-medium text-gray-300 mb-2">
@@ -238,37 +204,19 @@ export default function RequirementsGeneratorPage() {
                     </div>
                   </div>
 
-                  {/* URL Input */}
-                  {mode === 'url' && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-2">
-                        Job Posting URL
-                      </label>
-                      <input
-                        type="url"
-                        value={url}
-                        onChange={(e) => setUrl(e.target.value)}
-                        placeholder="https://example.com/job-posting"
-                        className="w-full rounded-md border border-gray-700 bg-[#141C33] px-4 py-2.5 text-white placeholder-gray-500 focus:border-gray-600 focus:outline-none focus:ring-1 focus:ring-gray-600"
-                      />
-                    </div>
-                  )}
-
                   {/* Text Input */}
-                  {mode === 'text' && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-2">
-                        Job Description
-                      </label>
-                      <textarea
-                        value={jobDescription}
-                        onChange={(e) => setJobDescription(e.target.value)}
-                        placeholder="Paste job description here..."
-                        rows={8}
-                        className="w-full rounded-md border border-gray-700 bg-[#141C33] px-4 py-2.5 text-white placeholder-gray-500 focus:border-gray-600 focus:outline-none focus:ring-1 focus:ring-gray-600 resize-none"
-                      />
-                    </div>
-                  )}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">
+                      Job Description
+                    </label>
+                    <textarea
+                      value={jobDescription}
+                      onChange={(e) => setJobDescription(e.target.value)}
+                      placeholder="Paste job description here..."
+                      rows={8}
+                      className="w-full rounded-md border border-gray-700 bg-[#141C33] px-4 py-2.5 text-white placeholder-gray-500 focus:border-gray-600 focus:outline-none focus:ring-1 focus:ring-gray-600 resize-none"
+                    />
+                  </div>
 
                   {/* Alerts */}
                   {error && (
