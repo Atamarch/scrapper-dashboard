@@ -464,7 +464,9 @@ async def get_schedules(external_source: Optional[str] = None):
                     "candidates_count": 0,  # Uses existing leads list
                     "created_at": schedule.get('created_at'),
                     "leads_processed": 0,  # Simplified without logs
-                    "webhook_url": schedule.get('webhook_url')
+                    "webhook_url": schedule.get('webhook_url'),
+                    "template_id": schedule.get('template_id'),  # ADD: Include template_id for frontend
+                    "start_schedule": schedule.get('start_schedule')  # ADD: Include cron for frontend
                 }
             else:
                 # Internal schedule format (existing format)

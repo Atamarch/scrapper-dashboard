@@ -331,11 +331,20 @@ export default function SchedulerPage() {
                     </tr>
                   ) : (
                     jobs.map((job) => {
-                      const template = templates.find(t => t.id === job.template_id)
+                      // Handle both external and internal schedule formats
+                      const jobId = job.id || job.schedule_id;
+                      const jobTemplateId = job.template_id;
+                      const jobName = job.name;
+                      const jobStatus = job.status || job.schedule_status;
+                      const jobSchedule = job.start_schedule;
+                      const jobLastRun = job.last_run;
+                      
+                      const template = templates.find(t => t.id === jobTemplateId);
+                      
                       return (
-                        <tr key={job.id} className="transition-colors hover:bg-gray-700/30">
+                        <tr key={jobId} className="transition-colors hover:bg-gray-700/30">
                           <td className="px-6 py-4">
-                            <div className="font-medium text-white">{job.name}</div>
+                            <div className="font-medium text-white">{jobName}</div>
                           </td>
                           <td className="px-6 py-4">
                             <div className="text-sm text-gray-300">
@@ -344,61 +353,61 @@ export default function SchedulerPage() {
                           </td>
                           <td className="px-6 py-4">
                             <code className="rounded bg-[#141C33] px-2 py-1 text-sm text-gray-300">
-                              {job.start_schedule}
+                              {jobSchedule}
                             </code>
                           </td>
                           <td className="px-6 py-4">
                             <span
                               className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                                job.status === 'active'
+                                jobStatus === 'active'
                                   ? 'bg-green-500/10 text-green-500'
                                   : 'bg-yellow-500/10 text-yellow-500'
                               }`}
                             >
                               <span
                                 className={`h-1.5 w-1.5 rounded-full ${
-                                  job.status === 'active' ? 'bg-green-500' : 'bg-yellow-500'
+                                  jobStatus === 'active' ? 'bg-green-500' : 'bg-yellow-500'
                                 }`}
                               />
-                              {job.status === 'active' ? 'Active' : 'Inactive'}
+                              {jobStatus === 'active' ? 'Active' : 'Inactive'}
                             </span>
                           </td>
                           <td className="px-6 py-4 text-sm text-gray-400">
-                            {formatDate(job.last_run)}
+                            {formatDate(jobLastRun)}
                           </td>
                           <td className="px-6 py-4">
                             <div className="flex items-center justify-end gap-2">
                               <button
-                                onClick={() => handleExecuteNow(job.id)}
-                                disabled={executing === job.id}
+                                onClick={() => handleExecuteNow(jobId)}
+                                disabled={executing === jobId}
                                 className="rounded-md border border-gray-700 p-2 transition-colors hover:bg-green-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                                 title="Execute Now"
                               >
-                                <PlayCircle className={`h-4 w-4 ${executing === job.id ? 'animate-spin' : ''}`} />
+                                <PlayCircle className={`h-4 w-4 ${executing === jobId ? 'animate-spin' : ''}`} />
                               </button>
                               <button
-                                onClick={() => handleEdit(job)}
-                                disabled={executing === job.id || toggling === job.id}
+                                onClick={() => handleEdit({...job, id: jobId, template_id: jobTemplateId, status: jobStatus, start_schedule: jobSchedule})}
+                                disabled={executing === jobId || toggling === jobId}
                                 className="rounded-md border border-gray-700 p-2 transition-colors hover:bg-gray-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                                 title="Edit"
                               >
                                 <Edit className="h-4 w-4" />
                               </button>
                               <button
-                                onClick={() => handleToggleStatus(job.id)}
-                                disabled={toggling === job.id || executing === job.id}
+                                onClick={() => handleToggleStatus(jobId)}
+                                disabled={toggling === jobId || executing === jobId}
                                 className="rounded-md border border-gray-700 p-2 transition-colors hover:bg-gray-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
-                                title={job.status === 'active' ? 'Pause' : 'Resume'}
+                                title={jobStatus === 'active' ? 'Pause' : 'Resume'}
                               >
-                                {job.status === 'active' ? (
-                                  <Pause className={`h-4 w-4 ${toggling === job.id ? 'animate-pulse' : ''}`} />
+                                {jobStatus === 'active' ? (
+                                  <Pause className={`h-4 w-4 ${toggling === jobId ? 'animate-pulse' : ''}`} />
                                 ) : (
-                                  <Play className={`h-4 w-4 ${toggling === job.id ? 'animate-pulse' : ''}`} />
+                                  <Play className={`h-4 w-4 ${toggling === jobId ? 'animate-pulse' : ''}`} />
                                 )}
                               </button>
                               <button
-                                onClick={() => setDeleteConfirm(job.id)}
-                                disabled={executing === job.id || toggling === job.id}
+                                onClick={() => setDeleteConfirm(jobId)}
+                                disabled={executing === jobId || toggling === jobId}
                                 className="rounded-md border border-gray-700 p-2 transition-colors hover:border-red-800 hover:bg-red-950 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                                 title="Remove"
                               >
