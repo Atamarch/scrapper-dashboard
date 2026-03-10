@@ -13,6 +13,7 @@ import sys
 import json
 import re
 import time
+import uuid
 from pathlib import Path
 
 # Add crawler to path
@@ -365,30 +366,24 @@ class CrawlerScheduleUpdate(BaseModel):
 
 
 class ExternalScheduleRequest(BaseModel):
-    external_job_id: str = Field(
-        ...,
-        example="sarana_job_12345",
-        description="External job ID for tracking"
-    )
     job_title: str = Field(
         ...,
         example="Senior Fullstack Engineering",
         description="Job title"
     )
-    candidate_urls: List[str] = Field(
+    job_description: str = Field(
         ...,
-        example=["https://linkedin.com/in/johndoe", "https://linkedin.com/in/janedoe"],
-        description="List of LinkedIn profile URLs to scrape"
+        description="Full job description text (will be used for both requirements generation and search template description)"
     )
     schedule_date: str = Field(
         ...,
         example="2026-03-15",
         description="Schedule date in YYYY-MM-DD format"
     )
-    schedule_time: str = Field(
-        ...,
+    schedule_time: Optional[str] = Field(
+        "09:00",
         example="09:00",
-        description="Schedule time in HH:MM format"
+        description="Schedule time in HH:MM format (default: 09:00 - working hours)"
     )
     timezone: Optional[str] = Field(
         "Asia/Jakarta",
@@ -407,7 +402,7 @@ class ExternalScheduleRequest(BaseModel):
     )
     webhook_url: Optional[str] = Field(
         None,
-        example="https://sarana.ai/api/scraping-results",
+        example="https://nara.ai/api/scraping-results",
         description="Webhook URL to send results"
     )
     external_source: Optional[str] = Field(
@@ -452,23 +447,10 @@ async def get_schedules(external_source: Optional[str] = None):
             
             if is_external:
                 # External schedule format
-                # Get latest execution log
-                latest_log = None
-                try:
-                    log_result = supabase.table('scheduler_logs').select('*')\
-                        .eq('schedule_id', schedule['id'])\
-                        .order('created_at', desc=True)\
-                        .limit(1)\
-                        .execute()
-                    if log_result.data:
-                        latest_log = log_result.data[0]
-                except Exception as e:
-                    print(f"⚠️ Failed to get log for {schedule['id']}: {e}")
-                
-                # Determine execution status
+                # Determine execution status based on last_run
                 execution_status = "pending"
-                if latest_log:
-                    execution_status = "completed" if latest_log['status'] == 'success' else "failed"
+                if schedule.get('last_run'):
+                    execution_status = "completed"  # Assume completed if has last_run
                 
                 formatted_schedule = {
                     "schedule_id": schedule['id'],
@@ -483,7 +465,7 @@ async def get_schedules(external_source: Optional[str] = None):
                     "candidates_count": len(external_metadata.get('candidate_urls', [])),
                     "created_at": schedule.get('created_at'),
                     "updated_at": schedule.get('updated_at'),
-                    "leads_processed": latest_log.get('leads_queued', 0) if latest_log else 0,
+                    "leads_processed": 0,  # Simplified without logs
                     "webhook_url": schedule.get('webhook_url')
                 }
             else:
@@ -1221,95 +1203,284 @@ async def save_requirements(request: RequirementsSaveRequest):
 
 @app.post("/api/external/schedule-scraping")
 async def create_external_schedule(request: ExternalScheduleRequest):
-    """Create schedule for external platform integration"""
+    """Create comprehensive schedule for external platform integration - distributes data to multiple services"""
     try:
-        print(f"\n📥 EXTERNAL SCHEDULE REQUEST")
-        print(f"   External Job ID: {request.external_job_id}")
-        print(f"   Job Title: {request.job_title}")
-        print(f"   Candidates: {len(request.candidate_urls)}")
+        # Generate unique job ID for Nara
+        job_id = f"nara_{uuid.uuid4().hex[:8]}"
+        
+        print(f"\n🌐 EXTERNAL SCHEDULE REQUEST from {request.external_source}")
+        print(f"   Job: {request.job_title}")
+        print(f"   Generated Job ID: {job_id}")
         print(f"   Schedule: {request.schedule_date} {request.schedule_time}")
-        print(f"   Source: {request.external_source}")
+        print(f"   Note: Candidates will be taken from existing leads list")
         
-        # Parse schedule date and time
-        from datetime import datetime
-        import pytz
+        # ============================================================================
+        # STEP 1: GET OR CREATE COMPANY ID FOR NARA
+        # ============================================================================
+        company_id = None
+        try:
+            # Get company with code "nara"
+            company_result = supabase.table("companies").select("uuid, name").eq("code", "nara").execute()
+            
+            if company_result.data and len(company_result.data) > 0:
+                company_id = company_result.data[0]["uuid"]
+                print(f"✅ Found Nara company: {company_id}")
+            else:
+                # Create Nara company if not exists
+                print(f"⚠️ Company with code 'nara' not found, creating...")
+                try:
+                    new_company = {
+                        "name": "Nara",
+                        "code": "nara",
+                        "created_at": datetime.utcnow().isoformat()
+                    }
+                    
+                    create_result = supabase.table("companies").insert(new_company).execute()
+                    if create_result.data:
+                        company_id = create_result.data[0]["uuid"]
+                        print(f"✅ Created Nara company: {company_id}")
+                    else:
+                        print(f"⚠️ Failed to create Nara company")
+                except Exception as e:
+                    print(f"⚠️ Failed to create Nara company: {e}")
+        except Exception as e:
+            print(f"⚠️ Failed to get/create Nara company: {e}")
         
-        # Parse date and time
-        schedule_datetime = datetime.strptime(f"{request.schedule_date} {request.schedule_time}", "%Y-%m-%d %H:%M")
+        # ============================================================================
+        # STEP 2: CREATE SEARCH TEMPLATE
+        # ============================================================================
+        template_id = str(uuid.uuid4())
+        template_name = f"{request.job_title} - Nara"
         
-        # Convert to specified timezone
-        tz = pytz.timezone(request.timezone)
-        schedule_datetime = tz.localize(schedule_datetime)
+        # Create search template entry
+        try:
+            template_data = {
+                "id": template_id,
+                "name": template_name,
+                "job_description": request.job_description,  # Job description goes to job_description column
+                "job_title": request.job_title,
+                "company_id": company_id,  # Link to Nara company
+                "url": None,  # No URL for Nara templates
+                "note": f"Auto-generated from Nara platform - Job ID: {job_id}",  # Job ID in note instead
+                "requirements": request.requirements or {},  # Store requirements as JSONB
+                "external_source": request.external_source,  # Store source platform
+                "created_at": datetime.utcnow().isoformat()
+            }
+            
+            # Try to insert to search_templates table
+            try:
+                supabase.table("search_templates").insert(template_data).execute()
+                print(f"✅ Created search template: {template_id}")
+            except Exception as e:
+                print(f"⚠️ Search templates table might not exist, storing in metadata: {e}")
+                # If table doesn't exist, we'll store template info in external_metadata
+        except Exception as e:
+            print(f"⚠️ Template creation warning: {e}")
         
-        # Generate cron expression (one-time execution)
-        cron_expression = f"{schedule_datetime.minute} {schedule_datetime.hour} {schedule_datetime.day} {schedule_datetime.month} *"
+        # ============================================================================
+        # STEP 2: GENERATE REQUIREMENTS FROM JOB DESCRIPTION
+        # ============================================================================
+        requirements_data = None
+        try:
+            # Use existing requirements generation logic
+            from pathlib import Path
+            
+            # Generate requirements using existing function logic
+            def extract_bullet_points_local(text: str) -> List[str]:
+                if not text:
+                    return []
+                
+                bullets = []
+                lines = [line.strip() for line in text.split('\n') if line.strip()]
+                
+                for line in lines:
+                    if line.startswith(('•', '-', '*', '◦', '▪', '▫')):
+                        bullets.append(line[1:].strip())
+                    elif line.lower().startswith(('requirement', 'skill', 'experience', 'qualification')):
+                        bullets.append(line)
+                
+                return bullets[:20]  # Limit to 20 items
+            
+            def classify_requirement_local(text: str, req_id: int) -> Dict:
+                text_lower = text.lower()
+                
+                # Determine category
+                if any(word in text_lower for word in ['year', 'experience', 'senior', 'junior', 'lead']):
+                    category = 'experience'
+                elif any(word in text_lower for word in ['degree', 'bachelor', 'master', 'education', 'university']):
+                    category = 'education'
+                elif any(word in text_lower for word in ['python', 'java', 'javascript', 'react', 'node', 'sql', 'aws']):
+                    category = 'technical'
+                elif any(word in text_lower for word in ['communication', 'leadership', 'teamwork', 'management']):
+                    category = 'soft_skills'
+                else:
+                    category = 'general'
+                
+                # Determine priority
+                if any(word in text_lower for word in ['must', 'required', 'essential', 'mandatory']):
+                    priority = 'high'
+                elif any(word in text_lower for word in ['preferred', 'nice', 'plus', 'bonus']):
+                    priority = 'low'
+                else:
+                    priority = 'medium'
+                
+                return {
+                    "id": req_id,
+                    "text": text,
+                    "category": category,
+                    "priority": priority,
+                    "weight": 3 if priority == 'high' else 2 if priority == 'medium' else 1
+                }
+            
+            # Extract and classify requirements
+            bullet_points = extract_bullet_points_local(request.job_description)
+            requirements_list = []
+            
+            for i, bullet in enumerate(bullet_points, 1):
+                classified = classify_requirement_local(bullet, i)
+                requirements_list.append(classified)
+            
+            # Create requirements data structure
+            requirements_data = {
+                "position": request.job_title,
+                "company": "Nara",
+                "job_id": job_id,
+                "requirements": requirements_list,
+                "metadata": {
+                    "total_requirements": len(requirements_list),
+                    "high_priority": len([r for r in requirements_list if r["priority"] == "high"]),
+                    "medium_priority": len([r for r in requirements_list if r["priority"] == "medium"]),
+                    "low_priority": len([r for r in requirements_list if r["priority"] == "low"]),
+                    "generated_from": "job_description",
+                    "external_source": request.external_source,
+                    "company": "Nara"
+                }
+            }
+            
+            # Save requirements to file
+            requirements_dir = Path("../scoring/requirements")
+            requirements_dir.mkdir(exist_ok=True)
+            
+            filename = f"{job_id}_nara.json"
+            filepath = requirements_dir / filename
+            
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(requirements_data, f, indent=2, ensure_ascii=False)
+            
+            print(f"✅ Generated requirements: {len(requirements_list)} items")
+            print(f"✅ Saved requirements to: {filepath}")
+            
+        except Exception as e:
+            print(f"⚠️ Requirements generation failed: {e}")
+            # Continue without requirements if generation fails
         
-        print(f"   Generated cron: {cron_expression}")
+        # ============================================================================
+        # STEP 3: CREATE SCHEDULE
+        # ============================================================================
         
-        # Create auto-template from requirements if provided
-        template_id = None
-        if request.requirements:
-            # Create a simple template based on requirements
-            template_name = f"Auto: {request.job_title}"
-            # For now, use existing template or create basic one
-            # TODO: Implement auto-template generation
-            print(f"   Requirements provided, would create auto-template")
+        # Parse schedule datetime
+        try:
+            schedule_datetime_str = f"{request.schedule_date} {request.schedule_time}"
+            schedule_dt = datetime.strptime(schedule_datetime_str, "%Y-%m-%d %H:%M")
+            
+            # Convert to one-time cron expression (specific date and time)
+            # Format: minute hour day month * (for specific date execution)
+            cron_expression = f"{schedule_dt.minute} {schedule_dt.hour} {schedule_dt.day} {schedule_dt.month} *"
+            
+            print(f"✅ Generated one-time cron: {cron_expression} for {schedule_datetime_str}")
+            
+        except Exception as e:
+            print(f"⚠️ Schedule parsing failed: {e}")
+            # Default to today at 9 AM if parsing fails
+            today = datetime.now()
+            cron_expression = f"0 9 {today.day} {today.month} *"
+            print(f"✅ Using fallback cron: {cron_expression}")
         
-        # Use default template for now
-        # TODO: Get from existing templates or create auto-template
-        templates = supabase.table('search_templates').select('id').limit(1).execute()
-        if templates.data:
-            template_id = templates.data[0]['id']
-        else:
-            raise HTTPException(status_code=500, detail="No templates available")
-        
-        # Prepare external metadata
+        # Create external metadata
         external_metadata = {
-            'external_job_id': request.external_job_id,
-            'job_title': request.job_title,
-            'candidate_urls': request.candidate_urls,
-            'schedule_datetime': schedule_datetime.isoformat(),
-            'requirements': request.requirements or {},
-            'created_at': datetime.now().isoformat(),
-            'source_platform': request.external_source
+            "job_id": job_id,
+            "company": "Nara",
+            "company_id": company_id,
+            "job_title": request.job_title,
+            "job_description": request.job_description,
+            "schedule_datetime": f"{request.schedule_date} {request.schedule_time}",
+            "timezone": request.timezone,
+            "template_id": template_id,
+            "template_name": template_name,
+            "requirements_file": f"{job_id}_nara.json" if requirements_data else None,
+            "requirements_generated": requirements_data is not None,
+            "note": "Candidates will be taken from existing leads list"
         }
         
         # Create schedule
         schedule_data = {
-            'name': f"External: {request.job_title}",
-            'start_schedule': cron_expression,
-            'template_id': template_id,
-            'status': 'active',
-            'external_source': request.external_source,
-            'external_metadata': external_metadata,
-            'webhook_url': request.webhook_url
+            "name": f"[NARA] {request.job_title}",
+            "start_schedule": cron_expression,
+            "template_id": template_id,
+            "status": "active",
+            "external_source": request.external_source,
+            "external_metadata": external_metadata,
+            "webhook_url": request.webhook_url,
+            "created_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.utcnow().isoformat()
         }
         
-        # Create schedule using existing ScheduleManager
-        created_schedule = ScheduleManager.create(schedule_data)
+        # Insert schedule to database
+        result = supabase.table("crawler_schedules").insert(schedule_data).execute()
         
-        if not created_schedule:
+        if not result.data:
             raise HTTPException(status_code=500, detail="Failed to create schedule")
         
-        # Add to scheduler service if active
-        if scheduler and created_schedule['status'] == 'active':
-            try:
-                scheduler.add_job(created_schedule['id'])
-                print(f"✅ Added external schedule to scheduler")
-            except Exception as e:
-                print(f"⚠️ Failed to add to scheduler: {e}")
+        schedule = result.data[0]
+        schedule_id = schedule["id"]
         
-        print(f"✅ External schedule created: {created_schedule['id']}")
+        print(f"✅ Created schedule: {schedule_id}")
+        
+        # ============================================================================
+        # STEP 4: ADD TO SCHEDULER SERVICE
+        # ============================================================================
+        
+        try:
+            if scheduler_service:
+                scheduler_service.add_schedule(
+                    schedule_id=schedule_id,
+                    name=schedule["name"],
+                    cron_expression=cron_expression,
+                    template_id=template_id
+                )
+                print(f"✅ Added to scheduler service")
+        except Exception as e:
+            print(f"⚠️ Scheduler service warning: {e}")
+        
+        # ============================================================================
+        # RESPONSE
+        # ============================================================================
         
         return {
             "success": True,
-            "schedule_id": created_schedule['id'],
-            "external_job_id": request.external_job_id,
-            "scheduled_for": schedule_datetime.isoformat(),
-            "candidates_count": len(request.candidate_urls),
-            "cron_expression": cron_expression,
-            "status": "scheduled",
-            "webhook_configured": bool(request.webhook_url)
+            "message": "Nara schedule created successfully with distributed data",
+            "data": {
+                "schedule_id": schedule_id,
+                "template_id": template_id,
+                "job_id": job_id,
+                "company": "Nara",
+                "company_id": company_id,
+                "external_source": request.external_source,
+                "job_title": request.job_title,
+                "schedule_status": "active",
+                "cron_expression": cron_expression,
+                "webhook_url": request.webhook_url,
+                "created_at": schedule.get("created_at"),
+                "note": "Candidates will be taken from existing leads list",
+                "services_updated": {
+                    "search_template": template_id,
+                    "company_linked": company_id is not None,
+                    "requirements_generated": requirements_data is not None,
+                    "requirements_file": f"{job_id}_nara.json" if requirements_data else None,
+                    "schedule_created": schedule_id,
+                    "scheduler_service": scheduler_service is not None
+                }
+            }
         }
         
     except HTTPException:
@@ -1318,7 +1489,7 @@ async def create_external_schedule(request: ExternalScheduleRequest):
         print(f"❌ External schedule creation failed: {str(e)}")
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to create external schedule: {str(e)}")
 
 
 @app.get("/api/scraping/status", response_model=CrawlerStatusResponse)
@@ -1588,28 +1759,13 @@ async def get_external_schedule_status(schedule_id: str):
         
         external_metadata = schedule.get('external_metadata', {})
         
-        # Get execution logs if available
-        logs = []
-        try:
-            log_result = supabase.table('scheduler_logs').select('*')\
-                .eq('schedule_id', schedule_id)\
-                .order('created_at', desc=True)\
-                .limit(5)\
-                .execute()
-            logs = log_result.data or []
-        except Exception as e:
-            print(f"⚠️ Failed to get logs: {e}")
-        
         # Determine current status
         current_status = schedule['status']
         execution_status = "pending"
         
-        if logs:
-            latest_log = logs[0]
-            if latest_log['status'] == 'success':
-                execution_status = "completed"
-            elif latest_log['status'] == 'failed':
-                execution_status = "failed"
+        # Simple status check based on last_run
+        if schedule.get('last_run'):
+            execution_status = "completed"
         
         # Check if schedule time has passed
         schedule_datetime_str = external_metadata.get('schedule_datetime')
@@ -1631,8 +1787,7 @@ async def get_external_schedule_status(schedule_id: str):
             "last_run": schedule.get('last_run'),
             "candidates_count": len(external_metadata.get('candidate_urls', [])),
             "webhook_url": schedule.get('webhook_url'),
-            "created_at": schedule.get('created_at'),
-            "execution_logs": logs[:3] if logs else []  # Last 3 logs
+            "created_at": schedule.get('created_at')
         }
         
         print(f"✅ Status retrieved: {execution_status}")
