@@ -12,8 +12,6 @@ import sys
 import json
 import re
 from pathlib import Path
-import requests
-from bs4 import BeautifulSoup
 
 # Add crawler to path
 sys.path.append(str(Path(__file__).parent.parent / "crawler"))
@@ -98,40 +96,15 @@ def init_services():
 
 # Pydantic models
 class RequirementsGenerateRequest(BaseModel):
-    url: Optional[str] = Field(
-        None,
-        example="https://example.com/job-posting",
-        description="URL of job posting to scrape"
-    )
-    job_description: Optional[str] = Field(
-        None,
-        example="We are looking for a debt collector with 2+ years experience...",
-        description="Job description text"
+    job_description: str = Field(
+        ...,
+        example="We are looking for a debt collector with 2+ years experience in BPR or financial institutions. Requirements: Male/Female, Age 25-35, Education minimum SMA, Experience in debt collection, Good communication skills, Placement in Jakarta.",
+        description="Job description text containing requirements"
     )
     position: str = Field(
         ...,
         example="Debt Collector",
         description="Job position title"
-    )
-    min_experience_years: Optional[int] = Field(
-        1,
-        example=2,
-        description="Minimum years of experience required"
-    )
-    required_gender: Optional[str] = Field(
-        None,
-        example="any",
-        description="Required gender: 'male', 'female', or 'any'"
-    )
-    required_location: Optional[str] = Field(
-        None,
-        example="Jakarta",
-        description="Required location"
-    )
-    required_age_range: Optional[Dict[str, int]] = Field(
-        None,
-        example={"min": 25, "max": 35},
-        description="Required age range"
     )
 
 class RequirementsSaveRequest(BaseModel):
@@ -835,233 +808,7 @@ async def execute_schedule_manually(schedule_id: str):
 
 
 # ============================================================================
-# REQUIREMENTS GENERATOR ENDPOINTS
-# ============================================================================
-
-def fetch_page_content(url: str) -> Optional[str]:
-    """Fetch HTML content from URL"""
-    try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        return response.text
-    except Exception as e:
-        print(f"Error fetching URL: {e}")
-        return None
-
-def extract_kualifikasi_section(html: str) -> Optional[str]:
-    """Extract Kualifikasi section from HTML with improved detection"""
-    soup = BeautifulSoup(html, 'html.parser')
-    
-    # Try multiple variations of "Kualifikasi" heading
-    kualifikasi_keywords = [
-        'kualifikasi', 'persyaratan', 'requirements', 'qualifications', 
-        'syarat', 'kriteria', 'ketentuan', 'spesifikasi'
-    ]
-    
-    kualifikasi_heading = None
-    
-    # Method 1: Find heading tags
-    for heading in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'b']):
-        heading_text = heading.get_text().lower().strip()
-        # Check if heading contains keyword and is not too long (likely a heading)
-        if any(keyword in heading_text for keyword in kualifikasi_keywords) and len(heading_text) < 100:
-            kualifikasi_heading = heading
-            break
-    
-    if not kualifikasi_heading:
-        # Method 2: Find div/section with kualifikasi in class or id
-        for element in soup.find_all(['div', 'section', 'article']):
-            class_id = ' '.join(element.get('class', [])) + ' ' + element.get('id', '')
-            if any(keyword in class_id.lower() for keyword in kualifikasi_keywords):
-                return element.get_text()
-        
-        # Method 3: Find paragraph or list that starts with keyword
-        for element in soup.find_all(['p', 'ul', 'ol']):
-            text = element.get_text().strip()
-            if any(text.lower().startswith(keyword) for keyword in kualifikasi_keywords):
-                # Get this element and all following siblings until next heading
-                content = [text]
-                for sibling in element.find_next_siblings():
-                    if sibling.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
-                        break
-                    sibling_text = sibling.get_text().strip()
-                    if sibling_text:
-                        content.append(sibling_text)
-                return '\n'.join(content)
-        
-        return None
-    
-    # Get all content after Kualifikasi until next heading
-    content = []
-    
-    # Include the heading text itself (might contain info)
-    heading_text = kualifikasi_heading.get_text().strip()
-    if heading_text:
-        content.append(heading_text)
-    
-    # Get siblings
-    for sibling in kualifikasi_heading.find_next_siblings():
-        if sibling.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
-            break
-        text = sibling.get_text().strip()
-        if text:
-            content.append(text)
-    
-    # If no siblings found, try parent's next siblings
-    if len(content) <= 1 and kualifikasi_heading.parent:
-        for sibling in kualifikasi_heading.parent.find_next_siblings():
-            if sibling.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
-                break
-            text = sibling.get_text().strip()
-            if text:
-                content.append(text)
-    
-    # If still nothing, try to get parent's text
-    if len(content) <= 1 and kualifikasi_heading.parent:
-        parent_text = kualifikasi_heading.parent.get_text().strip()
-        if parent_text and len(parent_text) > len(heading_text):
-            content.append(parent_text)
-    
-    return '\n'.join(content) if content else None
-
-def parse_kualifikasi(text: str) -> Dict:
-    """Parse kualifikasi text and extract ALL items as requirements"""
-    data = {
-        'gender': None,
-        'age_range': None,
-        'education': [],
-        'location': None,
-        'min_experience_years': 0,
-        'experience_keywords': [],
-        'skills': [],
-        'all_requirements': []
-    }
-    
-    if not text:
-        return data
-    
-    # Split by newlines and clean
-    lines = [line.strip() for line in text.split('\n') if line.strip()]
-    
-    # Remove the heading line if it's just "Kualifikasi:"
-    if lines and any(keyword in lines[0].lower() for keyword in ['kualifikasi', 'persyaratan', 'requirements']):
-        lines = lines[1:]
-    
-    # Process each line as a requirement
-    for line in lines:
-        # Skip if line is too short or just punctuation
-        if len(line) < 5 or line in ['•', '-', '*', '○']:
-            continue
-        
-        # Clean bullet points
-        line_clean = re.sub(r'^[•\-\*○]\s*', '', line).strip()
-        
-        if not line_clean:
-            continue
-        
-        # Add to all requirements
-        data['all_requirements'].append(line_clean)
-        
-        line_lower = line_clean.lower()
-        
-        # Extract specific fields for backward compatibility
-        
-        # Gender
-        if any(word in line_lower for word in ['pria', 'wanita', 'laki-laki', 'perempuan', 'male', 'female']):
-            if 'pria / wanita' in line_lower or 'pria/wanita' in line_lower:
-                data['gender'] = None  # Both accepted
-            elif any(word in line_lower for word in ['wanita', 'perempuan', 'female']):
-                data['gender'] = 'Female'
-            elif any(word in line_lower for word in ['pria', 'laki-laki', 'male']):
-                data['gender'] = 'Male'
-        
-        # Age
-        age_patterns = [
-            r'usia\s+(?:maksimal\s+)?(\d+)\s*(?:-\s*(\d+))?\s*tahun',
-            r'umur\s+(\d+)\s*(?:-\s*(\d+))?\s*tahun',
-            r'maksimal\s+(\d+)\s+tahun'
-        ]
-        for pattern in age_patterns:
-            age_match = re.search(pattern, line_lower)
-            if age_match:
-                if age_match.lastindex >= 2 and age_match.group(2):
-                    data['age_range'] = {
-                        'min': int(age_match.group(1)),
-                        'max': int(age_match.group(2))
-                    }
-                else:
-                    data['age_range'] = {
-                        'min': 18,
-                        'max': int(age_match.group(1))
-                    }
-                break
-        
-        # Education
-        if any(word in line_lower for word in ['pendidikan', 'education', 'lulusan', 'ijazah', 'sma', 'smk', 'diploma', 's1', 'sarjana']):
-            if any(word in line_lower for word in ['sma', 'smk', 'high school', 'slta']):
-                if 'High School' not in data['education']:
-                    data['education'].append('High School')
-            if any(word in line_lower for word in ['diploma', 'd3', 'd-3']):
-                if 'Diploma' not in data['education']:
-                    data['education'].append('Diploma')
-            if any(word in line_lower for word in ['sarjana', 's1', 's-1', 'bachelor']):
-                if 'Bachelor' not in data['education']:
-                    data['education'].append('Bachelor')
-            if 'sederajat' in line_lower and not data['education']:
-                data['education'] = ['High School', 'Diploma']
-        
-        # Location
-        if any(word in line_lower for word in ['penempatan', 'lokasi', 'domisili', 'location']):
-            location_match = re.search(r'(?:penempatan|lokasi|domisili|location)\s*:?\s*([A-Za-z\s]+)', line, re.IGNORECASE)
-            if location_match:
-                location = location_match.group(1).strip()
-                location = re.sub(r'\s+(atau|or|dan|and)\s+.*', '', location, flags=re.IGNORECASE)
-                if location and len(location) > 2:
-                    data['location'] = location.title()
-        
-        # Experience years
-        exp_patterns = [
-            r'(?:pengalaman|experience).*?(\d+)\s*(?:tahun|years?)',
-            r'minimal\s+(\d+)\s+tahun',
-            r'(\d+)\+?\s+(?:tahun|years?)'
-        ]
-        for pattern in exp_patterns:
-            exp_match = re.search(pattern, line_lower)
-            if exp_match:
-                years = int(exp_match.group(1))
-                if years > data['min_experience_years']:
-                    data['min_experience_years'] = years
-                break
-        
-        # Experience keywords (domain specific)
-        exp_keywords = [
-            'desk collection', 'call collection', 'telecollection', 'penagihan',
-            'debt collection', 'collection', 'telemarketing', 'outbound',
-            'bpr', 'lembaga keuangan', 'perbankan', 'banking', 'finance'
-        ]
-        for keyword in exp_keywords:
-            if keyword in line_lower and keyword not in data['experience_keywords']:
-                data['experience_keywords'].append(keyword)
-        
-        # Skills (extract from common patterns)
-        skill_keywords = [
-            'komunikasi', 'communication', 'negosiasi', 'negotiation',
-            'persuasi', 'persuasion', 'komputer', 'computer',
-            'microsoft office', 'excel', 'aplikasi perkantoran',
-            'pencatatan', 'reporting', 'sistem penagihan',
-            'target', 'customer service', 'pelayanan'
-        ]
-        for skill in skill_keywords:
-            if skill in line_lower and skill not in data['skills']:
-                data['skills'].append(skill.title())
-    
-    return data
-
-# ============================================================================
-# SIMPLIFIED REQUIREMENTS GENERATOR - HELPER FUNCTIONS
+# REQUIREMENTS GENERATOR ENDPOINTS - TEXT ONLY VERSION
 # ============================================================================
 
 def extract_bullet_points(text: str) -> List[str]:
@@ -1251,42 +998,31 @@ async def get_templates():
 
 @app.post("/api/requirements/generate")
 async def generate_requirements(request: RequirementsGenerateRequest):
-    """Generate requirements from URL or job description - SIMPLIFIED VERSION"""
+    """Generate requirements from job description text - TEXT ONLY VERSION"""
     try:
-        # STEP 1: Get text from input
-        text_to_parse = ""
+        # Use job description text directly
+        text_to_parse = request.job_description.strip()
         
-        if request.url:
-            html = fetch_page_content(request.url)
-            if not html:
-                raise HTTPException(status_code=400, detail="Failed to fetch URL")
-            
-            # Try to extract Kualifikasi section
-            kualifikasi = extract_kualifikasi_section(html)
-            if kualifikasi:
-                text_to_parse = kualifikasi
-            else:
-                # Fallback to full page
-                soup = BeautifulSoup(html, 'html.parser')
-                text_to_parse = soup.get_text()
+        if not text_to_parse:
+            raise HTTPException(status_code=400, detail="Job description is required and cannot be empty")
         
-        elif request.job_description:
-            text_to_parse = request.job_description
+        print(f"📝 Processing job description for position: {request.position}")
+        print(f"📄 Text length: {len(text_to_parse)} characters")
         
-        else:
-            raise HTTPException(status_code=400, detail="Either url or job_description is required")
-        
-        # STEP 2: Extract bullet points
+        # Extract bullet points from job description
         bullets = extract_bullet_points(text_to_parse)
+        print(f"🔍 Found {len(bullets)} requirement items")
         
-        # STEP 3: Classify each bullet point
+        # Classify each bullet point
         requirements_array = []
         for i, bullet in enumerate(bullets):
             req = classify_requirement(bullet, i + 1)
             requirements_array.append(req)
+            print(f"   {i+1}. {req['type']}: {bullet[:50]}...")
         
-        # STEP 4: Add default requirements if none found
+        # Add default requirements if none found
         if len(requirements_array) == 0:
+            print("⚠️ No requirements detected, adding defaults")
             requirements_array = [
                 {
                     'id': 'req_1',
@@ -1296,24 +1032,31 @@ async def generate_requirements(request: RequirementsGenerateRequest):
                 },
                 {
                     'id': 'req_2',
-                    'label': 'Education: High School',
+                    'label': 'Education: High School or equivalent',
                     'type': 'education',
                     'value': 'high school'
                 }
             ]
         
-        # STEP 5: Build response
+        # Build response
         requirements = {
             'position': request.position,
             'requirements': requirements_array
         }
         
+        print(f"✅ Generated {len(requirements_array)} requirements for {request.position}")
+        
         return {
             'success': True,
-            'requirements': requirements
+            'requirements': requirements,
+            'total_requirements': len(requirements_array),
+            'source': 'job_description_text'
         }
     
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"❌ Error generating requirements: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/requirements/save")
