@@ -11,6 +11,7 @@ import os
 import sys
 import json
 import re
+import time
 from pathlib import Path
 
 # Add crawler to path
@@ -332,6 +333,59 @@ class CronValidationRequest(BaseModel):
     cron_expression: str = Field(..., example="0 9 * * *", description="Cron expression to validate")
 
 
+class ExternalScheduleRequest(BaseModel):
+    external_job_id: str = Field(
+        ...,
+        example="sarana_job_12345",
+        description="External job ID for tracking"
+    )
+    job_title: str = Field(
+        ...,
+        example="Senior Fullstack Engineering",
+        description="Job title"
+    )
+    candidate_urls: List[str] = Field(
+        ...,
+        example=["https://linkedin.com/in/johndoe", "https://linkedin.com/in/janedoe"],
+        description="List of LinkedIn profile URLs to scrape"
+    )
+    schedule_date: str = Field(
+        ...,
+        example="2026-03-15",
+        description="Schedule date in YYYY-MM-DD format"
+    )
+    schedule_time: str = Field(
+        ...,
+        example="09:00",
+        description="Schedule time in HH:MM format"
+    )
+    timezone: Optional[str] = Field(
+        "Asia/Jakarta",
+        example="Asia/Jakarta",
+        description="Timezone for scheduling"
+    )
+    requirements: Optional[Dict] = Field(
+        None,
+        example={
+            "position": "Senior Fullstack Engineer",
+            "min_experience": 3,
+            "skills": ["React", "Node.js", "Python"],
+            "location": "Jakarta"
+        },
+        description="Job requirements for scoring"
+    )
+    webhook_url: Optional[str] = Field(
+        None,
+        example="https://sarana.ai/api/scraping-results",
+        description="Webhook URL to send results"
+    )
+    external_source: Optional[str] = Field(
+        "nara",
+        example="nara",
+        description="Source platform identifier"
+    )
+
+
 @app.post("/api/schedules/validate-cron")
 async def validate_cron_expression(request: CronValidationRequest):
     """Validate cron expression and show next run times"""
@@ -372,17 +426,125 @@ async def get_scheduler_timezone():
 
 
 @app.get("/api/schedules")
-async def get_schedules():
-    """Get all schedules (simple - no parameters needed)"""
+async def get_schedules(
+    external_source: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0
+):
+    """Get schedules with optional filtering by external_source"""
     try:
-        schedules = ScheduleManager.get_all_simple()
+        print(f"\n📋 SCHEDULES REQUEST")
+        print(f"   External source filter: {external_source}")
+        print(f"   Status filter: {status}")
+        print(f"   Limit: {limit}, Offset: {offset}")
+        
+        # Build query
+        query = supabase.table('crawler_schedules').select('*')
+        
+        # Filter by external_source
+        if external_source == "internal":
+            # Internal schedules only (external_source is NULL)
+            query = query.is_('external_source', 'null')
+        elif external_source == "external":
+            # All external schedules (external_source is NOT NULL)
+            query = query.not_.is_('external_source', 'null')
+        elif external_source:
+            # Specific external source (e.g., "nara")
+            query = query.eq('external_source', external_source)
+        # If external_source is None, return all schedules
+        
+        # Apply status filter if provided
+        if status:
+            query = query.eq('status', status)
+        
+        # Apply pagination and ordering
+        result = query.order('created_at', desc=True)\
+            .range(offset, offset + limit - 1)\
+            .execute()
+        
+        schedules = result.data or []
+        
+        # Format response based on external_source
+        formatted_schedules = []
+        for schedule in schedules:
+            external_metadata = schedule.get('external_metadata', {})
+            is_external = bool(schedule.get('external_source'))
+            
+            if is_external:
+                # External schedule format
+                # Get latest execution log
+                latest_log = None
+                try:
+                    log_result = supabase.table('scheduler_logs').select('*')\
+                        .eq('schedule_id', schedule['id'])\
+                        .order('created_at', desc=True)\
+                        .limit(1)\
+                        .execute()
+                    if log_result.data:
+                        latest_log = log_result.data[0]
+                except Exception as e:
+                    print(f"⚠️ Failed to get log for {schedule['id']}: {e}")
+                
+                # Determine execution status
+                execution_status = "pending"
+                if latest_log:
+                    execution_status = "completed" if latest_log['status'] == 'success' else "failed"
+                
+                formatted_schedule = {
+                    "schedule_id": schedule['id'],
+                    "name": schedule['name'],
+                    "external_job_id": external_metadata.get('external_job_id'),
+                    "external_source": schedule.get('external_source'),
+                    "job_title": external_metadata.get('job_title'),
+                    "schedule_status": schedule['status'],
+                    "execution_status": execution_status,
+                    "scheduled_for": external_metadata.get('schedule_datetime'),
+                    "last_run": schedule.get('last_run'),
+                    "candidates_count": len(external_metadata.get('candidate_urls', [])),
+                    "created_at": schedule.get('created_at'),
+                    "updated_at": schedule.get('updated_at'),
+                    "leads_processed": latest_log.get('leads_queued', 0) if latest_log else 0,
+                    "webhook_url": schedule.get('webhook_url')
+                }
+            else:
+                # Internal schedule format (existing format)
+                formatted_schedule = {
+                    "id": schedule['id'],
+                    "name": schedule['name'],
+                    "start_schedule": schedule['start_schedule'],
+                    "template_id": schedule.get('template_id'),
+                    "status": schedule['status'],
+                    "last_run": schedule.get('last_run'),
+                    "next_run": schedule.get('next_run'),
+                    "created_at": schedule.get('created_at'),
+                    "updated_at": schedule.get('updated_at'),
+                    "external_source": None
+                }
+            
+            formatted_schedules.append(formatted_schedule)
+        
+        print(f"✅ Found {len(formatted_schedules)} schedules")
+        if external_source:
+            print(f"   Filtered by external_source: {external_source}")
         
         return {
             "success": True,
-            "count": len(schedules),
-            "schedules": schedules
+            "count": len(formatted_schedules),
+            "schedules": formatted_schedules,
+            "filters": {
+                "external_source": external_source,
+                "status": status
+            },
+            "pagination": {
+                "limit": limit,
+                "offset": offset,
+                "has_more": len(schedules) == limit
+            }
         }
+        
     except Exception as e:
+        print(f"❌ Schedules request failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -584,238 +746,251 @@ async def toggle_schedule(schedule_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============================================================================
+# QUEUE AND EXECUTION ENDPOINTS
+# ============================================================================
+
 @app.get("/api/schedules/queue/status")
+@handle_api_errors
 async def get_queue_status():
-    """Get queue status and consumer information"""
+    """Get RabbitMQ queue status"""
     try:
-        import pika
-        
-        # Connect to RabbitMQ
-        credentials = pika.PlainCredentials(
-            os.getenv('RABBITMQ_USER'),
-            os.getenv('RABBITMQ_PASS')
-        )
-        parameters = pika.ConnectionParameters(
-            host=os.getenv('RABBITMQ_HOST'),
-            port=int(os.getenv('RABBITMQ_PORT')),
-            virtual_host=os.getenv('RABBITMQ_VHOST'),
-            credentials=credentials
-        )
-        
-        connection = pika.BlockingConnection(parameters)
-        channel = connection.channel()
-        
-        # Check main queue
-        main_queue = os.getenv('RABBITMQ_QUEUE', 'linkedin_profiles')
-        main_queue_state = channel.queue_declare(queue=main_queue, durable=True, passive=True)
-        main_queue_size = main_queue_state.method.message_count
-        
-        # Check scoring queue
-        scoring_queue = os.getenv('SCORING_QUEUE', 'scoring_queue')
-        try:
-            scoring_queue_state = channel.queue_declare(queue=scoring_queue, durable=True, passive=True)
-            scoring_queue_size = scoring_queue_state.method.message_count
-        except:
-            scoring_queue_size = 0
-        
-        # Check outreach queue
-        outreach_queue = os.getenv('OUTREACH_QUEUE', 'outreach_queue')
-        try:
-            outreach_queue_state = channel.queue_declare(queue=outreach_queue, durable=True, passive=True)
-            outreach_queue_size = outreach_queue_state.method.message_count
-        except:
-            outreach_queue_size = 0
-        
-        connection.close()
-        
-        # Check if consumer is running (simplified check)
-        consumer_running = False
-        try:
-            import psutil
-            for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-                try:
-                    cmdline = proc.info['cmdline']
-                    if cmdline and 'python' in cmdline[0] and 'crawler_consumer.py' in ' '.join(cmdline):
-                        consumer_running = True
-                        break
-                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                    pass
-        except ImportError:
-            consumer_running = None  # Can't determine
-        
-        return {
-            "success": True,
-            "queue_status": {
-                "main_queue": {
-                    "name": main_queue,
-                    "messages": main_queue_size
-                },
-                "scoring_queue": {
-                    "name": scoring_queue,
-                    "messages": scoring_queue_size
-                },
-                "outreach_queue": {
-                    "name": outreach_queue,
-                    "messages": outreach_queue_size
-                }
-            },
-            "consumer_status": {
-                "crawler_consumer_running": consumer_running,
-                "can_check_consumer": consumer_running is not None
-            },
-            "environment": {
-                "OUTREACH_QUEUE": outreach_queue,
-                "RABBITMQ_HOST": os.getenv('RABBITMQ_HOST'),
-                "RABBITMQ_VHOST": os.getenv('RABBITMQ_VHOST')
-            },
-            "total_pending": main_queue_size + scoring_queue_size + outreach_queue_size
-        }
-        
+        from helper.rabbitmq_helper import queue_publisher
+        queue_info = queue_publisher.get_queue_info()
+        return queue_info or {"queue": "crawler_queue", "messages": 0, "consumers": 0}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get queue status: {str(e)}")
-
-
-@app.get("/api/schedules/logs")
-async def get_scheduler_logs(
-    schedule_id: Optional[str] = None,
-    status: Optional[str] = None,
-    limit: int = 50,
-    offset: int = 0
-):
-    """Get scheduler execution logs"""
-    try:
-        query = supabase.table('scheduler_logs').select('''
-            *,
-            crawler_schedules (
-                name,
-                start_schedule
-            )
-        ''')
-        
-        # Apply filters
-        if schedule_id:
-            query = query.eq('schedule_id', schedule_id)
-        if status:
-            query = query.eq('status', status)
-        
-        # Order and paginate
-        result = query.order('created_at', desc=True).range(offset, offset + limit - 1).execute()
-        
-        return {
-            "success": True,
-            "logs": result.data or [],
-            "count": len(result.data) if result.data else 0,
-            "limit": limit,
-            "offset": offset
-        }
-    except Exception as e:
+        logger.error(f"Error getting queue status: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/schedules/consumer/start")
-async def start_consumer():
-    """Manually start crawler consumer (local only)"""
-    try:
-        import subprocess
-        import psutil
-        
-        # Check if already running
-        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-            try:
-                cmdline = proc.info['cmdline']
-                if cmdline and 'python' in cmdline[0] and 'crawler_consumer.py' in ' '.join(cmdline):
-                    return {
-                        "success": False,
-                        "message": f"Crawler consumer is already running (PID: {proc.info['pid']})",
-                        "pid": proc.info['pid']
-                    }
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                pass
-        
-        # Start consumer
-        crawler_dir = os.path.join(os.path.dirname(__file__), '..', 'crawler')
-        consumer_path = os.path.join(crawler_dir, 'crawler_consumer.py')
-        
-        if not os.path.exists(consumer_path):
-            raise HTTPException(status_code=404, detail="Crawler consumer script not found")
-        
-        process = subprocess.Popen(
-            ['python', consumer_path],
-            cwd=crawler_dir,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0
-        )
-        
-        return {
-            "success": True,
-            "message": "Crawler consumer started successfully",
-            "pid": process.pid,
-            "working_directory": crawler_dir
-        }
-        
-    except ImportError:
-        raise HTTPException(status_code=500, detail="psutil not available - cannot manage consumer")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to start consumer: {str(e)}")
-
-
 @app.post("/api/schedules/{schedule_id}/execute")
+@handle_api_errors
 async def execute_schedule_manually(schedule_id: str):
-    """Manually execute a specific schedule"""
-    global current_crawl_session
-    
+    """Execute schedule manually"""
     try:
-        # Get schedule
-        schedule = ScheduleManager.get_by_id(schedule_id)
-        if not schedule:
+        # Get schedule details
+        result = supabase.table("crawler_schedules").select("*").eq("id", schedule_id).execute()
+        
+        if not result.data:
             raise HTTPException(status_code=404, detail="Schedule not found")
         
-        # Check if template_id exists in schedule
-        if 'template_id' not in schedule or not schedule['template_id']:
-            raise HTTPException(status_code=400, detail="Schedule does not have a template_id configured")
+        schedule = result.data[0]
         
-        # Validate template exists
-        template_result = supabase.table('search_templates').select('id, name').eq('id', schedule['template_id']).execute()
-        if not template_result.data:
-            raise HTTPException(status_code=404, detail=f"Template with ID {schedule['template_id']} not found")
+        # Execute the crawl
+        from helper.rabbitmq_helper import queue_publisher
         
-        # Start scraping with the template_id from schedule
-        scraping_request = ScrapingRequest(template_id=schedule['template_id'])
-        scraping_result = await start_scraping(scraping_request)
+        payload = {
+            "template_id": schedule["template_id"],
+            "source": "manual",
+            "schedule_id": schedule_id,
+            "schedule_name": schedule["name"]
+        }
         
-        # Override session to mark as scheduled execution
-        if scraping_result.success and scraping_result.leads_queued > 0:
-            current_crawl_session.update({
-                'source': 'scheduled',
-                'schedule_id': schedule_id,
-                'schedule_name': schedule['name']
-            })
-            print(f"✅ Updated session for scheduled execution: {schedule['name']} (ID: {schedule_id})")
-        
-        # Update last_run timestamp
-        ScheduleManager.update(schedule_id, {
-            'last_run': datetime.now().isoformat()
-        })
+        queue_publisher.publish("crawler_queue", payload)
         
         return {
             "success": True,
-            "message": f"Schedule '{schedule['name']}' executed manually with template {schedule['template_id']}",
+            "message": f"Schedule '{schedule['name']}' executed manually",
             "schedule_id": schedule_id,
-            "schedule_name": schedule['name'],
-            "template_id": schedule['template_id'],
-            "scraping_result": scraping_result,
-            "last_run_updated": True
+            "template_id": schedule["template_id"]
         }
         
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Error executing schedule manually {schedule_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============================================================================
-# REQUIREMENTS GENERATOR ENDPOINTS - TEXT ONLY VERSION
+# SCRAPING ENDPOINTS
+# ============================================================================
+
+@app.post("/api/scraping/start")
+@handle_api_errors
+async def start_scraping(request: ScrapingRequest):
+    """Start scraping process"""
+    try:
+        from helper.rabbitmq_helper import queue_publisher
+        
+        payload = {
+            "template_id": request.template_id,
+            "source": "manual"
+        }
+        
+        queue_publisher.publish("crawler_queue", payload)
+        
+        return ScrapingResponse(
+            success=True,
+            message="Scraping started successfully",
+            leads_queued=1,
+            batch_id=f"manual_{request.template_id}_{int(time.time())}"
+        )
+        
+    except Exception as e:
+        logger.error(f"Error starting scraping: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/scraping/analyze/{template_id}")
+@handle_api_errors
+async def analyze_lead(template_id: str):
+    """Analyze lead completion for template"""
+    try:
+        # Get lead statistics from database
+        result = supabase.table("leads").select("*").eq("template_id", template_id).execute()
+        
+        total = len(result.data) if result.data else 0
+        complete = len([lead for lead in result.data if lead.get("status") == "complete"]) if result.data else 0
+        need_processing = total - complete
+        completion_rate = (complete / total * 100) if total > 0 else 0
+        
+        return {
+            "total": total,
+            "complete": complete,
+            "needProcessing": need_processing,
+            "completionRate": completion_rate
+        }
+        
+    except Exception as e:
+        logger.error(f"Error analyzing lead {template_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/scraping/status")
+@handle_api_errors
+async def get_crawler_status():
+    """Get current crawler status"""
+    try:
+        from helper.rabbitmq_helper import queue_publisher
+        queue_info = queue_publisher.get_queue_info()
+        
+        return CrawlerStatusResponse(
+            is_running=(queue_info.get("messages", 0) if queue_info else 0) > 0,
+            queue_size=queue_info.get("messages", 0) if queue_info else 0,
+            processed_count=0  # This would need to be tracked separately
+        )
+        
+    except Exception as e:
+        logger.error(f"Error getting crawler status: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/scraping/session")
+@handle_api_errors
+async def get_crawl_session():
+    """Get current crawl session info"""
+    try:
+        from helper.rabbitmq_helper import queue_publisher
+        queue_info = queue_publisher.get_queue_info()
+        
+        return {
+            "is_active": (queue_info.get("messages", 0) if queue_info else 0) > 0,
+            "source": None,
+            "schedule_id": None,
+            "schedule_name": None,
+            "template_id": None,
+            "template_name": None,
+            "started_at": None,
+            "leads_queued": 0,
+            "current_queue_size": queue_info.get("messages", 0) if queue_info else 0
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting crawl session: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/scraping/stop")
+@handle_api_errors
+async def stop_scraping():
+    """Stop scraping process"""
+    try:
+        from helper.rabbitmq_helper import queue_publisher
+        success = queue_publisher.purge_queue("crawler_queue")
+        
+        return {
+            "success": success,
+            "message": "Scraping stopped successfully" if success else "Failed to stop scraping",
+            "jobs_removed": 0  # purge_queue doesn't return count in this implementation
+        }
+        
+    except Exception as e:
+        logger.error(f"Error stopping scraping: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# COMPANY ENDPOINTS
+# ============================================================================
+
+@app.get("/api/companies")
+@handle_api_errors
+async def get_companies(platform: Optional[str] = None):
+    """Get companies, optionally filtered by platform"""
+    try:
+        query = supabase.table("companies").select("*")
+        
+        if platform:
+            query = query.eq("platform", platform)
+        
+        result = query.execute()
+        return {"companies": result.data or []}
+        
+    except Exception as e:
+        logger.error(f"Error getting companies: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# LEADS ENDPOINTS
+# ============================================================================
+
+@app.get("/api/leads/by-platform")
+@handle_api_errors
+async def get_leads_by_platform(platform: str, limit: int = 100, offset: int = 0):
+    """Get leads by platform with pagination"""
+    try:
+        result = supabase.table("leads").select("*").eq("platform", platform).range(offset, offset + limit - 1).execute()
+        return {"leads": result.data or []}
+        
+    except Exception as e:
+        logger.error(f"Error getting leads by platform: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# OUTREACH ENDPOINTS
+# ============================================================================
+
+@app.post("/api/outreach/send")
+@handle_api_errors
+async def send_outreach(request: OutreachRequest):
+    """Send outreach message"""
+    try:
+        from helper.rabbitmq_helper import queue_publisher
+        
+        payload = {
+            "lead_id": request.lead_id,
+            "message": request.message,
+            "platform": request.platform
+        }
+        
+        queue_publisher.publish("outreach_queue", payload)
+        
+        return {
+            "success": True,
+            "message": "Outreach queued successfully",
+            "lead_id": request.lead_id
+        }
+        
+    except Exception as e:
+        logger.error(f"Error sending outreach: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# EXTERNAL INTEGRATION ENDPOINTS
 # ============================================================================
 
 def extract_bullet_points(text: str) -> List[str]:
@@ -1095,624 +1270,185 @@ async def save_requirements(request: RequirementsSaveRequest):
 
 
 # ============================================================================
-# AUTO-CRAWL ENDPOINTS (Webhook & Instant Crawl)
+# EXTERNAL INTEGRATION ENDPOINTS
 # ============================================================================
 
-@app.post("/api/webhook/lead-inserted")
-async def webhook_lead_inserted(payload: WebhookLeadInsert):
-    """Webhook endpoint called by Supabase when new lead is inserted"""
+@app.post("/api/external/schedule-scraping")
+async def create_external_schedule(request: ExternalScheduleRequest):
+    """Create schedule for external platform integration"""
     try:
-        print("\n" + "="*60)
-        print("🔔 WEBHOOK: New Lead Inserted")
-        print("="*60)
+        print(f"\n📥 EXTERNAL SCHEDULE REQUEST")
+        print(f"   External Job ID: {request.external_job_id}")
+        print(f"   Job Title: {request.job_title}")
+        print(f"   Candidates: {len(request.candidate_urls)}")
+        print(f"   Schedule: {request.schedule_date} {request.schedule_time}")
+        print(f"   Source: {request.external_source}")
         
-        # Validate webhook type
-        if payload.type != 'INSERT' or payload.table != 'leads_list':
-            return {"message": "Ignored: Not a lead insert event"}
+        # Parse schedule date and time
+        from datetime import datetime
+        import pytz
         
-        # Extract lead data
-        lead = payload.record
-        profile_url = lead.get('profile_url')
-        template_id = lead.get('template_id')
-        lead_id = lead.get('id')
+        # Parse date and time
+        schedule_datetime = datetime.strptime(f"{request.schedule_date} {request.schedule_time}", "%Y-%m-%d %H:%M")
         
-        if not profile_url:
-            print("⚠️ No profile_url in lead data")
-            return {"message": "Ignored: No profile_url"}
+        # Convert to specified timezone
+        tz = pytz.timezone(request.timezone)
+        schedule_datetime = tz.localize(schedule_datetime)
         
-        print(f"📋 Lead ID: {lead_id}")
-        print(f"🔗 Profile URL: {profile_url}")
-        print(f"📁 Template ID: {template_id}")
+        # Generate cron expression (one-time execution)
+        cron_expression = f"{schedule_datetime.minute} {schedule_datetime.hour} {schedule_datetime.day} {schedule_datetime.month} *"
         
-        # Publish to crawler queue
-        success = queue_publisher.publish_crawler_job(profile_url, template_id)
+        print(f"   Generated cron: {cron_expression}")
         
-        if success:
-            print("✅ Profile queued for crawling")
-            return {
-                "success": True,
-                "message": "Profile queued for crawling",
-                "lead_id": lead_id,
-                "profile_url": profile_url
-            }
+        # Create auto-template from requirements if provided
+        template_id = None
+        if request.requirements:
+            # Create a simple template based on requirements
+            template_name = f"Auto: {request.job_title}"
+            # For now, use existing template or create basic one
+            # TODO: Implement auto-template generation
+            print(f"   Requirements provided, would create auto-template")
+        
+        # Use default template for now
+        # TODO: Get from existing templates or create auto-template
+        templates = supabase.table('search_templates').select('id').limit(1).execute()
+        if templates.data:
+            template_id = templates.data[0]['id']
         else:
-            print("❌ Failed to queue profile")
-            raise HTTPException(status_code=500, detail="Failed to queue profile")
+            raise HTTPException(status_code=500, detail="No templates available")
         
-    except Exception as e:
-        print(f"❌ Webhook error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/leads/crawl-instant")
-async def crawl_instant(request: InstantCrawlRequest):
-    """Manually trigger instant crawl for a single profile"""
-    try:
-        print("\n" + "="*60)
-        print("⚡ INSTANT CRAWL REQUEST")
-        print("="*60)
-        print(f"🔗 Profile URL: {request.profile_url}")
-        print(f"📁 Template ID: {request.template_id}")
+        # Prepare external metadata
+        external_metadata = {
+            'external_job_id': request.external_job_id,
+            'job_title': request.job_title,
+            'candidate_urls': request.candidate_urls,
+            'schedule_datetime': schedule_datetime.isoformat(),
+            'requirements': request.requirements or {},
+            'created_at': datetime.now().isoformat(),
+            'source_platform': request.external_source
+        }
         
-        # Publish to crawler queue
-        success = queue_publisher.publish_crawler_job(request.profile_url, request.template_id)
+        # Create schedule
+        schedule_data = {
+            'name': f"External: {request.job_title}",
+            'start_schedule': cron_expression,
+            'template_id': template_id,
+            'status': 'active',
+            'external_source': request.external_source,
+            'external_metadata': external_metadata,
+            'webhook_url': request.webhook_url
+        }
         
-        if success:
-            print("✅ Profile queued for crawling")
-            return {
-                "success": True,
-                "message": "Profile queued for instant crawling",
-                "profile_url": request.profile_url
-            }
-        else:
-            raise HTTPException(status_code=500, detail="Failed to queue profile")
+        # Create schedule using existing ScheduleManager
+        created_schedule = ScheduleManager.create(schedule_data)
         
-    except Exception as e:
-        print(f"❌ Instant crawl error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ============================================================================
-# SCRAPING REQUEST ENDPOINTS
-# ============================================================================
-
-@app.get("/api/scraping/analyze/{template_id}")
-@handle_api_errors
-async def analyze_leads(template_id: str):
-    """Analyze leads for a template to see completion status"""
-    try:
-        supabase_manager = SupabaseManager()
-        leads = supabase_manager.get_leads_by_template_id(template_id)
+        if not created_schedule:
+            raise HTTPException(status_code=500, detail="Failed to create schedule")
         
-        if not leads:
-            return {
-                "total": 0,
-                "complete": 0,
-                "needProcessing": 0,
-                "completionRate": 0
-            }
+        # Add to scheduler service if active
+        if scheduler and created_schedule['status'] == 'active':
+            try:
+                scheduler.add_job(created_schedule['id'])
+                print(f"✅ Added external schedule to scheduler")
+            except Exception as e:
+                print(f"⚠️ Failed to add to scheduler: {e}")
         
-        total = len(leads)
-        need_processing = len([lead for lead in leads if lead['needs_processing']])
-        complete = total - need_processing
-        completion_rate = (complete / total * 100) if total > 0 else 0
+        print(f"✅ External schedule created: {created_schedule['id']}")
         
         return {
-            "total": total,
-            "complete": complete,
-            "needProcessing": need_processing,
-            "completionRate": round(completion_rate, 2)
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/scraping/start", response_model=ScrapingResponse)
-@handle_api_errors
-async def start_scraping(request: ScrapingRequest):
-    """Start scraping for template ID by queueing leads to RabbitMQ"""
-    global current_crawl_session
-    
-    try:
-        print(f"📥 Start scraping for template: {request.template_id}")
-        
-        if not db:
-            raise HTTPException(status_code=503, detail="Database not available")
-        
-        # Get template info
-        supabase_manager = SupabaseManager()
-        template = supabase_manager.get_template_by_id(request.template_id)
-        template_name = template.get('name', 'Unknown Template') if template else 'Unknown Template'
-        
-        # Get leads for this template
-        leads = supabase_manager.get_leads_by_template_id(request.template_id)
-        
-        if not leads:
-            raise HTTPException(status_code=404, detail="No leads found for template")
-        
-        # Filter leads that need processing
-        needs_processing = [lead for lead in leads if lead['needs_processing']]
-        
-        if not needs_processing:
-            return ScrapingResponse(
-                success=True,
-                message="All leads already complete",
-                leads_queued=0,
-                batch_id=""
-            )
-        
-        # Queue leads to RabbitMQ
-        batch_id = datetime.now().strftime('%Y%m%d_%H%M%S')
-        queued_count = 0
-        
-        for lead in needs_processing:
-            success = queue_publisher.publish_crawler_job(
-                profile_url=lead['profile_url'],
-                template_id=request.template_id
-            )
-            if success:
-                queued_count += 1
-        
-        # Use Asia/Jakarta timezone for started_at
-        jakarta_tz = pytz.timezone('Asia/Jakarta')
-        started_at_jakarta = datetime.now(jakarta_tz).isoformat()
-        
-        # Update global session metadata (MANUAL trigger)
-        current_crawl_session = {
-            'is_active': True,
-            'source': 'manual',
-            'schedule_id': None,
-            'schedule_name': None,
-            'template_id': request.template_id,
-            'template_name': template_name,
-            'started_at': started_at_jakarta,
-            'leads_queued': queued_count
+            "success": True,
+            "schedule_id": created_schedule['id'],
+            "external_job_id": request.external_job_id,
+            "scheduled_for": schedule_datetime.isoformat(),
+            "candidates_count": len(request.candidate_urls),
+            "cron_expression": cron_expression,
+            "status": "scheduled",
+            "webhook_configured": bool(request.webhook_url)
         }
         
-        print(f"✅ Updated crawl session: {current_crawl_session}")
-        
-        return ScrapingResponse(
-            success=True,
-            message=f"{queued_count} leads queued for scraping",
-            leads_queued=queued_count,
-            batch_id=batch_id
-        )
-    
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/scraping/status", response_model=CrawlerStatusResponse)
-@handle_api_errors
-async def get_crawler_status():
-    """Get current crawler status by checking RabbitMQ queue with session metadata"""
-    global current_crawl_session
-    
-    try:
-        # Check RabbitMQ queue size
-        queue_size = 0
-        is_running = False
-        
-        try:
-            # Get queue info from RabbitMQ
-            queue_info = queue_publisher.get_queue_info()
-            if queue_info:
-                queue_size = queue_info.get('messages', 0)
-                is_running = queue_size > 0
-        except Exception as e:
-            print(f"Error getting queue info: {e}")
-        
-        # If queue is empty, clear session
-        if queue_size == 0 and current_crawl_session['is_active']:
-            print("📊 Queue empty, clearing crawl session")
-            current_crawl_session['is_active'] = False
-        
-        # Return status with session metadata
-        return CrawlerStatusResponse(
-            is_running=is_running,
-            queue_size=queue_size,
-            template_id=current_crawl_session.get('template_id') if current_crawl_session['is_active'] else None,
-            template_name=current_crawl_session.get('template_name') if current_crawl_session['is_active'] else None,
-            processed_count=0
-        )
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/scraping/session")
-@handle_api_errors
-async def get_crawl_session():
-    """Get detailed crawl session information"""
-    global current_crawl_session
-    
-    return {
-        **current_crawl_session,
-        'current_queue_size': queue_publisher.get_queue_info().get('messages', 0) if queue_publisher.get_queue_info() else 0
-    }
-
-
-@app.post("/api/scraping/stop")
-@handle_api_errors
-async def stop_scraping():
-    """Stop scraping by purging the RabbitMQ queue"""
-    global current_crawl_session
-    
-    try:
-        print("🛑 Stop scraping requested - purging queue")
-        
-        # Get current queue size before purging
-        queue_info = queue_publisher.get_queue_info()
-        queue_size = queue_info.get('messages', 0) if queue_info else 0
-        
-        # Check if this was triggered by a schedule
-        schedule_id = current_crawl_session.get('schedule_id')
-        schedule_name = current_crawl_session.get('schedule_name')
-        was_scheduled = current_crawl_session.get('source') == 'scheduled' and schedule_id
-        
-        # Purge the queue
-        queue_purged = queue_publisher.purge_queue()
-        
-        if queue_purged:
-            # If triggered by scheduler, deactivate the schedule
-            if was_scheduled:
-                try:
-                    schedule_manager = ScheduleManager()
-                    schedule_manager.update_schedule_status(schedule_id, False)
-                    print(f"✅ Deactivated schedule: {schedule_name} (ID: {schedule_id})")
-                except Exception as e:
-                    print(f"⚠️ Failed to deactivate schedule {schedule_id}: {e}")
-            
-            # CRITICAL FIX: Clear the crawl session to set is_active = False
-            current_crawl_session = {
-                'is_active': False,
-                'source': None,
-                'schedule_id': None,
-                'schedule_name': None,
-                'template_id': None,
-                'template_name': None,
-                'started_at': None,
-                'leads_queued': 0
-            }
-            
-            print(f"✅ Crawler session cleared - status now idle")
-            
-            message = f"Crawler stopped. {queue_size} jobs removed from queue."
-            if was_scheduled:
-                message += f" Schedule '{schedule_name}' has been deactivated."
-            
-            return {
-                "success": True,
-                "message": message,
-                "jobs_removed": queue_size,
-                "schedule_deactivated": was_scheduled
-            }
-        else:
-            raise HTTPException(status_code=500, detail="Failed to purge queue")
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ============================================================================
-# OUTREACH ENDPOINTS
-# ============================================================================
-
-@app.post("/api/outreach/send")
-async def send_outreach(request: OutreachRequest):
-    """Send outreach request to LavinMQ queue"""
-    try:
-        print("\n" + "="*60)
-        print("📥 OUTREACH REQUEST RECEIVED")
-        print("="*60)
-        print(f"Total leads: {len(request.leads)}")
-        print(f"Dry run: {request.dry_run}")
-        print(f"Message: {request.message}")
-        
-        # Debug environment variables
-        outreach_queue = os.getenv('OUTREACH_QUEUE')
-        rabbitmq_host = os.getenv('RABBITMQ_HOST')
-        print(f"OUTREACH_QUEUE env: {outreach_queue}")
-        print(f"RABBITMQ_HOST env: {rabbitmq_host}")
-        
-        # Validate leads
-        valid_leads = [
-            lead for lead in request.leads
-            if lead.get('name') and lead.get('profile_url')
-        ]
-        
-        if not valid_leads:
-            raise HTTPException(status_code=400, detail="No valid leads provided")
-        
-        print(f"✅ Valid leads: {len(valid_leads)}/{len(request.leads)}")
-        
-        # Debug each lead
-        for i, lead in enumerate(valid_leads[:3]):  # Show first 3 leads
-            print(f"  Lead {i+1}: {lead.get('name')} - {lead.get('profile_url')}")
-        
-        # Send each lead as separate message
-        batch_id = datetime.now().strftime('%Y%m%d_%H%M%S')
-        queued_count = 0
-        failed_count = 0
-        
-        for lead in valid_leads:
-            print(f"\n📤 Attempting to queue: {lead['name']}")
-            success = queue_publisher.publish_outreach_job(
-                lead=lead,
-                message_text=request.message,
-                dry_run=request.dry_run,
-                batch_id=batch_id
-            )
-            
-            if success:
-                queued_count += 1
-                print(f"  ✓ Queued: {lead['name']}")
-            else:
-                failed_count += 1
-                print(f"  ✗ Failed: {lead['name']}")
-        
-        print(f"\n📊 OUTREACH SUMMARY:")
-        print(f"   Total leads: {len(request.leads)}")
-        print(f"   Valid leads: {len(valid_leads)}")
-        print(f"   Successfully queued: {queued_count}")
-        print(f"   Failed to queue: {failed_count}")
-        print(f"   Batch ID: {batch_id}")
-        print("="*60 + "\n")
-        
-        return {
-            "status": "success",
-            "message": "Outreach messages queued successfully",
-            "total_leads": len(request.leads),
-            "valid_leads": len(valid_leads),
-            "queued": queued_count,
-            "failed": failed_count,
-            "batch_id": batch_id,
-            "dry_run": request.dry_run,
-            "queue": outreach_queue
-        }
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"❌ External schedule creation failed: {str(e)}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ============================================================================
-# COMPANIES & LEADS ENDPOINTS
-# ============================================================================
-
-@app.get("/api/companies")
-async def get_companies(platform: Optional[str] = None):
-    """Get companies data, optionally filtered by platform"""
+@app.get("/api/external/status/{schedule_id}")
+async def get_external_schedule_status(schedule_id: str):
+    """Get status of external schedule"""
     try:
-        companies = CompanyManager.get_all(platform)
-        return {
-            "success": True,
-            "count": len(companies),
-            "platform": platform,
-            "companies": companies
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/companies/{company_id}")
-async def get_company_by_id(company_id: str):
-    """Get single company by ID"""
-    try:
-        company = CompanyManager.get_by_id(company_id)
-        if not company:
-            raise HTTPException(status_code=404, detail="Company not found")
+        print(f"\n📊 EXTERNAL STATUS CHECK: {schedule_id}")
         
-        return {"success": True, "company": company}
+        # Get schedule
+        schedule = ScheduleManager.get_by_id(schedule_id)
+        if not schedule:
+            raise HTTPException(status_code=404, detail="Schedule not found")
+        
+        # Check if it's an external schedule
+        if not schedule.get('external_source'):
+            raise HTTPException(status_code=400, detail="Not an external schedule")
+        
+        external_metadata = schedule.get('external_metadata', {})
+        
+        # Get execution logs if available
+        logs = []
+        try:
+            log_result = supabase.table('scheduler_logs').select('*')\
+                .eq('schedule_id', schedule_id)\
+                .order('created_at', desc=True)\
+                .limit(5)\
+                .execute()
+            logs = log_result.data or []
+        except Exception as e:
+            print(f"⚠️ Failed to get logs: {e}")
+        
+        # Determine current status
+        current_status = schedule['status']
+        execution_status = "pending"
+        
+        if logs:
+            latest_log = logs[0]
+            if latest_log['status'] == 'success':
+                execution_status = "completed"
+            elif latest_log['status'] == 'failed':
+                execution_status = "failed"
+        
+        # Check if schedule time has passed
+        schedule_datetime_str = external_metadata.get('schedule_datetime')
+        is_past_due = False
+        if schedule_datetime_str:
+            schedule_dt = datetime.fromisoformat(schedule_datetime_str.replace('Z', '+00:00'))
+            is_past_due = datetime.now(schedule_dt.tzinfo) > schedule_dt
+        
+        response_data = {
+            "success": True,
+            "schedule_id": schedule_id,
+            "external_job_id": external_metadata.get('external_job_id'),
+            "external_source": schedule.get('external_source'),
+            "job_title": external_metadata.get('job_title'),
+            "schedule_status": current_status,
+            "execution_status": execution_status,
+            "scheduled_for": external_metadata.get('schedule_datetime'),
+            "is_past_due": is_past_due,
+            "last_run": schedule.get('last_run'),
+            "candidates_count": len(external_metadata.get('candidate_urls', [])),
+            "webhook_url": schedule.get('webhook_url'),
+            "created_at": schedule.get('created_at'),
+            "execution_logs": logs[:3] if logs else []  # Last 3 logs
+        }
+        
+        print(f"✅ Status retrieved: {execution_status}")
+        return response_data
+        
     except HTTPException:
         raise
     except Exception as e:
+        print(f"❌ Status check failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/leads/by-platform")
-async def get_leads_by_platform(
-    platform: str,
-    limit: Optional[int] = 100,
-    offset: Optional[int] = 0
-):
-    """Get leads filtered by company platform"""
-    try:
-        result = LeadsManager.get_by_platform(platform, limit, offset)
-        
-        return {
-            "success": True,
-            "platform": platform,
-            "companies_found": len(result['companies']),
-            "companies": result['companies'],
-            "templates_found": len(result['templates']),
-            "templates": result['templates'],
-            "leads_count": result['total'],
-            "leads_returned": len(result['leads']),
-            "limit": limit,
-            "offset": offset,
-            "leads": result['leads']
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/leads/by-company/{company_id}")
-async def get_leads_by_company(
-    company_id: str,
-    limit: Optional[int] = 100,
-    offset: Optional[int] = 0
-):
-    """Get leads filtered by company ID"""
-    try:
-        # Get company info
-        company = CompanyManager.get_by_id(company_id)
-        if not company:
-            raise HTTPException(status_code=404, detail="Company not found")
-        
-        # Get leads
-        result = LeadsManager.get_by_company(company_id, limit, offset)
-        
-        return {
-            "success": True,
-            "company": company,
-            "templates_found": len(result['templates']),
-            "templates": result['templates'],
-            "leads_count": result['total'],
-            "leads_returned": len(result['leads']),
-            "limit": limit,
-            "offset": offset,
-            "leads": result['leads']
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/leads/requeue")
-async def requeue_failed_leads(request: ReQueueRequest):
-    """Re-queue leads that failed scraping or scoring"""
-    try:
-        # Get failed leads
-        failed_leads = ReQueueManager.get_failed_leads(
-            template_id=request.template_id,
-            check_profile_data=request.check_profile_data,
-            check_scoring_data=request.check_scoring_data
-        )
-        
-        if request.dry_run:
-            # Just return what would be re-queued
-            return {
-                "success": True,
-                "dry_run": True,
-                "total_failed_leads": len(failed_leads),
-                "template_id": request.template_id,
-                "check_profile_data": request.check_profile_data,
-                "check_scoring_data": request.check_scoring_data,
-                "leads_to_requeue": [
-                    {
-                        "id": lead.get('id'),
-                        "name": lead.get('name'),
-                        "profile_url": lead.get('profile_url'),
-                        "template_id": lead.get('template_id'),
-                        "has_profile_data": bool(lead.get('profile_data')),
-                        "has_scoring_data": bool(lead.get('scoring_data'))
-                    }
-                    for lead in failed_leads
-                ]
-            }
-        
-        # Actually re-queue the leads
-        requeued_count = 0
-        failed_requeue = []
-        
-        for lead in failed_leads:
-            profile_url = lead.get('profile_url')
-            template_id = lead.get('template_id')
-            
-            if profile_url:
-                success = queue_publisher.publish_crawler_job(profile_url, template_id)
-                if success:
-                    requeued_count += 1
-                else:
-                    failed_requeue.append({
-                        "id": lead.get('id'),
-                        "name": lead.get('name'),
-                        "profile_url": profile_url,
-                        "error": "Failed to publish to queue"
-                    })
-        
-        return {
-            "success": True,
-            "dry_run": False,
-            "total_failed_leads": len(failed_leads),
-            "requeued_successfully": requeued_count,
-            "failed_to_requeue": len(failed_requeue),
-            "template_id": request.template_id,
-            "check_profile_data": request.check_profile_data,
-            "check_scoring_data": request.check_scoring_data,
-            "failed_requeue_details": failed_requeue
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-
-# ============================================
-# HEALTH CHECK & MONITORING
-# ============================================
-
-@app.get("/health")
-async def health_check():
-    """
-    Health check endpoint for CI/CD monitoring
-    Returns status of all system components
-    """
-    health_status = {
-        "status": "healthy",
-        "timestamp": datetime.now().isoformat(),
-        "services": {}
-    }
-    
-    # Check Supabase connection
-    try:
-        from helper.supabase_helper import supabase
-        # Simple query to test connection
-        result = supabase.table('leads_list').select('id').limit(1).execute()
-        health_status["services"]["database"] = {
-            "status": "healthy",
-            "type": "supabase",
-            "message": "Connection successful"
-        }
-    except Exception as e:
-        health_status["services"]["database"] = {
-            "status": "unhealthy",
-            "type": "supabase", 
-            "message": f"Connection failed: {str(e)}"
-        }
-        health_status["status"] = "degraded"
-    
-    # Check LavinMQ connection
-    try:
-        from helper.rabbitmq_helper import RabbitMQManager
-        mq = RabbitMQManager()
-        if mq.connect():
-            mq.disconnect()
-            health_status["services"]["queue"] = {
-                "status": "healthy",
-                "type": "lavinmq",
-                "message": "Connection successful"
-            }
-        else:
-            raise Exception("Failed to connect")
-    except Exception as e:
-        health_status["services"]["queue"] = {
-            "status": "unhealthy",
-            "type": "lavinmq",
-            "message": f"Connection failed: {str(e)}"
-        }
-        health_status["status"] = "degraded"
-    
-    # Check API endpoints
-    health_status["services"]["api"] = {
-        "status": "healthy",
-        "endpoints": {
-            "schedules": "/api/schedules",
-            "leads": "/api/leads",
-            "requirements": "/api/requirements"
-        }
-    }
-    
-    return health_status
-    
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
