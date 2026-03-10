@@ -1175,6 +1175,232 @@ async def generate_requirements(request: RequirementsGenerateRequest):
     except Exception as e:
         print(f"❌ Error generating requirements: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+@app.post("/api/requirements/generate-and-save")
+async def generate_and_save_requirements(request: RequirementsGenerateRequest):
+    """Generate requirements from job description and auto-save to file"""
+    try:
+        # Generate requirements using existing logic
+        text_to_parse = request.job_description.strip()
+        
+        if not text_to_parse:
+            raise HTTPException(status_code=400, detail="Job description is required and cannot be empty")
+        
+        print(f"🤖 AUTO-GENERATING AND SAVING requirements for: {request.position}")
+        print(f"📄 Text length: {len(text_to_parse)} characters")
+        
+        # Extract bullet points from job description
+        bullets = extract_bullet_points(text_to_parse)
+        print(f"🔍 Found {len(bullets)} requirement items")
+        
+        # Classify each bullet point
+        requirements_array = []
+        for i, bullet in enumerate(bullets):
+            req = classify_requirement(bullet, i + 1)
+            requirements_array.append(req)
+            print(f"   {i+1}. {req['type']}: {bullet[:50]}...")
+        
+        # Add default requirements if none found
+        if len(requirements_array) == 0:
+            print("⚠️ No requirements detected, adding defaults")
+            requirements_array = [
+                {
+                    'id': 'req_1',
+                    'label': f'Experience in {request.position}',
+                    'type': 'experience',
+                    'value': 1
+                },
+                {
+                    'id': 'req_2',
+                    'label': 'Good communication skills',
+                    'type': 'skill',
+                    'value': 'communication'
+                },
+                {
+                    'id': 'req_3',
+                    'label': 'Education: High School or equivalent',
+                    'type': 'education',
+                    'value': 'high school'
+                }
+            ]
+        
+        # Build requirements structure
+        requirements = {
+            'position': request.position,
+            'requirements': requirements_array,
+            'metadata': {
+                'total_requirements': len(requirements_array),
+                'generated_from': 'job_description_manual',
+                'created_at': datetime.utcnow().isoformat(),
+                'auto_generated': True
+            }
+        }
+        
+        # Auto-save to file
+        from pathlib import Path
+        requirements_dir = Path(__file__).parent.parent / "scoring" / "requirements"
+        requirements_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate filename from position
+        safe_filename = re.sub(r'[^a-zA-Z0-9_-]', '_', request.position.lower())
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"{safe_filename}_{timestamp}_auto.json"
+        filepath = requirements_dir / filename
+        
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(requirements, f, indent=2, ensure_ascii=False)
+        
+        print(f"✅ Generated and saved {len(requirements_array)} requirements")
+        print(f"💾 Saved to: {filepath}")
+        
+        return {
+            'success': True,
+            'requirements': requirements,
+            'total_requirements': len(requirements_array),
+            'source': 'job_description_auto_save',
+            'file_saved': str(filepath),
+            'filename': filename,
+            'message': f'Requirements generated and saved to {filename}'
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error generating and saving requirements: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+    try:
+        # Generate requirements using existing logic
+        text_to_parse = request.job_description.strip()
+
+        if not text_to_parse:
+            raise HTTPException(status_code=400, detail="Job description is required and cannot be empty")
+
+        print(f"🤖 AUTO-GENERATING AND SAVING requirements for: {request.position}")
+        print(f"📄 Text length: {len(text_to_parse)} characters")
+
+        # Extract bullet points from job description
+        bullets = extract_bullet_points(text_to_parse)
+        print(f"🔍 Found {len(bullets)} requirement items")
+
+        # Classify each bullet point
+        requirements_array = []
+        for i, bullet in enumerate(bullets):
+            req = classify_requirement(bullet, i + 1)
+            requirements_array.append(req)
+            print(f"   {i+1}. {req['type']}: {bullet[:50]}...")
+
+        # Add default requirements if none found
+        if len(requirements_array) == 0:
+            print("⚠️ No requirements detected, adding defaults")
+            requirements_array = [
+                {
+                    'id': 'req_1',
+                    'label': f'Experience in {request.position}',
+                    'type': 'experience',
+                    'value': 1
+                },
+                {
+                    'id': 'req_2',
+                    'label': 'Good communication skills',
+                    'type': 'skill',
+                    'value': 'communication'
+                },
+                {
+                    'id': 'req_3',
+                    'label': 'Education: High School or equivalent',
+                    'type': 'education',
+                    'value': 'high school'
+                }
+            ]
+
+        # Build requirements structure
+        requirements = {
+            'position': request.position,
+            'requirements': requirements_array,
+            'metadata': {
+                'total_requirements': len(requirements_array),
+                'generated_from': 'job_description_manual',
+                'created_at': datetime.utcnow().isoformat(),
+                'auto_generated': True
+            }
+        }
+
+        # Auto-save to file
+        from pathlib import Path
+        requirements_dir = Path(__file__).parent.parent / "scoring" / "requirements"
+        requirements_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generate filename from position
+        safe_filename = re.sub(r'[^a-zA-Z0-9_-]', '_', request.position.lower())
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"{safe_filename}_{timestamp}_auto.json"
+        filepath = requirements_dir / filename
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(requirements, f, indent=2, ensure_ascii=False)
+
+        print(f"✅ Generated and saved {len(requirements_array)} requirements")
+        print(f"💾 Saved to: {filepath}")
+
+        return {
+            'success': True,
+            'requirements': requirements,
+            'total_requirements': len(requirements_array),
+            'source': 'job_description_auto_save',
+            'file_saved': str(filepath),
+            'filename': filename,
+            'message': f'Requirements generated and saved to {filename}'
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error generating and saving requirements: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+@app.post("/api/test/auto-generate")
+async def test_auto_generate(request: RequirementsGenerateRequest):
+    """Test endpoint untuk cek auto-generate requirements"""
+    try:
+        print(f"🧪 TESTING AUTO-GENERATE for: {request.position}")
+
+        # Test extract_bullet_points function
+        bullets = extract_bullet_points(request.job_description)
+        print(f"🔍 Extracted {len(bullets)} bullets")
+
+        # Test classify_requirement function
+        requirements_array = []
+        for i, bullet in enumerate(bullets):
+            req = classify_requirement(bullet, i + 1)
+            requirements_array.append(req)
+            print(f"   {i+1}. [{req['type']}] {bullet[:50]}...")
+
+        # Add defaults if empty
+        if len(requirements_array) == 0:
+            requirements_array = [
+                {'id': 'req_1', 'label': 'Default requirement', 'type': 'skill', 'value': 'general'}
+            ]
+
+        return {
+            'success': True,
+            'message': 'Auto-generate test successful',
+            'bullets_extracted': len(bullets),
+            'requirements_generated': len(requirements_array),
+            'bullets': bullets,
+            'requirements': requirements_array,
+            'functions_working': {
+                'extract_bullet_points': len(bullets) > 0,
+                'classify_requirement': len(requirements_array) > 0
+            }
+        }
+
+    except Exception as e:
+        print(f"❌ Test failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            'success': False,
+            'error': str(e),
+            'message': 'Auto-generate test failed'
+        }
 
 @app.post("/api/requirements/save")
 async def save_requirements(request: RequirementsSaveRequest):
