@@ -1248,11 +1248,14 @@ async def create_external_schedule(request: ExternalScheduleRequest):
             if result.data:
                 template_created = True
                 print(f"✅ Created search template: {template_id} - {template_name}")
+                print(f"📊 Template data inserted: {result.data[0]}")
             else:
-                print(f"⚠️ Failed to create search template")
+                print(f"⚠️ Failed to create search template - no data returned")
+                print(f"📊 Insert result: {result}")
                 
         except Exception as e:
             print(f"⚠️ Template creation failed: {e}")
+            print(f"📊 Template data attempted: {template_data}")
             # Continue without template if creation fails
         
         # ============================================================================

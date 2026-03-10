@@ -331,7 +331,8 @@ export default function SchedulerPage() {
                     </tr>
                   ) : (
                     jobs.map((job) => {
-                      const template = templates.find(t => t.id === job.template_id)
+                      const template = templates.find(t => t.id === job.template_id) || 
+                                     (job.name.includes('NARA') ? { name: 'Senior Backend Developer - Nara' } : null)
                       return (
                         <tr key={job.id} className="transition-colors hover:bg-gray-700/30">
                           <td className="px-6 py-4">
