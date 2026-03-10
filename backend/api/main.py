@@ -329,9 +329,6 @@ class CrawlerScheduleUpdate(BaseModel):
         description="Schedule status: 'active' or 'inactive'"
     )
 
-class CronValidationRequest(BaseModel):
-    cron_expression: str = Field(..., example="0 9 * * *", description="Cron expression to validate")
-
 
 class ExternalScheduleRequest(BaseModel):
     external_job_id: str = Field(
@@ -386,58 +383,12 @@ class ExternalScheduleRequest(BaseModel):
     )
 
 
-@app.post("/api/schedules/validate-cron")
-async def validate_cron_expression(request: CronValidationRequest):
-    """Validate cron expression and show next run times"""
-    try:
-        if not scheduler:
-            raise HTTPException(status_code=503, detail="Scheduler not available")
-        
-        validation = scheduler.validate_cron_expression(request.cron_expression)
-        
-        return {
-            "success": True,
-            "cron_expression": request.cron_expression,
-            **validation
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/schedules/timezone")
-async def get_scheduler_timezone():
-    """Get current scheduler timezone and time"""
-    try:
-        if not scheduler:
-            raise HTTPException(status_code=503, detail="Scheduler not available")
-        
-        tz = scheduler.get_scheduler_timezone()
-        current_time = datetime.now(tz)
-        
-        return {
-            "success": True,
-            "timezone": str(tz),
-            "current_time": current_time.isoformat(),
-            "utc_offset": current_time.strftime('%z'),
-            "formatted_time": current_time.strftime('%Y-%m-%d %H:%M:%S %Z')
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @app.get("/api/schedules")
-async def get_schedules(
-    external_source: Optional[str] = None,
-    status: Optional[str] = None,
-    limit: int = 50,
-    offset: int = 0
-):
+async def get_schedules(external_source: Optional[str] = None):
     """Get schedules with optional filtering by external_source"""
     try:
         print(f"\n📋 SCHEDULES REQUEST")
         print(f"   External source filter: {external_source}")
-        print(f"   Status filter: {status}")
-        print(f"   Limit: {limit}, Offset: {offset}")
         
         # Build query
         query = supabase.table('crawler_schedules').select('*')
@@ -454,14 +405,8 @@ async def get_schedules(
             query = query.eq('external_source', external_source)
         # If external_source is None, return all schedules
         
-        # Apply status filter if provided
-        if status:
-            query = query.eq('status', status)
-        
-        # Apply pagination and ordering
-        result = query.order('created_at', desc=True)\
-            .range(offset, offset + limit - 1)\
-            .execute()
+        # Apply ordering
+        result = query.order('created_at', desc=True).execute()
         
         schedules = result.data or []
         
@@ -531,16 +476,7 @@ async def get_schedules(
         return {
             "success": True,
             "count": len(formatted_schedules),
-            "schedules": formatted_schedules,
-            "filters": {
-                "external_source": external_source,
-                "status": status
-            },
-            "pagination": {
-                "limit": limit,
-                "offset": offset,
-                "has_more": len(schedules) == limit
-            }
+            "schedules": formatted_schedules
         }
         
     except Exception as e:
@@ -918,46 +854,6 @@ async def stop_scraping():
     except Exception as e:
         logger.error(f"Error stopping scraping: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# ============================================================================
-# COMPANY ENDPOINTS
-# ============================================================================
-
-@app.get("/api/companies")
-@handle_api_errors
-async def get_companies(platform: Optional[str] = None):
-    """Get companies, optionally filtered by platform"""
-    try:
-        query = supabase.table("companies").select("*")
-        
-        if platform:
-            query = query.eq("platform", platform)
-        
-        result = query.execute()
-        return {"companies": result.data or []}
-        
-    except Exception as e:
-        logger.error(f"Error getting companies: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ============================================================================
-# LEADS ENDPOINTS
-# ============================================================================
-
-@app.get("/api/leads/by-platform")
-@handle_api_errors
-async def get_leads_by_platform(platform: str, limit: int = 100, offset: int = 0):
-    """Get leads by platform with pagination"""
-    try:
-        result = supabase.table("leads").select("*").eq("platform", platform).range(offset, offset + limit - 1).execute()
-        return {"leads": result.data or []}
-        
-    except Exception as e:
-        logger.error(f"Error getting leads by platform: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
 
 # ============================================================================
 # OUTREACH ENDPOINTS

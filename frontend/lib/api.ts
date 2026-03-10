@@ -189,17 +189,6 @@ class CrawlerAPI {
     });
   }
 
-  // ===== COMPANY MANAGEMENT =====
-  async getCompanies(platform?: string) {
-    const params = platform ? `?platform=${encodeURIComponent(platform)}` : '';
-    return this.request<any>(`/api/companies${params}`);
-  }
-
-  // ===== LEADS MANAGEMENT =====
-  async getLeadsByPlatform(platform: string, limit = 100, offset = 0) {
-    return this.request<any>(`/api/leads/by-platform?platform=${encodeURIComponent(platform)}&limit=${limit}&offset=${offset}`);
-  }
-
   // ===== OUTREACH OPERATIONS =====
   async sendOutreach(data: any) {
     return this.request<any>('/api/outreach/send', {
