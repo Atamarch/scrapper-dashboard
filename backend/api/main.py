@@ -1225,29 +1225,28 @@ async def create_external_schedule(request: ExternalScheduleRequest):
         template_name = f"{request.job_title} - Nara"
         
         # Create search template entry
+        template_created = False
         try:
             template_data = {
                 "id": template_id,
                 "name": template_name,
-                "job_description": request.job_description,  # Job description goes to job_description column
-                "job_title": request.job_title,
-                "company_id": company_id,  # Link to Nara company
-                "url": None,  # No URL for Nara templates
-                "note": f"Auto-generated from Nara platform - Job ID: {job_id}",  # Job ID in note instead
-                "requirements": request.requirements or {},  # Store requirements as JSONB
-                "external_source": request.external_source,  # Store source platform
+                "job_description": request.job_description,
+                "company_id": company_id,
+                "external_source": request.external_source,
                 "created_at": datetime.utcnow().isoformat()
             }
             
-            # Try to insert to search_templates table
-            try:
-                supabase.table("search_templates").insert(template_data).execute()
-                print(f"✅ Created search template: {template_id}")
-            except Exception as e:
-                print(f"⚠️ Search templates table might not exist, storing in metadata: {e}")
-                # If table doesn't exist, we'll store template info in external_metadata
+            # Insert to search_templates table
+            result = supabase.table("search_templates").insert(template_data).execute()
+            if result.data:
+                template_created = True
+                print(f"✅ Created search template: {template_id} - {template_name}")
+            else:
+                print(f"⚠️ Failed to create search template")
+                
         except Exception as e:
-            print(f"⚠️ Template creation warning: {e}")
+            print(f"⚠️ Template creation failed: {e}")
+            # Continue without template if creation fails
         
         # ============================================================================
         # STEP 2: GENERATE REQUIREMENTS FROM JOB DESCRIPTION
@@ -1387,7 +1386,7 @@ async def create_external_schedule(request: ExternalScheduleRequest):
         # Create schedule
         schedule_data = {
             "name": f"[NARA] {request.job_title}",
-            "start_schedule": cron_expression,
+            "start_schedule": cron_expression,  # PENTING: Simpan cron expression
             "template_id": template_id,
             "status": "active",
             "external_source": request.external_source,
