@@ -331,11 +331,11 @@ export default function SchedulerPage() {
                     </tr>
                   ) : (
                     jobs.map((job) => {
-                      // Handle both external and internal schedule formats
-                      const jobId = job.id || job.schedule_id;
+                      // Use consistent property names from Schedule type
+                      const jobId = job.id;
                       const jobTemplateId = job.template_id;
                       const jobName = job.name;
-                      const jobStatus = job.status || job.schedule_status;
+                      const jobStatus = job.status;
                       const jobSchedule = job.start_schedule;
                       const jobLastRun = job.last_run;
                       
