@@ -1279,100 +1279,96 @@ async def create_external_schedule(request: ExternalScheduleRequest):
             # Continue without template if creation fails
         
         # ============================================================================
-        # STEP 2: GENERATE REQUIREMENTS FROM JOB DESCRIPTION
+        # STEP 2: AUTO-GENERATE REQUIREMENTS FROM JOB DESCRIPTION
         # ============================================================================
         requirements_data = None
+        requirements_generated = False
+        
+        print(f"🤖 AUTO-GENERATING REQUIREMENTS from job description...")
+        print(f"📝 Job description length: {len(request.job_description)} characters")
+        
         try:
-            # Use existing requirements generation logic
+            # Use the existing requirements generation logic (reuse from generate_requirements endpoint)
             from pathlib import Path
             
-            # Generate requirements using existing function logic
-            def extract_bullet_points_local(text: str) -> List[str]:
-                if not text:
-                    return []
-                
-                bullets = []
-                lines = [line.strip() for line in text.split('\n') if line.strip()]
-                
-                for line in lines:
-                    if line.startswith(('•', '-', '*', '◦', '▪', '▫')):
-                        bullets.append(line[1:].strip())
-                    elif line.lower().startswith(('requirement', 'skill', 'experience', 'qualification')):
-                        bullets.append(line)
-                
-                return bullets[:20]  # Limit to 20 items
+            # Extract bullet points from job description using existing function
+            bullets = extract_bullet_points(request.job_description)
+            print(f"🔍 Extracted {len(bullets)} requirement bullets from job description")
             
-            def classify_requirement_local(text: str, req_id: int) -> Dict:
-                text_lower = text.lower()
-                
-                # Determine category
-                if any(word in text_lower for word in ['year', 'experience', 'senior', 'junior', 'lead']):
-                    category = 'experience'
-                elif any(word in text_lower for word in ['degree', 'bachelor', 'master', 'education', 'university']):
-                    category = 'education'
-                elif any(word in text_lower for word in ['python', 'java', 'javascript', 'react', 'node', 'sql', 'aws']):
-                    category = 'technical'
-                elif any(word in text_lower for word in ['communication', 'leadership', 'teamwork', 'management']):
-                    category = 'soft_skills'
-                else:
-                    category = 'general'
-                
-                # Determine priority
-                if any(word in text_lower for word in ['must', 'required', 'essential', 'mandatory']):
-                    priority = 'high'
-                elif any(word in text_lower for word in ['preferred', 'nice', 'plus', 'bonus']):
-                    priority = 'low'
-                else:
-                    priority = 'medium'
-                
-                return {
-                    "id": req_id,
-                    "text": text,
-                    "category": category,
-                    "priority": priority,
-                    "weight": 3 if priority == 'high' else 2 if priority == 'medium' else 1
-                }
+            # Classify each bullet point using existing logic
+            requirements_array = []
+            for i, bullet in enumerate(bullets):
+                req = classify_requirement(bullet, i + 1)
+                requirements_array.append(req)
+                print(f"   {i+1}. [{req['type']}] {bullet[:60]}...")
             
-            # Extract and classify requirements
-            bullet_points = extract_bullet_points_local(request.job_description)
-            requirements_list = []
+            # Add default requirements if none found
+            if len(requirements_array) == 0:
+                print("⚠️ No requirements detected from job description, adding defaults")
+                requirements_array = [
+                    {
+                        'id': 'req_1',
+                        'label': f'Experience in {request.job_title}',
+                        'type': 'experience',
+                        'value': 1
+                    },
+                    {
+                        'id': 'req_2',
+                        'label': 'Good communication skills',
+                        'type': 'skill',
+                        'value': 'communication'
+                    },
+                    {
+                        'id': 'req_3',
+                        'label': 'Education: High School or equivalent',
+                        'type': 'education',
+                        'value': 'high school'
+                    }
+                ]
             
-            for i, bullet in enumerate(bullet_points, 1):
-                classified = classify_requirement_local(bullet, i)
-                requirements_list.append(classified)
-            
-            # Create requirements data structure
+            # Create requirements data structure compatible with scoring system
             requirements_data = {
-                "position": request.job_title,
-                "company": "Nara",
-                "job_id": job_id,
-                "requirements": requirements_list,
-                "metadata": {
-                    "total_requirements": len(requirements_list),
-                    "high_priority": len([r for r in requirements_list if r["priority"] == "high"]),
-                    "medium_priority": len([r for r in requirements_list if r["priority"] == "medium"]),
-                    "low_priority": len([r for r in requirements_list if r["priority"] == "low"]),
-                    "generated_from": "job_description",
-                    "external_source": request.external_source,
-                    "company": "Nara"
+                'position': request.job_title,
+                'company': 'Nara',
+                'job_id': job_id,
+                'requirements': requirements_array,
+                'metadata': {
+                    'total_requirements': len(requirements_array),
+                    'generated_from': 'job_description_auto',
+                    'external_source': request.external_source,
+                    'created_at': datetime.utcnow().isoformat(),
+                    'auto_generated': True
                 }
             }
             
-            # Save requirements to file
+            # Save requirements to file for scoring system
             requirements_dir = Path(__file__).parent.parent / "scoring" / "requirements"
             requirements_dir.mkdir(parents=True, exist_ok=True)
             
-            filename = f"{job_id}_nara.json"
+            filename = f"{job_id}_nara_auto.json"
             filepath = requirements_dir / filename
             
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(requirements_data, f, indent=2, ensure_ascii=False)
             
-            print(f"✅ Generated requirements: {len(requirements_list)} items")
-            print(f"✅ Saved requirements to: {filepath}")
+            requirements_generated = True
+            print(f"✅ AUTO-GENERATED {len(requirements_array)} requirements")
+            print(f"✅ Saved to: {filepath}")
+            print(f"📊 Requirements breakdown:")
+            
+            # Count by type
+            type_counts = {}
+            for req in requirements_array:
+                req_type = req.get('type', 'unknown')
+                type_counts[req_type] = type_counts.get(req_type, 0) + 1
+            
+            for req_type, count in type_counts.items():
+                print(f"   - {req_type}: {count} items")
             
         except Exception as e:
-            print(f"⚠️ Requirements generation failed: {e}")
+            print(f"❌ AUTO-REQUIREMENTS GENERATION FAILED: {e}")
+            import traceback
+            traceback.print_exc()
             # Continue without requirements if generation fails
         
         # ============================================================================
@@ -1408,8 +1404,8 @@ async def create_external_schedule(request: ExternalScheduleRequest):
             "timezone": request.timezone,
             "template_id": template_id,
             "template_name": template_name,
-            "requirements_file": f"{job_id}_nara.json" if requirements_data else None,
-            "requirements_generated": requirements_data is not None,
+            "requirements_file": f"{job_id}_nara_auto.json" if requirements_generated else None,
+            "requirements_generated": requirements_generated,
             "note": "Candidates will be taken from existing leads list"
         }
         
@@ -1470,8 +1466,8 @@ async def create_external_schedule(request: ExternalScheduleRequest):
                 "services_updated": {
                     "search_template": template_id,
                     "company_linked": True,
-                    "requirements_generated": requirements_data is not None,
-                    "requirements_file": f"{job_id}_nara.json" if requirements_data else None,
+                    "requirements_generated": requirements_generated,
+                    "requirements_file": f"{job_id}_nara_auto.json" if requirements_generated else None,
                     "schedule_created": schedule_id,
                     "scheduler_service": scheduler is not None
                 }
