@@ -231,6 +231,23 @@ When creating a new schedule through the API:
 - If scheduler registration fails, the schedule is still created and will be loaded on next API restart
 - Manual schedule execution is available via the `/api/schedules/{schedule_id}/execute` endpoint
 
+### Scheduler Service Implementation
+
+The scheduler service (`backend/api/scheduler_service.py`) uses `ScheduleManager` for database operations to avoid connection issues:
+
+**Database Access Pattern:**
+- Uses `ScheduleManager.get_by_id()` instead of direct database client calls
+- Prevents connection pooling issues during job registration
+- Ensures consistent database access across scheduler operations
+
+This change improves reliability when adding jobs to the scheduler, particularly during API startup when multiple schedules are loaded simultaneously.
+
+**Error Resilience:**
+- `last_run` timestamp updates are wrapped in try-catch blocks
+- Database update failures are logged but don't interrupt schedule execution
+- Ensures crawler jobs continue even if metadata updates fail
+- Non-critical operations are isolated to prevent cascade failures
+
 ## 🐛 Troubleshooting
 
 ### LavinMQ/RabbitMQ tidak bisa connect
@@ -1453,3 +1470,259 @@ When schedules are missing `template_id`, you'll see:
 ### Database Schema Requirement
 
 This validation assumes the `crawler_schedules` table includes a `template_id` column that should be populated when creating schedules. Ensure your schedule creation logic sets this field properly.
+
+
+## 🔄 Scheduler Service Database Access Pattern
+
+The scheduler service (`backend/api/scheduler_service.py`) has been updated to use `ScheduleManager` for database operations instead of direct database client calls.
+
+### Changes
+
+**Job Execution Method (`_execute_job`):**
+- Uses `ScheduleManager.get_by_id(schedule_id)` instead of `self.db.get_schedule(schedule_id)`
+- Uses `ScheduleManager.update(schedule_id, {'last_run': datetime.now().isoformat()})` instead of `self.db.update_last_run(schedule_id)`
+
+### Benefits
+
+- **Connection Stability**: Avoids connection pooling issues during job registration
+- **Consistent Access**: Uses the same database access pattern as other parts of the application
+- **Reliability**: Reduces database connection errors when adding jobs to the scheduler
+- **Maintainability**: Centralizes database operations through `ScheduleManager`
+
+### Impact
+
+This change improves reliability when:
+- Adding jobs to the scheduler during API startup
+- Executing scheduled crawler jobs
+- Updating schedule metadata (last run timestamp)
+- Loading multiple schedules simultaneously
+
+### Related Components
+
+- `helper/supabase_helper.py` - Contains `ScheduleManager` class
+- `backend/api/database.py` - Legacy database client (being phased out)
+- `backend/api/scheduler_service.py` - Scheduler service implementation
+
+### Migration Note
+
+This is part of a gradual migration from direct database client usage to manager-based patterns for better separation of concerns and improved reliability.
+
+
+## 🔧 Scheduler Thread-Safe Database Access
+
+The scheduler service (`backend/api/scheduler_service.py`) now implements thread-safe database access patterns to prevent connection issues during concurrent job execution.
+
+### Thread-Local Database Connections
+
+**Job Execution Method (`_execute_job`):**
+- Creates fresh `SupabaseManager` instance per thread
+- Imports database helpers within thread context
+- Uses direct Supabase client calls instead of shared manager instances
+
+### Implementation Pattern
+
+```python
+# Import fresh in thread to avoid connection issues
+from helper.supabase_helper import SupabaseManager
+from helper.rabbitmq_helper import queue_publisher
+
+# Create fresh Supabase manager for this thread
+supabase_manager = SupabaseManager()
+
+# Get schedule using fresh connection
+schedule = supabase_manager.supabase.table('crawler_schedules').select('*').eq('id', schedule_id).execute()
+```
+
+### Benefits
+
+- **Thread Safety**: Each job execution gets its own database connection
+- **Connection Isolation**: Prevents connection pooling conflicts between threads
+- **Reliability**: Eliminates "connection already closed" errors
+- **Concurrent Execution**: Multiple scheduled jobs can run simultaneously without interference
+
+### Error Resilience
+
+The `last_run` timestamp update is wrapped in try-catch blocks:
+- Database update failures are logged but don't interrupt schedule execution
+- Non-critical operations are isolated to prevent cascade failures
+- Crawler jobs continue even if metadata updates fail
+
+### Console Output
+
+When executing scheduled jobs, you'll see:
+```
+⏱️ Staggering execution by 2.5s to avoid concurrent overload
+📋 Template ID: template-uuid-123
+📝 Schedule Name: Daily LinkedIn Crawl
+```
+
+### Impact
+
+This change resolves issues where:
+- Multiple schedules executing simultaneously caused connection errors
+- Shared database connections became stale or closed unexpectedly
+- Job execution failed due to connection pooling conflicts
+- Scheduler reliability was affected by concurrent database access
+
+### Related Components
+
+- `helper/supabase_helper.py` - Contains `SupabaseManager` class
+- `helper/rabbitmq_helper.py` - Queue publisher for crawler jobs
+- `backend/api/scheduler_service.py` - Scheduler service implementation
+
+### Technical Details
+
+**Stagger Delay**: Jobs are staggered by 0.5-3 seconds to prevent concurrent overload
+**Connection Lifecycle**: Each thread creates and manages its own connection
+**Import Strategy**: Database helpers imported within thread scope to ensure fresh instances
+
+
+## 🔄 Scheduler Crawl Session Management
+
+The scheduler service (`backend/api/scheduler_service.py`) now includes improved crawl session tracking with safer module access patterns.
+
+### Session Update Behavior
+
+**Crawl Session Tracking:**
+- Updates global `current_crawl_session` in main module after queuing leads
+- Tracks active crawl sessions initiated by scheduled jobs
+- Provides real-time visibility into scheduled crawler operations
+
+### Safe Module Access Pattern
+
+The scheduler now uses `sys.modules` to safely access the main module:
+
+```python
+import sys
+# Get main module from sys.modules (already loaded)
+if 'main' in sys.modules:
+    main = sys.modules['main']
+    main.current_crawl_session = {
+        'is_active': True,
+        'source': 'scheduled',
+        'schedule_id': schedule_id,
+        'schedule_name': schedule.get('name', 'Unknown Schedule'),
+        'template_id': template_id,
+        'template_name': template_name,
+        'started_at': started_at_jakarta,
+        'leads_queued': queued_count
+    }
+else:
+    print(f"⚠️ Main module not loaded, skipping session update")
+```
+
+### Benefits
+
+- **No Circular Imports**: Uses `sys.modules` instead of direct import to avoid circular dependency issues
+- **Graceful Degradation**: Skips session update if main module isn't loaded (e.g., when scheduler runs standalone)
+- **Error Isolation**: Session update failures don't interrupt crawler job execution
+- **Thread Safety**: Safe to call from scheduler threads without affecting main application
+
+### Session Data Structure
+
+```python
+{
+    'is_active': True,
+    'source': 'scheduled',           # Indicates scheduled trigger
+    'schedule_id': 'uuid',           # Schedule that triggered the crawl
+    'schedule_name': 'Daily Crawl',  # Human-readable schedule name
+    'template_id': 'uuid',           # Template being crawled
+    'template_name': 'Backend Dev',  # Human-readable template name
+    'started_at': '2026-03-10T14:30:00+07:00',  # Asia/Jakarta timezone
+    'leads_queued': 150              # Number of leads queued for crawling
+}
+```
+
+### Console Output
+
+When session is updated successfully:
+```
+✅ Updated crawl session for scheduled run
+```
+
+When main module is not loaded:
+```
+⚠️ Main module not loaded, skipping session update
+```
+
+When session update fails:
+```
+⚠️ Failed to update crawl session: [error message]
+```
+
+### Use Cases
+
+- **Dashboard Integration**: Real-time display of active scheduled crawls
+- **Monitoring**: Track which schedules are currently executing
+- **Debugging**: Identify the source of crawler activity (manual vs scheduled)
+- **Analytics**: Measure scheduled crawler performance and lead throughput
+
+### Related Components
+
+- `backend/api/main.py` - Contains `current_crawl_session` global variable
+- `backend/api/scheduler_service.py` - Updates session during scheduled execution
+- `helper/supabase_helper.py` - Provides template metadata for session tracking
+
+### Migration Note
+
+This replaces the previous direct import pattern (`import main`) which could cause circular import issues when the scheduler service was imported before the main module was fully initialized.
+
+
+## 🔧 Scheduler Service Thread Safety
+
+The scheduler service (`backend/api/scheduler_service.py`) has been optimized to handle thread-safety issues when executing scheduled crawl jobs.
+
+### Thread-Safe Template Name Handling
+
+**Problem**: When scheduled jobs execute in background threads, querying Supabase for template names can cause connection pool issues and thread-safety errors.
+
+**Solution**: The scheduler now uses a simplified template name format instead of querying the database:
+
+```python
+# Before (caused thread issues):
+template = supabase_manager.get_template_by_id(template_id)
+template_name = template.get('name', 'Unknown Template')
+
+# After (thread-safe):
+template_name = f"Template {template_id[:8]}"
+```
+
+### Crawl Session Updates
+
+When a scheduled crawl executes, the service updates the global `current_crawl_session` with:
+- `is_active`: Set to `True` during execution
+- `source`: Set to `'scheduled'` to indicate scheduler trigger
+- `schedule_id`: UUID of the executing schedule
+- `schedule_name`: Name from schedule record
+- `template_id`: UUID of the template being crawled
+- `template_name`: Simplified format using first 8 chars of template ID
+- `started_at`: ISO timestamp in Asia/Jakarta timezone
+- `leads_queued`: Count of leads successfully queued
+
+### Enhanced Logging
+
+The scheduler now provides detailed logging for crawl session updates:
+
+```
+✅ Updated crawl session for scheduled run
+   is_active: True
+   source: scheduled
+   leads_queued: 150
+```
+
+This helps with debugging and monitoring scheduled crawl executions.
+
+### Benefits
+
+- **Eliminates thread-safety issues**: No database queries in background threads
+- **Improves reliability**: Scheduled jobs execute without connection errors
+- **Maintains functionality**: Session tracking still works with simplified template names
+- **Better debugging**: Enhanced logging shows exact session state
+
+### Migration Notes
+
+If you're upgrading from an older version:
+1. No database schema changes required
+2. No configuration changes needed
+3. Existing schedules continue to work
+4. Template names in session data will use new format: `"Template {id[:8]}"`

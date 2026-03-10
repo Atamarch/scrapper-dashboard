@@ -445,7 +445,7 @@ function LeadsPageContent() {
         return;
       }
 
-      const headers = ['Name', 'Connection Status', 'Score', 'Scored At', 'Profile URL', 'Search URL'];
+      const headers = ['Name', 'Connection Status', 'Score', 'Processed At', 'Profile URL', 'Note Sent', 'Sent At'];
       const csvRows = [headers.join(',')];
 
       allData.forEach(lead => {
@@ -453,9 +453,10 @@ function LeadsPageContent() {
           `"${lead.name || ''}"`,
           lead.connection_status || '',
           lead.score || '',
-          lead.scored_at || '',
+          lead.processed_at || '',
           lead.profile_url || '',
-          lead.search_url || ''
+          `"${lead.note_sent || ''}"`,
+          lead.sent_at || ''
         ];
         csvRows.push(row.join(','));
       });

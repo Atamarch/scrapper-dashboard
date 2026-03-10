@@ -45,10 +45,15 @@ class SchedulerService:
     
     def _load_schedules(self):
         """Load all active schedules from database"""
-        schedules = self.db.get_active_schedules()
-        print(f"📋 Loading {len(schedules)} active schedules...")
+        from helper.supabase_helper import ScheduleManager
         
-        for schedule in schedules:
+        # Get active schedules using ScheduleManager
+        schedules = ScheduleManager.get_all_simple()
+        active_schedules = [s for s in schedules if s.get('status') == 'active']
+        
+        print(f"📋 Loading {len(active_schedules)} active schedules...")
+        
+        for schedule in active_schedules:
             try:
                 print(f"   Loading schedule: {schedule.get('name', 'Unknown')} (ID: {schedule['id']})")
                 self.add_job(schedule['id'])
@@ -58,7 +63,10 @@ class SchedulerService:
     
     def add_job(self, schedule_id: str):
         """Add job to scheduler with conflict detection"""
-        schedule = self.db.get_schedule(schedule_id)
+        # Use ScheduleManager instead of db to avoid connection issues
+        from helper.supabase_helper import ScheduleManager
+        
+        schedule = ScheduleManager.get_by_id(schedule_id)
         if not schedule:
             raise ValueError(f"Schedule {schedule_id} not found")
         
@@ -221,13 +229,28 @@ class SchedulerService:
         print(f"⏱️ Staggering execution by {stagger_delay:.1f}s to avoid concurrent overload")
         time.sleep(stagger_delay)
         
-        schedule = self.db.get_schedule(schedule_id)
-        if not schedule:
+        # CRITICAL: Import fresh in thread to avoid connection issues
+        from helper.supabase_helper import SupabaseManager
+        from helper.rabbitmq_helper import queue_publisher
+        
+        # Create fresh Supabase manager for this thread
+        supabase_manager = SupabaseManager()
+        
+        # Get schedule using fresh connection
+        schedule = supabase_manager.supabase.table('crawler_schedules').select('*').eq('id', schedule_id).execute()
+        if not schedule.data:
             print(f"✗ Schedule {schedule_id} not found")
             return
         
-        # Update last run timestamp
-        self.db.update_last_run(schedule_id)
+        schedule = schedule.data[0]
+        
+        # Update last run timestamp (non-critical, skip if fails)
+        try:
+            supabase_manager.supabase.table('crawler_schedules').update({
+                'last_run': datetime.now().isoformat()
+            }).eq('id', schedule_id).execute()
+        except Exception as e:
+            print(f"⚠️ Failed to update last_run (non-critical): {e}")
         
         # Get template_id from schedule
         template_id = schedule.get('template_id')
@@ -237,9 +260,6 @@ class SchedulerService:
         
         print(f"📋 Template ID: {template_id}")
         print(f"📝 Schedule Name: {schedule.get('name', 'Unnamed')}")
-        
-        # Import here to avoid circular dependency
-        from helper.supabase_helper import SupabaseManager
         from helper.rabbitmq_helper import queue_publisher
         
         # OPTIMIZATION: Error handling with retry
@@ -333,11 +353,43 @@ class SchedulerService:
                 
                 # Update global crawl session (SCHEDULED trigger)
                 try:
-                    import main
-                    template = supabase_manager.get_template_by_id(template_id)
-                    template_name = template.get('name', 'Unknown Template') if template else 'Unknown Template'
+                    import sys
+                    # Get main module from sys.modules (already loaded)
+                    # Try both 'main' and '__main__' (depends on how API is started)
+                    main_module = None
+                    if 'main' in sys.modules:
+                        main_module = sys.modules['main']
+                    elif '__main__' in sys.modules:
+                        main_module = sys.modules['__main__']
                     
-                    # Use Asia/Jakarta timezone for started_at
+                    if main_module and hasattr(main_module, 'current_crawl_session'):
+                        # Use Asia/Jakarta timezone for started_at
+                        jakarta_tz = pytz.timezone('Asia/Jakarta')
+                        started_at_jakarta = datetime.now(jakarta_tz).isoformat()
+                        
+                        # Don't query template name - use schedule name or "Unknown"
+                        # to avoid Supabase connection issues in thread
+                        template_name = f"Template {template_id[:8]}"
+                        
+                        main_module.current_crawl_session = {
+                            'is_active': True,
+                            'source': 'scheduled',
+                            'schedule_id': schedule_id,
+                            'schedule_name': schedule.get('name', 'Unknown Schedule'),
+                            'template_id': template_id,
+                            'template_name': template_name,
+                            'started_at': started_at_jakarta,
+                            'leads_queued': queued_count
+                        }
+                        print(f"✅ Updated crawl session for scheduled run")
+                        print(f"   is_active: True")
+                        print(f"   source: scheduled")
+                        print(f"   leads_queued: {queued_count}")
+                    else:
+                        print(f"⚠️ Main module not found or no current_crawl_session attribute")
+                        print(f"   Available modules: {[k for k in sys.modules.keys() if 'main' in k.lower()]}")
+                except Exception as e:
+                    print(f"⚠️ Failed to update crawl session: {e}")
                     jakarta_tz = pytz.timezone('Asia/Jakarta')
                     started_at_jakarta = datetime.now(jakarta_tz).isoformat()
                     

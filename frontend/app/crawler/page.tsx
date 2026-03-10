@@ -41,6 +41,7 @@ export default function CrawlerPage() {
   const [loading, setLoading] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [justStopped, setJustStopped] = useState(false);
 
   // Fetch templates on component mount
@@ -186,6 +187,9 @@ export default function CrawlerPage() {
   };
 
   const stopCrawler = async () => {
+    if (stopping) return;
+    
+    setStopping(true);
     try {
       const result = await crawlerAPI.stopScraping();
       
@@ -220,6 +224,8 @@ export default function CrawlerPage() {
       console.error('Error stopping crawler:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       toast.error(`Failed to stop crawler: ${errorMessage}`);
+    } finally {
+      setStopping(false);
     }
   };
 
@@ -344,10 +350,15 @@ export default function CrawlerPage() {
                   ) : (
                     <button
                       onClick={stopCrawler}
-                      className="flex items-center gap-2 px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors"
+                      disabled={stopping}
+                      className="flex items-center gap-2 px-6 py-3 bg-red-600 hover:bg-red-700 disabled:bg-red-800 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors"
                     >
-                      <Square className="h-4 w-4" />
-                      Stop Crawler
+                      {stopping ? (
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Square className="h-4 w-4" />
+                      )}
+                      {stopping ? 'Stopping...' : 'Stop Crawler'}
                     </button>
                   )}
                 </div>
