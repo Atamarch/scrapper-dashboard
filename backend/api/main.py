@@ -321,6 +321,13 @@ class CrawlerScheduleUpdate(BaseModel):
         None,
         example="38a1699d-ad54-4f05-9483-e3d35142d35f",
         description="Template ID to use for scraping"
+    )
+    status: Optional[str] = Field(
+        None,
+        example="inactive",
+        description="Schedule status: 'active' or 'inactive'"
+    )
+
 class CronValidationRequest(BaseModel):
     cron_expression: str = Field(..., example="0 9 * * *", description="Cron expression to validate")
 
