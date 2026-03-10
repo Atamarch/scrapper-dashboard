@@ -457,7 +457,8 @@ async def get_schedules(external_source: Optional[str] = None):
                     "name": schedule['name'],
                     "external_source": schedule.get('external_source'),
                     "job_title": external_metadata.get('job_title'),
-                    "schedule_status": schedule['status'],
+                    "status": schedule['status'],  # FIX: Use 'status' instead of 'schedule_status' for frontend compatibility
+                    "schedule_status": schedule['status'],  # Keep for backward compatibility
                     "execution_status": execution_status,
                     "scheduled_for": external_metadata.get('schedule_datetime'),
                     "last_run": schedule.get('last_run'),
@@ -1460,7 +1461,8 @@ async def create_external_schedule(request: ExternalScheduleRequest):
                 "company": "Nara",
                 "external_source": request.external_source,
                 "job_title": request.job_title,
-                "schedule_status": "active",
+                "status": "active",  # FIX: Use 'status' instead of 'schedule_status' for frontend compatibility
+                "schedule_status": "active",  # Keep for backward compatibility
                 "cron_expression": cron_expression,
                 "webhook_url": request.webhook_url,
                 "created_at": schedule.get("created_at"),
@@ -1772,7 +1774,8 @@ async def get_external_schedule_status(schedule_id: str):
             "schedule_id": schedule_id,
             "external_source": schedule.get('external_source'),
             "job_title": external_metadata.get('job_title'),
-            "schedule_status": current_status,
+            "status": current_status,  # FIX: Use 'status' instead of 'schedule_status' for frontend compatibility
+            "schedule_status": current_status,  # Keep for backward compatibility
             "execution_status": execution_status,
             "scheduled_for": external_metadata.get('schedule_datetime'),
             "is_past_due": is_past_due,
