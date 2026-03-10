@@ -462,9 +462,8 @@ async def get_schedules(external_source: Optional[str] = None):
                     "execution_status": execution_status,
                     "scheduled_for": external_metadata.get('schedule_datetime'),
                     "last_run": schedule.get('last_run'),
-                    "candidates_count": len(external_metadata.get('candidate_urls', [])),
+                    "candidates_count": 0,  # Uses existing leads list
                     "created_at": schedule.get('created_at'),
-                    "updated_at": schedule.get('updated_at'),
                     "leads_processed": 0,  # Simplified without logs
                     "webhook_url": schedule.get('webhook_url')
                 }
@@ -479,7 +478,6 @@ async def get_schedules(external_source: Optional[str] = None):
                     "last_run": schedule.get('last_run'),
                     "next_run": schedule.get('next_run'),
                     "created_at": schedule.get('created_at'),
-                    "updated_at": schedule.get('updated_at'),
                     "external_source": None
                 }
             
@@ -1421,8 +1419,7 @@ async def create_external_schedule(request: ExternalScheduleRequest):
             "external_source": request.external_source,
             "external_metadata": external_metadata,
             "webhook_url": request.webhook_url,
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat()
+            "created_at": datetime.utcnow().isoformat()
         }
         
         # Insert schedule to database
@@ -1780,7 +1777,7 @@ async def get_external_schedule_status(schedule_id: str):
             "scheduled_for": external_metadata.get('schedule_datetime'),
             "is_past_due": is_past_due,
             "last_run": schedule.get('last_run'),
-            "candidates_count": len(external_metadata.get('candidate_urls', [])),
+            "candidates_count": 0,  # Uses existing leads list
             "webhook_url": schedule.get('webhook_url'),
             "created_at": schedule.get('created_at')
         }
