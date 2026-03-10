@@ -1243,19 +1243,36 @@ async def create_external_schedule(request: ExternalScheduleRequest):
                 "created_at": datetime.utcnow().isoformat()
             }
             
+            print(f"🔄 Attempting to create template: {template_name}")
+            print(f"📊 Template data: {template_data}")
+            
             # Insert to search_templates table
             result = supabase.table("search_templates").insert(template_data).execute()
-            if result.data:
+            
+            print(f"📊 Insert result: {result}")
+            print(f"📊 Result data: {result.data}")
+            print(f"📊 Result count: {result.count}")
+            
+            if result.data and len(result.data) > 0:
                 template_created = True
-                print(f"✅ Created search template: {template_id} - {template_name}")
-                print(f"📊 Template data inserted: {result.data[0]}")
+                created_template = result.data[0]
+                print(f"✅ Created search template successfully!")
+                print(f"   ID: {created_template.get('id')}")
+                print(f"   Name: {created_template.get('name')}")
+                
+                # Verify template was actually saved
+                verify_result = supabase.table("search_templates").select("*").eq("id", template_id).execute()
+                print(f"🔍 Verification result: {verify_result.data}")
+                
             else:
                 print(f"⚠️ Failed to create search template - no data returned")
-                print(f"📊 Insert result: {result}")
+                print(f"📊 Full result: {result}")
                 
         except Exception as e:
-            print(f"⚠️ Template creation failed: {e}")
+            print(f"❌ Template creation failed with exception: {e}")
             print(f"📊 Template data attempted: {template_data}")
+            import traceback
+            traceback.print_exc()
             # Continue without template if creation fails
         
         # ============================================================================
