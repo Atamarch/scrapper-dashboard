@@ -455,7 +455,6 @@ async def get_schedules(external_source: Optional[str] = None):
                 formatted_schedule = {
                     "schedule_id": schedule['id'],
                     "name": schedule['name'],
-                    "external_job_id": external_metadata.get('external_job_id'),
                     "external_source": schedule.get('external_source'),
                     "job_title": external_metadata.get('job_title'),
                     "schedule_status": schedule['status'],
@@ -1213,36 +1212,11 @@ async def create_external_schedule(request: ExternalScheduleRequest):
         print(f"   Note: Candidates will be taken from existing leads list")
         
         # ============================================================================
-        # STEP 1: GET OR CREATE COMPANY ID FOR NARA
+        # STEP 1: USE EXISTING NARA COMPANY ID
         # ============================================================================
-        company_id = None
-        try:
-            # Get company with code "nara"
-            company_result = supabase.table("companies").select("uuid, name").eq("code", "nara").execute()
-            
-            if company_result.data and len(company_result.data) > 0:
-                company_id = company_result.data[0]["uuid"]
-                print(f"✅ Found Nara company: {company_id}")
-            else:
-                # Create Nara company if not exists
-                print(f"⚠️ Company with code 'nara' not found, creating...")
-                try:
-                    new_company = {
-                        "name": "Nara",
-                        "code": "nara",
-                        "created_at": datetime.utcnow().isoformat()
-                    }
-                    
-                    create_result = supabase.table("companies").insert(new_company).execute()
-                    if create_result.data:
-                        company_id = create_result.data[0]["uuid"]
-                        print(f"✅ Created Nara company: {company_id}")
-                    else:
-                        print(f"⚠️ Failed to create Nara company")
-                except Exception as e:
-                    print(f"⚠️ Failed to create Nara company: {e}")
-        except Exception as e:
-            print(f"⚠️ Failed to get/create Nara company: {e}")
+        # Hardcode company_id Nara yang sudah ada
+        company_id = "3bb96963-2c83-4ce4-b7a7-237adfc7c962"
+        print(f"✅ Using existing Nara company: {company_id}")
         
         # ============================================================================
         # STEP 2: CREATE SEARCH TEMPLATE
@@ -1456,7 +1430,6 @@ async def create_external_schedule(request: ExternalScheduleRequest):
                 "template_id": template_id,
                 "job_id": job_id,
                 "company": "Nara",
-                "company_id": company_id,
                 "external_source": request.external_source,
                 "job_title": request.job_title,
                 "schedule_status": "active",
@@ -1466,7 +1439,7 @@ async def create_external_schedule(request: ExternalScheduleRequest):
                 "note": "Candidates will be taken from existing leads list",
                 "services_updated": {
                     "search_template": template_id,
-                    "company_linked": company_id is not None,
+                    "company_linked": True,
                     "requirements_generated": requirements_data is not None,
                     "requirements_file": f"{job_id}_nara.json" if requirements_data else None,
                     "schedule_created": schedule_id,
@@ -1769,7 +1742,6 @@ async def get_external_schedule_status(schedule_id: str):
         response_data = {
             "success": True,
             "schedule_id": schedule_id,
-            "external_job_id": external_metadata.get('external_job_id'),
             "external_source": schedule.get('external_source'),
             "job_title": external_metadata.get('job_title'),
             "schedule_status": current_status,
