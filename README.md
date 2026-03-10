@@ -1726,3 +1726,84 @@ If you're upgrading from an older version:
 2. No configuration changes needed
 3. Existing schedules continue to work
 4. Template names in session data will use new format: `"Template {id[:8]}"`
+
+
+## 🔄 Scheduler Service Template Name Resolution
+
+The scheduler service (`backend/api/scheduler_service.py`) now retrieves template names from the database during scheduled crawl execution for better session tracking.
+
+### Template Name Retrieval
+
+**Implementation**: When a scheduled job executes, the scheduler queries Supabase to get the actual template name:
+
+```python
+# Get template name from database
+try:
+    from helper.supabase_helper import SupabaseManager
+    supabase_manager = SupabaseManager()
+    template = supabase_manager.get_template_by_id(template_id)
+    template_name = template.get('name', 'Unknown Template') if template else f"Template {template_id[:8]}"
+except Exception as e:
+    print(f"⚠️ Failed to get template name: {e}")
+    template_name = f"Template {template_id[:8]}"
+```
+
+### Fallback Behavior
+
+If the database query fails (connection issues, template not found, etc.), the scheduler falls back to a simplified format:
+- Format: `"Template {template_id[:8]}"`
+- Example: `"Template 38a1699d"`
+
+This ensures the crawl session is always updated with a valid template name, even if the database is temporarily unavailable.
+
+### Benefits
+
+- **Better UX**: Dashboard displays actual template names instead of truncated IDs
+- **Improved Tracking**: Session data includes human-readable template information
+- **Error Resilience**: Fallback ensures crawl execution continues even if template lookup fails
+- **Debugging**: Easier to identify which template is being crawled in logs and UI
+
+### Crawl Session Data
+
+The `current_crawl_session` now includes the resolved template name:
+
+```python
+{
+    'is_active': True,
+    'source': 'scheduled',
+    'schedule_id': 'uuid',
+    'schedule_name': 'Daily Morning Crawl',
+    'template_id': 'uuid',
+    'template_name': 'Backend Developer - Jakarta',  # Actual name from database
+    'started_at': '2026-03-10T14:30:00+07:00',
+    'leads_queued': 150
+}
+```
+
+### Console Output
+
+**Success:**
+```
+📝 Template Name: Backend Developer - Jakarta
+✅ Updated crawl session for scheduled run
+```
+
+**Fallback:**
+```
+⚠️ Failed to get template name: Connection timeout
+📝 Template Name: Template 38a1699d
+✅ Updated crawl session for scheduled run
+```
+
+### Related Components
+
+- `helper/supabase_helper.py` - Contains `SupabaseManager.get_template_by_id()` method
+- `backend/api/main.py` - Contains `current_crawl_session` global variable
+- `backend/api/scheduler_service.py` - Executes scheduled crawls and updates session
+
+### Migration Notes
+
+- No database schema changes required
+- No configuration changes needed
+- Existing schedules automatically benefit from improved template name resolution
+- If `SupabaseManager.get_template_by_id()` doesn't exist, add it to `helper/supabase_helper.py`

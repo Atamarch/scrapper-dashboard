@@ -367,9 +367,15 @@ class SchedulerService:
                         jakarta_tz = pytz.timezone('Asia/Jakarta')
                         started_at_jakarta = datetime.now(jakarta_tz).isoformat()
                         
-                        # Don't query template name - use schedule name or "Unknown"
-                        # to avoid Supabase connection issues in thread
-                        template_name = f"Template {template_id[:8]}"
+                        # Get template name from database
+                        try:
+                            from helper.supabase_helper import SupabaseManager
+                            supabase_manager = SupabaseManager()
+                            template = supabase_manager.get_template_by_id(template_id)
+                            template_name = template.get('name', 'Unknown Template') if template else f"Template {template_id[:8]}"
+                        except Exception as e:
+                            print(f"⚠️ Failed to get template name: {e}")
+                            template_name = f"Template {template_id[:8]}"
                         
                         main_module.current_crawl_session = {
                             'is_active': True,
@@ -392,6 +398,16 @@ class SchedulerService:
                     print(f"⚠️ Failed to update crawl session: {e}")
                     jakarta_tz = pytz.timezone('Asia/Jakarta')
                     started_at_jakarta = datetime.now(jakarta_tz).isoformat()
+                    
+                    # Get template name from database
+                    try:
+                        from helper.supabase_helper import SupabaseManager
+                        supabase_manager = SupabaseManager()
+                        template = supabase_manager.get_template_by_id(template_id)
+                        template_name = template.get('name', 'Unknown Template') if template else f"Template {template_id[:8]}"
+                    except Exception as e:
+                        print(f"⚠️ Failed to get template name: {e}")
+                        template_name = f"Template {template_id[:8]}"
                     
                     main.current_crawl_session = {
                         'is_active': True,

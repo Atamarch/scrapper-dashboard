@@ -1495,10 +1495,24 @@ async def stop_scraping():
         queue_info = queue_publisher.get_queue_info()
         queue_size = queue_info.get('messages', 0) if queue_info else 0
         
+        # Check if this was triggered by a schedule
+        schedule_id = current_crawl_session.get('schedule_id')
+        schedule_name = current_crawl_session.get('schedule_name')
+        was_scheduled = current_crawl_session.get('source') == 'scheduled' and schedule_id
+        
         # Purge the queue
         queue_purged = queue_publisher.purge_queue()
         
         if queue_purged:
+            # If triggered by scheduler, deactivate the schedule
+            if was_scheduled:
+                try:
+                    schedule_manager = ScheduleManager()
+                    schedule_manager.update_schedule_status(schedule_id, False)
+                    print(f"✅ Deactivated schedule: {schedule_name} (ID: {schedule_id})")
+                except Exception as e:
+                    print(f"⚠️ Failed to deactivate schedule {schedule_id}: {e}")
+            
             # CRITICAL FIX: Clear the crawl session to set is_active = False
             current_crawl_session = {
                 'is_active': False,
@@ -1514,11 +1528,14 @@ async def stop_scraping():
             print(f"✅ Crawler session cleared - status now idle")
             
             message = f"Crawler stopped. {queue_size} jobs removed from queue."
+            if was_scheduled:
+                message += f" Schedule '{schedule_name}' has been deactivated."
             
             return {
                 "success": True,
                 "message": message,
-                "jobs_removed": queue_size
+                "jobs_removed": queue_size,
+                "schedule_deactivated": was_scheduled
             }
         else:
             raise HTTPException(status_code=500, detail="Failed to purge queue")
