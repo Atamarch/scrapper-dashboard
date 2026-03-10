@@ -41,10 +41,13 @@ export default function SchedulerPage() {
       
       if (response && response.templates) {
         setTemplates(response.templates)
+        // DEBUG: Expose to window for debugging
+        ;(window as any).templates = response.templates
         console.log(`✅ Loaded ${response.templates.length} templates`)
       } else {
         console.warn('⚠️ No templates in response')
         setTemplates([])
+        ;(window as any).templates = []
       }
     } catch (error) {
       console.error('❌ Failed to load templates:', error)
@@ -53,6 +56,7 @@ export default function SchedulerPage() {
         console.error('Error stack:', error.stack)
       }
       setTemplates([])
+      ;(window as any).templates = []
     }
   }
 
@@ -61,9 +65,12 @@ export default function SchedulerPage() {
       const response = await crawlerAPI.getSchedules()
       console.log('Schedules response:', response)
       setJobs(response.schedules || [])
+      // DEBUG: Expose to window for debugging
+      ;(window as any).jobs = response.schedules || []
     } catch (error) {
       console.error('Failed to load schedules:', JSON.stringify(error, null, 2))
       setJobs([])
+      ;(window as any).jobs = []
     } finally {
       setLoading(false)
     }

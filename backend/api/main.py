@@ -1084,8 +1084,15 @@ async def get_templates():
                 "error": "Supabase client not initialized"
             }
         
-        result = supabase.table('search_templates').select('id, name, created_at').execute()
-        print(f"✅ Templates fetched: {len(result.data) if result.data else 0} templates")
+        # Try with RLS bypass first
+        try:
+            result = supabase.rpc('get_search_templates').execute()
+            print(f"✅ Templates via RPC: {len(result.data) if result.data else 0}")
+        except:
+            # Fallback to direct query
+            result = supabase.table('search_templates').select('id, name, created_at').execute()
+            print(f"✅ Templates via direct query: {len(result.data) if result.data else 0}")
+        
         print(f"📊 Template data: {result.data}")
         
         return {

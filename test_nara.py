@@ -3,8 +3,7 @@ import json
 
 # Test Nara endpoint di Railway
 def test_nara_endpoint():
-    # Ganti dengan URL Railway kamu
-    base_url = "https://linkedin-api-production-0937.up.railway.app"  # UPDATE INI!
+    base_url = "https://linkedin-api-production-0937.up.railway.app"
     url = f"{base_url}/api/external/schedule-scraping"
     
     payload = {
@@ -53,9 +52,37 @@ def test_nara_endpoint():
         
     return False
 
+# Test templates endpoint
+def test_templates():
+    base_url = "https://linkedin-api-production-0937.up.railway.app"
+    
+    try:
+        print("📋 Testing templates endpoint...")
+        response = requests.get(f"{base_url}/api/requirements/templates", timeout=10)
+        print(f"Templates Status: {response.status_code}")
+        
+        if response.status_code == 200:
+            data = response.json()
+            print(f"Templates Response: {json.dumps(data, indent=2)}")
+            
+            if data.get('templates'):
+                print(f"\n✅ Found {len(data['templates'])} templates:")
+                for template in data['templates']:
+                    print(f"  - ID: {template['id']}")
+                    print(f"    Name: {template['name']}")
+            else:
+                print("⚠️ No templates found")
+        else:
+            print(f"❌ Templates request failed: {response.text}")
+            
+        return response.status_code == 200
+    except Exception as e:
+        print(f"❌ Templates check failed: {e}")
+        return False
+
 # Test health check dulu
 def test_health():
-    base_url = "https://linkedin-api-production-0937.up.railway.app"  # UPDATE INI!
+    base_url = "https://linkedin-api-production-0937.up.railway.app"
     
     try:
         print("🏥 Testing health check...")
@@ -75,7 +102,14 @@ if __name__ == "__main__":
     # Test health dulu
     if test_health():
         print("\n" + "=" * 30)
+        
+        # Test templates endpoint
+        print("🔍 CHECKING TEMPLATES...")
+        test_templates()
+        
+        print("\n" + "=" * 30)
         # Test Nara endpoint
+        print("🚀 TESTING NARA ENDPOINT...")
         test_nara_endpoint()
     else:
         print("❌ Health check gagal, cek deployment Railway")
