@@ -1358,8 +1358,8 @@ async def create_external_schedule(request: ExternalScheduleRequest):
             }
             
             # Save requirements to file
-            requirements_dir = Path("../scoring/requirements")
-            requirements_dir.mkdir(exist_ok=True)
+            requirements_dir = Path(__file__).parent.parent / "scoring" / "requirements"
+            requirements_dir.mkdir(parents=True, exist_ok=True)
             
             filename = f"{job_id}_nara.json"
             filepath = requirements_dir / filename
@@ -1441,13 +1441,8 @@ async def create_external_schedule(request: ExternalScheduleRequest):
         # ============================================================================
         
         try:
-            if scheduler_service:
-                scheduler_service.add_schedule(
-                    schedule_id=schedule_id,
-                    name=schedule["name"],
-                    cron_expression=cron_expression,
-                    template_id=template_id
-                )
+            if scheduler:
+                scheduler.add_job(schedule_id)
                 print(f"✅ Added to scheduler service")
         except Exception as e:
             print(f"⚠️ Scheduler service warning: {e}")
@@ -1478,7 +1473,7 @@ async def create_external_schedule(request: ExternalScheduleRequest):
                     "requirements_generated": requirements_data is not None,
                     "requirements_file": f"{job_id}_nara.json" if requirements_data else None,
                     "schedule_created": schedule_id,
-                    "scheduler_service": scheduler_service is not None
+                    "scheduler_service": scheduler is not None
                 }
             }
         }
