@@ -880,31 +880,63 @@ async def get_crawler_status():
 @app.get("/api/scraping/session")
 @handle_api_errors
 async def get_crawl_session():
-    """Get current crawl session info"""
+    """Get detailed crawl session information"""
+    global current_crawl_session
+    
     try:
-        from helper.rabbitmq_helper import queue_publisher
-        queue_info = queue_publisher.get_queue_info()
+        # Auto-complete session if needed
+        await check_and_complete_session()
+        
+        # Get current queue size
+        queue_size = 0
+        try:
+            queue_info = queue_publisher.get_queue_info()
+            queue_size = queue_info.get('messages', 0) if queue_info else 0
+        except Exception as e:
+            print(f"Error getting queue info: {e}")
         
         return {
-            "is_active": (queue_info.get("messages", 0) if queue_info else 0) > 0,
-            "source": None,
-            "schedule_id": None,
-            "schedule_name": None,
-            "template_id": None,
-            "template_name": None,
-            "started_at": None,
-            "leads_queued": 0,
-            "current_queue_size": queue_info.get("messages", 0) if queue_info else 0
+            **current_crawl_session,
+            'current_queue_size': queue_size
         }
-        
     except Exception as e:
-        logger.error(f"Error getting crawl session: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/scraping/stop")
 @handle_api_errors
-# Removed duplicate stop_scraping function - using the one at line 1816
+async def get_crawler_status():
+    """Get current crawler status with complete session data"""
+    global current_crawl_session
+    
+    try:
+        # Check RabbitMQ queue size
+        queue_size = 0
+        is_running = False
+        
+        try:
+            queue_info = queue_publisher.get_queue_info()
+            if queue_info:
+                queue_size = queue_info.get('messages', 0)
+                is_running = queue_size > 0 or current_crawl_session.get('is_active', False)
+        except Exception as e:
+            print(f"Error getting queue info: {e}")
+        
+        # Auto-complete session if queue is empty
+        if queue_size == 0 and current_crawl_session.get('is_active', False):
+            await check_and_complete_session()
+        
+        # Return complete status
+        return CrawlerStatusResponse(
+            is_running=current_crawl_session.get('is_active', False),
+            queue_size=queue_size,
+            template_id=current_crawl_session.get('template_id'),
+            template_name=current_crawl_session.get('template_name'),
+            processed_count=current_crawl_session.get('leads_queued', 0)
+        )
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ============================================================================
 # OUTREACH ENDPOINTS
@@ -1730,55 +1762,12 @@ async def create_external_schedule(request: ExternalScheduleRequest):
 
 @app.get("/api/scraping/status", response_model=CrawlerStatusResponse)
 @handle_api_errors
-async def get_crawler_status():
-    """Get current crawler status by checking RabbitMQ queue with session metadata"""
-    global current_crawl_session
-    
-    try:
-        # Check RabbitMQ queue size
-        queue_size = 0
-        is_running = False
-        
-        try:
-            # Get queue info from RabbitMQ
-            queue_info = queue_publisher.get_queue_info()
-            if queue_info:
-                queue_size = queue_info.get('messages', 0)
-                is_running = queue_size > 0
-        except Exception as e:
-            print(f"Error getting queue info: {e}")
-        
-        # If queue is empty, clear session
-        if queue_size == 0 and current_crawl_session['is_active']:
-            print("📊 Queue empty, clearing crawl session")
-            current_crawl_session['is_active'] = False
-        
-        # Return status with session metadata
-        return CrawlerStatusResponse(
-            is_running=is_running,
-            queue_size=queue_size,
-            template_id=current_crawl_session.get('template_id') if current_crawl_session['is_active'] else None,
-            template_name=current_crawl_session.get('template_name') if current_crawl_session['is_active'] else None,
-            processed_count=0
-        )
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+# Remove duplicate function - using the updated one above
 
 
 @app.get("/api/scraping/session")
 @handle_api_errors
-async def get_crawl_session():
-    """Get detailed crawl session information"""
-    global current_crawl_session
-    
-    # Check if session should be auto-completed
-    await check_and_complete_session()
-    
-    return {
-        **current_crawl_session,
-        'current_queue_size': queue_publisher.get_queue_info().get('messages', 0) if queue_publisher.get_queue_info() else 0
-    }
+# Remove duplicate function - using the updated one above
 
 
 async def check_and_complete_session():
@@ -1846,15 +1835,15 @@ async def stop_scraping():
         # Check if this was triggered by a schedule
         schedule_id = current_crawl_session.get('schedule_id')
         schedule_name = current_crawl_session.get('schedule_name')
-        was_scheduled = current_crawl_session.get('source') == 'scheduled' and schedule_id
         
-        # Purge the queue
+        # Purge the queue (use default queue name)
         queue_purged = queue_publisher.purge_queue()
         
         if queue_purged:
             # Always deactivate schedule if it was running (both manual and automatic)
             if schedule_id:
                 try:
+                    from helper.supabase_helper import ScheduleManager
                     schedule_manager = ScheduleManager()
                     schedule_manager.update_schedule_status(schedule_id, False)
                     print(f"✅ Deactivated schedule: {schedule_name} (ID: {schedule_id})")
@@ -1889,6 +1878,7 @@ async def stop_scraping():
             raise HTTPException(status_code=500, detail="Failed to purge queue")
     
     except Exception as e:
+        print(f"❌ Error in stop_scraping: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

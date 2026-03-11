@@ -1930,6 +1930,105 @@ The method updates the `crawler_schedules` table:
 - `backend/api/main.py` - API endpoints that use schedule status
 - `backend/api/scheduler_service.py` - Scheduler that respects active/inactive status
 
+## 📊 Crawler Status API Endpoint
+
+The API provides a comprehensive crawler status endpoint that returns real-time information about the current crawling session and queue state.
+
+### Endpoint: POST `/api/scraping/stop`
+
+**Note**: This endpoint was updated to provide crawler status instead of stopping functionality.
+
+#### Response
+```json
+{
+  "is_running": true,
+  "queue_size": 25,
+  "template_id": "38a1699d-ad54-4f05-9483-e3d35142d35f",
+  "template_name": "Backend Developer - Jakarta",
+  "processed_count": 150
+}
+```
+
+#### Response Fields
+- `is_running` (boolean): Whether the crawler is currently active
+- `queue_size` (integer): Number of jobs remaining in the RabbitMQ queue
+- `template_id` (string|null): UUID of the template being processed
+- `template_name` (string|null): Human-readable name of the current template
+- `processed_count` (integer): Number of leads queued in the current session
+
+#### Features
+
+**Real-time Queue Monitoring:**
+- Queries RabbitMQ to get current queue size
+- Determines if crawler is running based on queue size and session state
+- Handles RabbitMQ connection errors gracefully
+
+**Automatic Session Completion:**
+- Auto-completes crawl session when queue becomes empty
+- Calls `check_and_complete_session()` to update session state
+- Ensures status accuracy after crawl completion
+
+**Session Data Integration:**
+- Returns data from global `current_crawl_session` object
+- Includes template information for context
+- Shows leads queued count from session start
+
+#### Usage Examples
+
+```bash
+# Get current crawler status
+curl -X POST http://localhost:8000/api/scraping/stop
+
+# Response when crawler is active
+{
+  "is_running": true,
+  "queue_size": 15,
+  "template_id": "abc-123-def",
+  "template_name": "Frontend Developer",
+  "processed_count": 75
+}
+
+# Response when crawler is idle
+{
+  "is_running": false,
+  "queue_size": 0,
+  "template_id": null,
+  "template_name": null,
+  "processed_count": 0
+}
+```
+
+#### Error Handling
+
+If RabbitMQ connection fails:
+- `queue_size` defaults to 0
+- `is_running` determined from session state only
+- Error logged to console: `"Error getting queue info: [error message]"`
+
+If session completion fails:
+- Returns current session state
+- Error logged but doesn't affect response
+- Status may show as running until next check
+
+#### Integration
+
+This endpoint is typically used by:
+- **Dashboard UI**: Real-time status display
+- **Monitoring Systems**: Health checks and alerts
+- **Automation Scripts**: Wait for crawl completion
+- **Debug Tools**: Troubleshoot crawler state issues
+
+#### Related Components
+
+- `helper.rabbitmq_helper.queue_publisher.get_queue_info()` - Queue size retrieval
+- `check_and_complete_session()` - Session completion logic
+- `current_crawl_session` - Global session state object
+- `CrawlerStatusResponse` - Pydantic response model
+
+#### Migration Note
+
+This endpoint was previously used for stopping the crawler but has been repurposed to provide status information. For stopping crawler functionality, use the dedicated stop endpoint if available.s
+
 ## 🤖 Automatic Crawl Session Completion
 
 The API now includes automatic crawl session completion functionality that monitors queue status and automatically completes crawl sessions when processing is finished.
