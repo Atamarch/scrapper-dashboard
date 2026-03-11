@@ -906,40 +906,6 @@ async def get_crawl_session():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
-# Removed duplicate endpoint - using the correct one at line 1822
-    """Get current crawler status with complete session data"""
-    global current_crawl_session
-    
-    try:
-        # Check RabbitMQ queue size
-        queue_size = 0
-        is_running = False
-        
-        try:
-            queue_info = queue_publisher.get_queue_info()
-            if queue_info:
-                queue_size = queue_info.get('messages', 0)
-                is_running = queue_size > 0 or current_crawl_session.get('is_active', False)
-        except Exception as e:
-            print(f"Error getting queue info: {e}")
-        
-        # Auto-complete session if queue is empty
-        if queue_size == 0 and current_crawl_session.get('is_active', False):
-            await check_and_complete_session()
-        
-        # Return complete status
-        return CrawlerStatusResponse(
-            is_running=current_crawl_session.get('is_active', False),
-            queue_size=queue_size,
-            template_id=current_crawl_session.get('template_id'),
-            template_name=current_crawl_session.get('template_name'),
-            processed_count=current_crawl_session.get('leads_queued', 0)
-        )
-    
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
 # ============================================================================
 # OUTREACH ENDPOINTS
 # ============================================================================
