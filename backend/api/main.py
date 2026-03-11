@@ -1187,48 +1187,88 @@ async def generate_and_save_requirements(request: RequirementsGenerateRequest):
         raise HTTPException(status_code=500, detail=str(e))
 @app.post("/api/test/auto-generate", tags=["Requirements"])
 async def test_auto_generate(request: RequirementsGenerateRequest):
-    """Test endpoint untuk cek auto-generate requirements"""
+    """Test endpoint untuk debug auto-generate requirements"""
     try:
         print(f"🧪 TESTING AUTO-GENERATE for: {request.position}")
-
-        # Test extract_bullet_points function
-        bullets = extract_bullet_points(request.job_description)
-        print(f"🔍 Extracted {len(bullets)} bullets")
-
-        # Test classify_requirement function
-        requirements_array = []
-        for i, bullet in enumerate(bullets):
-            req = classify_requirement(bullet, i + 1)
-            requirements_array.append(req)
-            print(f"   {i+1}. [{req['type']}] {bullet[:50]}...")
-
-        # Add defaults if empty
-        if len(requirements_array) == 0:
-            requirements_array = [
-                {'id': 'req_1', 'label': 'Default requirement', 'type': 'skill', 'value': 'general'}
-            ]
-
-        return {
-            'success': True,
-            'message': 'Auto-generate test successful',
-            'bullets_extracted': len(bullets),
-            'requirements_generated': len(requirements_array),
-            'bullets': bullets,
-            'requirements': requirements_array,
-            'functions_working': {
-                'extract_bullet_points': len(bullets) > 0,
-                'classify_requirement': len(requirements_array) > 0
-            }
+        print(f"📝 Job description: {request.job_description[:200]}...")
+        
+        result = {
+            'success': False,
+            'method_used': None,
+            'requirements': [],
+            'error': None,
+            'debug': {}
         }
-
+        
+        # Test Method 1: requirements_generator.py
+        try:
+            import sys
+            from pathlib import Path
+            scoring_path = str(Path(__file__).parent.parent / "scoring")
+            if scoring_path not in sys.path:
+                sys.path.append(scoring_path)
+            
+            from requirements_generator import generate_requirements_from_text
+            
+            requirements_result = generate_requirements_from_text(
+                job_description=request.job_description,
+                position_title=request.position
+            )
+            
+            result['success'] = True
+            result['method_used'] = 'requirements_generator.py'
+            result['requirements'] = requirements_result['requirements']
+            result['debug']['import_success'] = True
+            
+            print(f"✅ Method 1 SUCCESS: Generated {len(requirements_result['requirements'])} requirements")
+            
+        except Exception as e:
+            print(f"❌ Method 1 FAILED: {e}")
+            result['debug']['import_error'] = str(e)
+            
+            # Test Method 2: Fallback inline
+            try:
+                def simple_extract(text):
+                    lines = [line.strip() for line in text.split('\n') if line.strip() and len(line.strip()) > 5]
+                    return lines[:5]  # Max 5 requirements
+                
+                bullets = simple_extract(request.job_description)
+                requirements_array = []
+                
+                for i, bullet in enumerate(bullets, 1):
+                    req = {
+                        'id': f'req_{i}',
+                        'label': bullet,
+                        'type': 'general',
+                        'value': bullet.lower()
+                    }
+                    requirements_array.append(req)
+                
+                if len(requirements_array) == 0:
+                    requirements_array = [
+                        {'id': 'req_1', 'label': f'Experience in {request.position}', 'type': 'experience', 'value': 1}
+                    ]
+                
+                result['success'] = True
+                result['method_used'] = 'fallback_inline'
+                result['requirements'] = requirements_array
+                result['debug']['fallback_success'] = True
+                
+                print(f"✅ Method 2 SUCCESS: Generated {len(requirements_array)} requirements")
+                
+            except Exception as e2:
+                print(f"❌ Method 2 FAILED: {e2}")
+                result['error'] = f"Both methods failed: {str(e)} | {str(e2)}"
+                result['debug']['fallback_error'] = str(e2)
+        
+        return result
+        
     except Exception as e:
         print(f"❌ Test failed: {e}")
-        import traceback
-        traceback.print_exc()
         return {
             'success': False,
             'error': str(e),
-            'message': 'Auto-generate test failed'
+            'message': 'Test endpoint failed'
         }
 
 @app.post("/api/requirements/save", tags=["Requirements"])
@@ -1274,6 +1314,7 @@ async def create_external_schedule(request: ExternalScheduleRequest):
         print(f"   Job: {request.job_title}")
         print(f"   Generated Job ID: {job_id}")
         print(f"   Schedule: {request.schedule_date} {request.schedule_time}")
+        print(f"   Job Description Preview: {request.job_description[:100]}...")
         print(f"   Note: Candidates will be taken from existing leads list")
         
         # ============================================================================
@@ -1343,24 +1384,96 @@ async def create_external_schedule(request: ExternalScheduleRequest):
         print(f"📝 Job description length: {len(request.job_description)} characters")
         
         try:
-            # Import and use the requirements generator function
-            import sys
-            from pathlib import Path
-            sys.path.append(str(Path(__file__).parent.parent / "scoring"))
-            from requirements_generator import generate_requirements_from_text
+            # Method 1: Try to import and use requirements_generator.py
+            try:
+                import sys
+                from pathlib import Path
+                scoring_path = str(Path(__file__).parent.parent / "scoring")
+                if scoring_path not in sys.path:
+                    sys.path.append(scoring_path)
+                
+                from requirements_generator import generate_requirements_from_text
+                
+                # Use the existing requirements generator function
+                requirements_result = generate_requirements_from_text(
+                    job_description=request.job_description,
+                    position_title=request.job_title
+                )
+                
+                requirements_array = requirements_result['requirements']
+                print(f"✅ Generated {len(requirements_array)} requirements using requirements_generator.py")
+                
+            except Exception as import_error:
+                print(f"⚠️ Failed to import requirements_generator: {import_error}")
+                print("🔄 Falling back to inline requirements generation...")
+                
+                # Method 2: Fallback to inline generation
+                def extract_bullets_inline(text):
+                    if not text:
+                        return []
+                    
+                    bullets = []
+                    lines = [line.strip() for line in text.split('\n') if line.strip()]
+                    
+                    for line in lines:
+                        if len(line) < 5:
+                            continue
+                        
+                        # Clean bullet markers
+                        import re
+                        line_clean = re.sub(r'^[•\-\*○\d+\.\)]\s*', '', line).strip()
+                        
+                        if line_clean and len(line_clean) >= 5:
+                            bullets.append(line_clean)
+                    
+                    return bullets
+                
+                def classify_inline(text, req_id):
+                    text_lower = text.lower()
+                    
+                    # Simple classification
+                    if any(word in text_lower for word in ['year', 'experience', 'pengalaman']):
+                        return {'id': f'req_{req_id}', 'label': text, 'type': 'experience', 'value': 1}
+                    elif any(word in text_lower for word in ['degree', 'education', 'pendidikan', 'sarjana', 'diploma']):
+                        return {'id': f'req_{req_id}', 'label': text, 'type': 'education', 'value': 'bachelor'}
+                    elif any(word in text_lower for word in ['skill', 'kemampuan']):
+                        return {'id': f'req_{req_id}', 'label': text, 'type': 'skill', 'value': text.lower()}
+                    else:
+                        return {'id': f'req_{req_id}', 'label': text, 'type': 'general', 'value': text.lower()}
+                
+                # Extract and classify
+                bullets = extract_bullets_inline(request.job_description)
+                requirements_array = []
+                
+                for i, bullet in enumerate(bullets[:10], 1):  # Limit to 10
+                    req = classify_inline(bullet, i)
+                    requirements_array.append(req)
+                
+                print(f"✅ Generated {len(requirements_array)} requirements using fallback method")
             
-            # Use the existing requirements generator function
-            requirements_result = generate_requirements_from_text(
-                job_description=request.job_description,
-                position_title=request.job_title
-            )
-            
-            requirements_array = requirements_result['requirements']
-            print(f"✅ Generated {len(requirements_array)} requirements using requirements_generator")
-            
-            # Log requirements breakdown
-            for i, req in enumerate(requirements_array[:5], 1):  # Show first 5
-                print(f"   {i}. [{req['type']}] {req['label'][:60]}...")
+            # Add default requirements if none found
+            if len(requirements_array) == 0:
+                print("⚠️ No requirements detected, adding defaults")
+                requirements_array = [
+                    {
+                        'id': 'req_1',
+                        'label': f'Experience in {request.job_title}',
+                        'type': 'experience',
+                        'value': 1
+                    },
+                    {
+                        'id': 'req_2',
+                        'label': 'Good communication skills',
+                        'type': 'skill',
+                        'value': 'communication'
+                    },
+                    {
+                        'id': 'req_3',
+                        'label': 'Education: High School or equivalent',
+                        'type': 'education',
+                        'value': 'high school'
+                    }
+                ]
             
             # Create requirements data structure compatible with scoring system
             requirements_data = {
@@ -1374,7 +1487,7 @@ async def create_external_schedule(request: ExternalScheduleRequest):
                     'external_source': request.external_source,
                     'created_at': datetime.utcnow().isoformat(),
                     'auto_generated': True,
-                    'generator_version': 'requirements_generator.py'
+                    'generator_method': 'requirements_generator.py' if 'requirements_result' in locals() else 'fallback_inline'
                 }
             }
             
@@ -1407,6 +1520,7 @@ async def create_external_schedule(request: ExternalScheduleRequest):
             import traceback
             traceback.print_exc()
             # Continue without requirements if generation fails
+            requirements_generated = False
         
         # ============================================================================
         # STEP 3: CREATE SCHEDULE
@@ -1505,8 +1619,15 @@ async def create_external_schedule(request: ExternalScheduleRequest):
                     "company_linked": True,
                     "requirements_generated": requirements_generated,
                     "requirements_file": f"{job_id}_nara_auto.json" if requirements_generated else None,
+                    "requirements_count": len(requirements_data.get('requirements', [])) if requirements_data else 0,
                     "schedule_created": schedule_id,
                     "scheduler_service": scheduler is not None
+                },
+                "debug_info": {
+                    "job_description_length": len(request.job_description),
+                    "requirements_generation_attempted": True,
+                    "requirements_generation_success": requirements_generated,
+                    "requirements_data_exists": requirements_data is not None
                 }
             }
         }
