@@ -480,29 +480,30 @@ async def get_schedules(external_source: Optional[str] = None):
             is_external = bool(schedule.get('external_source'))
             
             if is_external:
-                # External schedule format
+                # External schedule format - FIX: Use same key structure as internal
                 # Determine execution status based on last_run
                 execution_status = "pending"
                 if schedule.get('last_run'):
                     execution_status = "completed"  # Assume completed if has last_run
                 
                 formatted_schedule = {
-                    "schedule_id": schedule['id'],
+                    "id": schedule['id'],  # FIX: Use 'id' not 'schedule_id' for consistency
                     "name": schedule['name'],
-                    "external_source": schedule.get('external_source'),
-                    "job_title": external_metadata.get('job_title'),
-                    "status": schedule['status'],  # FIX: Use 'status' instead of 'schedule_status' for frontend compatibility
-                    "schedule_status": schedule['status'],  # Keep for backward compatibility
-                    "execution_status": execution_status,
-                    "scheduled_for": external_metadata.get('schedule_datetime'),
+                    "start_schedule": schedule.get('start_schedule'),
+                    "template_id": schedule.get('template_id'),
+                    "status": schedule['status'],
                     "last_run": schedule.get('last_run'),
-                    "candidates_count": 0,  # Uses existing leads list
                     "created_at": schedule.get('created_at'),
-                    "leads_processed": 0,  # Simplified without logs
+                    "external_source": schedule.get('external_source'),
+                    "external_metadata": external_metadata,
                     "webhook_url": schedule.get('webhook_url'),
-                    "template_id": schedule.get('template_id'),  # ADD: Include template_id for frontend
-                    "start_schedule": schedule.get('start_schedule')  # ADD: Include cron for frontend
+                    # Additional external fields for compatibility
+                    "job_title": external_metadata.get('job_title'),
+                    "execution_status": execution_status,
+                    "scheduled_for": external_metadata.get('schedule_datetime')
                 }
+                
+                print(f"🌐 External schedule: {schedule['name']} (ID: {schedule['id']})")
             else:
                 # Internal schedule format (existing format)
                 formatted_schedule = {
@@ -516,6 +517,8 @@ async def get_schedules(external_source: Optional[str] = None):
                     "created_at": schedule.get('created_at'),
                     "external_source": None
                 }
+                
+                print(f"🏠 Internal schedule: {schedule['name']} (ID: {schedule['id']})")
             
             formatted_schedules.append(formatted_schedule)
         
@@ -756,40 +759,110 @@ async def execute_schedule_manually(schedule_id: str):
     global current_crawl_session
     
     try:
+        print(f"🚀 Execute request for schedule_id: '{schedule_id}'")
+        
+        # Validate schedule_id first
+        if not schedule_id or schedule_id in ["undefined", "null", None]:
+            print(f"❌ Invalid schedule_id received: '{schedule_id}'")
+            return {
+                "success": False,
+                "message": f"Invalid schedule_id: '{schedule_id}'. Please select a valid schedule.",
+                "schedule_id": schedule_id,
+                "leads_queued": 0
+            }
+        
         # Get schedule details
         result = supabase.table("crawler_schedules").select("*").eq("id", schedule_id).execute()
         
         if not result.data:
+            print(f"❌ Schedule not found: {schedule_id}")
             raise HTTPException(status_code=404, detail="Schedule not found")
         
         schedule = result.data[0]
-        template_id = schedule["template_id"]
+        template_id = schedule.get("template_id")
         
-        # Create supabase manager instance
-        supabase_manager = SupabaseManager()
+        print(f"📋 Manual execution for schedule: {schedule.get('name')}")
+        print(f"📋 Template ID: {template_id}")
         
-        # Get leads for this template
-        leads = supabase_manager.get_leads_by_template_id(template_id)
-        
-        if not leads:
+        # Validate template_id before any database operations
+        if not template_id or template_id in ["undefined", "null", None]:
+            print(f"❌ Invalid template_id: '{template_id}'")
             return {
-                "success": True,
-                "message": f"No leads found for schedule '{schedule['name']}'",
+                "success": False,
+                "message": f"Schedule has invalid template_id: '{template_id}'. Please check schedule configuration.",
                 "schedule_id": schedule_id,
                 "template_id": template_id,
                 "leads_queued": 0
             }
         
-        # Filter leads that need processing
-        needs_processing = [lead for lead in leads if lead.get('needs_processing', False)]
+        print(f"📋 Manual execution for schedule: {schedule.get('name')}")
+        print(f"📋 Template ID: {template_id}")
         
-        if not needs_processing:
+        # Create supabase manager instance
+        supabase_manager = SupabaseManager()
+        
+        print(f"🔍 Getting leads for template: {template_id}")
+        
+        # Get leads for this template
+        try:
+            leads = supabase_manager.get_leads_by_template_id(template_id)
+            print(f"📊 Found {len(leads) if leads else 0} leads for template")
+        except Exception as e:
+            print(f"❌ Error getting leads: {e}")
             return {
-                "success": True,
-                "message": f"All leads already complete for schedule '{schedule['name']}'",
+                "success": False,
+                "message": f"Error getting leads: {str(e)}",
                 "schedule_id": schedule_id,
                 "template_id": template_id,
                 "leads_queued": 0
+            }
+        
+        if not leads:
+            print(f"⚠️ No leads found for template {template_id}")
+            
+            # Auto-deactivate schedule if no leads exist
+            try:
+                from helper.supabase_helper import ScheduleManager
+                schedule_manager = ScheduleManager()
+                schedule_manager.update_schedule_status(schedule_id, False)
+                print(f"✅ Auto-deactivated schedule '{schedule['name']}' - no leads found")
+            except Exception as e:
+                print(f"⚠️ Failed to auto-deactivate schedule: {e}")
+            
+            return {
+                "success": True,
+                "message": f"No leads found for schedule '{schedule['name']}'. Schedule auto-deactivated.",
+                "schedule_id": schedule_id,
+                "template_id": template_id,
+                "leads_queued": 0,
+                "schedule_deactivated": True
+            }
+        
+        # Filter leads that need processing
+        needs_processing = [lead for lead in leads if lead.get('needs_processing', False)]
+        
+        print(f"📊 Leads analysis:")
+        print(f"   - Total leads: {len(leads)}")
+        print(f"   - Need processing: {len(needs_processing)}")
+        print(f"   - Already complete: {len(leads) - len(needs_processing)}")
+        
+        if not needs_processing:
+            # Auto-deactivate schedule if no leads need processing
+            try:
+                from helper.supabase_helper import ScheduleManager
+                schedule_manager = ScheduleManager()
+                schedule_manager.update_schedule_status(schedule_id, False)
+                print(f"✅ Auto-deactivated schedule '{schedule['name']}' - all leads complete")
+            except Exception as e:
+                print(f"⚠️ Failed to auto-deactivate schedule: {e}")
+            
+            return {
+                "success": True,
+                "message": f"All {len(leads)} leads already complete for schedule '{schedule['name']}'. Schedule auto-deactivated.",
+                "schedule_id": schedule_id,
+                "template_id": template_id,
+                "leads_queued": 0,
+                "schedule_deactivated": True
             }
         
         # Use same method as scheduler for consistency
@@ -1584,15 +1657,22 @@ async def create_external_schedule(request: ExternalScheduleRequest):
         print(f"✅ Created schedule: {schedule_id}")
         
         # ============================================================================
-        # STEP 4: ADD TO SCHEDULER SERVICE
+        # STEP 4: ADD TO SCHEDULER SERVICE (CRITICAL FOR EXECUTE & AUTO-TRIGGER)
         # ============================================================================
         
+        scheduler_added = False
         try:
             if scheduler:
                 scheduler.add_job(schedule_id)
-                print(f"✅ Added to scheduler service")
+                scheduler_added = True
+                print(f"✅ Added external schedule to scheduler service - can execute & auto-trigger")
+            else:
+                print(f"⚠️ Scheduler service not available - schedule created but won't auto-trigger")
         except Exception as e:
-            print(f"⚠️ Scheduler service warning: {e}")
+            print(f"❌ Failed to add to scheduler service: {e}")
+            print(f"   Schedule created but manual execute may not work")
+            import traceback
+            traceback.print_exc()
         
         # ============================================================================
         # RESPONSE
@@ -1608,8 +1688,8 @@ async def create_external_schedule(request: ExternalScheduleRequest):
                 "company": "Nara",
                 "external_source": request.external_source,
                 "job_title": request.job_title,
-                "status": "active",  # FIX: Use 'status' instead of 'schedule_status' for frontend compatibility
-                "schedule_status": "active",  # Keep for backward compatibility
+                "status": "active",
+                "schedule_status": "active",
                 "cron_expression": cron_expression,
                 "webhook_url": request.webhook_url,
                 "created_at": schedule.get("created_at"),
@@ -1619,15 +1699,10 @@ async def create_external_schedule(request: ExternalScheduleRequest):
                     "company_linked": True,
                     "requirements_generated": requirements_generated,
                     "requirements_file": f"{job_id}_nara_auto.json" if requirements_generated else None,
-                    "requirements_count": len(requirements_data.get('requirements', [])) if requirements_data else 0,
                     "schedule_created": schedule_id,
-                    "scheduler_service": scheduler is not None
-                },
-                "debug_info": {
-                    "job_description_length": len(request.job_description),
-                    "requirements_generation_attempted": True,
-                    "requirements_generation_success": requirements_generated,
-                    "requirements_data_exists": requirements_data is not None
+                    "scheduler_service_added": scheduler_added,
+                    "can_execute": scheduler_added,
+                    "can_auto_trigger": scheduler_added
                 }
             }
         }

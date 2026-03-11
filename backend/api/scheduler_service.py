@@ -433,8 +433,18 @@ class SchedulerService:
         needs_processing = [lead for lead in leads if lead.get('needs_processing', False)]
         
         if not needs_processing:
-            print("✓ All leads already complete, nothing to queue")
-            return {"success": True, "leads_queued": 0, "message": "All leads complete"}
+            print("✓ All leads already complete, auto-deactivating schedule")
+            
+            # Auto-deactivate schedule if no leads need processing
+            try:
+                from helper.supabase_helper import ScheduleManager
+                schedule_manager = ScheduleManager()
+                schedule_manager.update_schedule_status(schedule_id, False)
+                print(f"✅ Auto-deactivated schedule - all leads complete")
+            except Exception as e:
+                print(f"⚠️ Failed to auto-deactivate schedule: {e}")
+            
+            return {"success": True, "leads_queued": 0, "message": "All leads complete - schedule deactivated"}
         
         print(f"📊 Found {len(needs_processing)} leads that need processing")
         

@@ -235,10 +235,29 @@ When creating a new schedule through the API:
 
 When manually executing a schedule via the API endpoint `/api/schedules/{schedule_id}/execute`:
 - The global `current_crawl_session` is updated to track the execution source
-- Session is marked with `source: 'scheduled'` to distinguish from manual crawls
+- Session is marked with `source: 'manual'` to distinguish from scheduled crawls
 - Includes schedule metadata (ID, name) for better monitoring and debugging
 - Session tracking only occurs if the scraping operation succeeds and queues leads
 - Provides real-time visibility into which schedule triggered the current crawl activity
+
+#### Enhanced Validation
+
+The manual execution endpoint now includes robust validation:
+- **Template ID Validation**: Checks for valid `template_id` before execution
+- **Invalid Values**: Rejects `undefined`, `null`, or empty template IDs
+- **Error Response**: Returns HTTP 400 with descriptive error message for invalid templates
+- **Debug Logging**: Logs schedule name and template ID for troubleshooting
+
+**Validation Logic:**
+```python
+template_id = schedule.get("template_id")
+
+# Validate template_id
+if not template_id or template_id == "undefined" or template_id == "null":
+    raise HTTPException(status_code=400, detail=f"Invalid template_id: {template_id}")
+```
+
+This prevents execution failures due to malformed or missing template configurations.
 
 **Session Data Structure for Scheduled Execution:**
 ```python
@@ -2563,3 +2582,222 @@ This endpoint is used for:
 - Existing dashboard integrations continue to work without modification
 
 This improvement ensures more accurate lead analysis metrics and consistent database access patterns across the API.
+
+## 🔧 Enhanced Manual Schedule Execution Debugging
+
+The manual schedule execution endpoint (`POST /api/schedules/{schedule_id}/execute`) has been enhanced with improved debugging information and better lead processing feedback.
+
+### Enhanced Debugging Features
+
+**Detailed Lead Analysis:**
+- Shows total leads found for the template
+- Breaks down leads by processing status (total, need processing, already complete)
+- Provides clear feedback when no leads are available for processing
+
+**Improved Error Responses:**
+- Returns `success: false` when no leads are found (previously returned `success: true`)
+- Includes debug information showing available leads in the system
+- Provides template existence validation and sample lead data
+
+### Debug Information Structure
+
+When no leads are found for a template, the endpoint now returns:
+
+```json
+{
+  "success": false,
+  "message": "No leads found for template 'template-uuid'. Available leads in system: 5",
+  "schedule_id": "schedule-uuid",
+  "template_id": "template-uuid", 
+  "leads_queued": 0,
+  "debug_info": {
+    "template_exists": true,
+    "leads_in_system": 5,
+    "sample_leads": [
+      {
+        "id": "lead-1",
+        "name": "John Doe", 
+        "template_id": "other-template-uuid"
+      }
+    ]
+  }
+}
+```
+
+### Enhanced Console Output
+
+The endpoint now provides detailed console logging during execution:
+
+```
+📋 Manual execution for schedule: Daily LinkedIn Crawl
+📋 Template ID: 38a1699d-ad54-4f05-9483-e3d35142d35f
+📊 Found 150 total leads for template 38a1699d-ad54-4f05-9483-e3d35142d35f
+📊 Leads breakdown:
+   - Total: 150
+   - Need processing: 25
+   - Already complete: 125
+📤 Manual execution: Queueing 25 leads...
+```
+
+### Improved Lead Status Messaging
+
+**When All Leads Complete:**
+```json
+{
+  "success": true,
+  "message": "All 150 leads already complete for schedule 'Daily LinkedIn Crawl'",
+  "schedule_id": "schedule-uuid",
+  "template_id": "template-uuid",
+  "leads_queued": 0
+}
+```
+
+**When Leads Successfully Queued:**
+```json
+{
+  "success": true,
+  "message": "Schedule 'Daily LinkedIn Crawl' executed manually - 25 leads queued",
+  "schedule_id": "schedule-uuid", 
+  "template_id": "template-uuid",
+  "leads_queued": 25,
+  "failed_count": 0
+}
+```
+
+### Benefits
+
+- **Better Debugging**: Clear visibility into why manual execution might fail or succeed
+- **Improved UX**: More informative error messages help users understand issues
+- **Template Validation**: Debug info helps identify template configuration problems
+- **Lead Tracking**: Detailed breakdown of lead processing status
+- **System Visibility**: Shows available leads when target template has none
+
+### Use Cases
+
+**Troubleshooting:**
+- Identify why a schedule isn't processing leads
+- Verify template has associated leads
+- Check lead processing status distribution
+
+**Development:**
+- Debug template and lead relationships
+- Verify lead assignment to correct templates
+- Test manual execution functionality
+
+**Operations:**
+- Monitor lead processing progress
+- Identify templates that need lead assignment
+- Track manual vs automatic execution results
+
+### Related Components
+
+- `helper/supabase_helper.py` - Contains `SupabaseManager.get_leads_by_template_id()` method
+- `helper/rabbitmq_helper.py` - Handles lead queueing for processing
+- `backend/api/main.py` - Contains the enhanced manual execution endpoint
+
+### Migration Notes
+
+- No breaking changes to API contract
+- Enhanced response format provides additional debugging information
+- Existing integrations continue to work
+- New debug information available for improved troubleshooting
+- Console logging provides better operational visibility
+
+This enhancement significantly improves the debugging experience for manual schedule execution and provides better feedback for troubleshooting lead processing issues.
+
+## 🔧 Enhanced Template ID Validation (Manual Schedule Execution)
+
+The manual schedule execution endpoint (`POST /api/schedules/{schedule_id}/execute`) has been enhanced with improved template ID validation to prevent execution failures due to invalid or missing template configurations.
+
+### Enhanced Validation Logic
+
+**Template ID Validation**: The endpoint now validates template IDs before attempting to execute the schedule:
+
+```python
+# Validate template_id before any database operations
+if not template_id or template_id in ["undefined", "null", None]:
+    return {
+        "success": False,
+        "message": f"Schedule has invalid template_id: '{template_id}'. Please check schedule configuration.",
+        "schedule_id": schedule_id,
+        "template_id": template_id,
+        "leads_queued": 0
+    }
+```
+
+### Validation Rules
+
+The endpoint now rejects schedules with:
+- **Empty template_id**: `None` or empty string values
+- **Invalid string values**: `"undefined"` or `"null"` strings
+- **Null values**: Explicit `None` values
+
+### Improved Error Response
+
+**Before**: Would raise HTTP 400 exception with generic error message
+**After**: Returns structured JSON response with detailed validation information
+
+**New Response Format:**
+```json
+{
+  "success": false,
+  "message": "Schedule has invalid template_id: 'undefined'. Please check schedule configuration.",
+  "schedule_id": "schedule-uuid",
+  "template_id": "undefined",
+  "leads_queued": 0
+}
+```
+
+### Benefits
+
+- **Prevents Execution Failures**: Catches invalid template configurations before attempting database operations
+- **Better Error Messages**: Provides clear, actionable error information
+- **Improved Debugging**: Shows exact template_id value that caused the validation failure
+- **Consistent Response Format**: Returns structured JSON instead of HTTP exceptions
+- **Early Validation**: Validates configuration before expensive database queries
+
+### Console Output
+
+When validation fails, you'll see:
+```
+📋 Manual execution for schedule: Daily LinkedIn Crawl
+📋 Template ID: undefined
+❌ Invalid template_id detected: 'undefined'
+```
+
+### Common Invalid Values
+
+The validation catches these common problematic values:
+- `template_id: "undefined"` - Often from JavaScript undefined values
+- `template_id: "null"` - String representation of null
+- `template_id: None` - Python None values
+- `template_id: ""` - Empty strings
+
+### Use Cases
+
+**Schedule Configuration Issues:**
+- Schedules created without proper template assignment
+- Frontend form submission errors
+- Database migration issues
+- Manual schedule creation mistakes
+
+**Development & Testing:**
+- Catch configuration errors early in development
+- Validate schedule setup before deployment
+- Test error handling in frontend applications
+- Debug template assignment workflows
+
+### Related Components
+
+- `backend/api/main.py` - Contains the enhanced validation logic
+- `helper/supabase_helper.py` - Database operations for schedule and template management
+- Dashboard UI - Schedule creation and management interface
+
+### Migration Notes
+
+- **Backward Compatible**: Existing valid schedules continue to work unchanged
+- **No Database Changes**: Uses existing schedule and template table structure
+- **Improved Error Handling**: Better user experience for invalid configurations
+- **API Contract**: Response format enhanced but remains compatible with existing clients
+
+This enhancement prevents common configuration errors from causing runtime failures and provides better feedback for troubleshooting schedule setup issues.
