@@ -1641,9 +1641,15 @@ async def create_external_schedule(request: ExternalScheduleRequest):
                 
                 # Save requirements to template instead of separate storage
                 try:
+                    # Save complete requirements structure with position
+                    requirements_to_save = {
+                        'position': request.job_title,
+                        'requirements': requirements_array
+                    }
+                    
                     # Update the template that was created earlier with requirements
                     result = supabase.table("search_templates").update({
-                        "requirements": requirements_array
+                        "requirements": requirements_to_save
                     }).eq("id", template_id).execute()
                     
                     if result.data:
@@ -1724,10 +1730,15 @@ async def create_external_schedule(request: ExternalScheduleRequest):
                     }
                 }
                 
-                # Save default requirements to template
+                # Save default requirements to template with position wrapper
                 try:
+                    default_requirements_to_save = {
+                        'position': request.job_title,
+                        'requirements': default_requirements
+                    }
+                    
                     result = supabase.table("search_templates").update({
-                        "requirements": default_requirements
+                        "requirements": default_requirements_to_save
                     }).eq("id", template_id).execute()
                     
                     if result.data:
