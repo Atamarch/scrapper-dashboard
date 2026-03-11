@@ -200,23 +200,57 @@ def generate_requirements_from_text(job_description, position_title):
     
     # Classify each bullet point
     requirements_array = []
+    
+    # Track counts for generating unique IDs
+    type_counts = {
+        'experience': 0,
+        'skill': 0,
+        'education': 0,
+        'gender': 0,
+        'age': 0,
+        'location': 0
+    }
+    
     for i, bullet in enumerate(bullets):
         req = classify_requirement(bullet, i + 1)
+        
+        # Make IDs unique by adding counter for types that can appear multiple times
+        req_type = req['type']
+        
+        if req_type in ['experience', 'skill']:
+            type_counts[req_type] += 1
+            
+            # For experience: use min_experience, experience_2, experience_3, etc
+            if req_type == 'experience':
+                if type_counts[req_type] == 1:
+                    req['id'] = 'min_experience'
+                else:
+                    req['id'] = f'experience_{type_counts[req_type]}'
+            
+            # For skill: keep the descriptive ID but ensure uniqueness
+            elif req_type == 'skill':
+                # ID already generated in classify_requirement, just ensure it's unique
+                base_id = req['id']
+                # Check if this ID already exists
+                existing_ids = [r['id'] for r in requirements_array]
+                if base_id in existing_ids:
+                    req['id'] = f"{base_id}_{type_counts[req_type]}"
+        
         requirements_array.append(req)
     
     # Add default requirements if none found
     if len(requirements_array) == 0:
         requirements_array = [
             {
-                'id': 'req_1',
-                'label': 'Minimum 1 year experience',
+                'id': 'min_experience',
                 'type': 'experience',
+                'label': 'Minimum 1 year experience',
                 'value': 1
             },
             {
-                'id': 'req_2',
-                'label': 'Education: High School',
+                'id': 'education',
                 'type': 'education',
+                'label': 'Education: High School',
                 'value': 'high school'
             }
         ]
