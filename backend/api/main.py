@@ -55,7 +55,37 @@ def handle_api_errors(func):
             raise HTTPException(status_code=500, detail=str(e))
     return wrapper
 
-app = FastAPI(title="LinkedIn Crawler API", version="1.0.0")
+app = FastAPI(
+    title="LinkedIn Crawler API", 
+    version="1.0.0",
+    description="API for LinkedIn profile crawling, scheduling, and requirements generation",
+    tags_metadata=[
+        {
+            "name": "Health",
+            "description": "Health check and system status endpoints"
+        },
+        {
+            "name": "Schedules",
+            "description": "Crawler schedule management - create, update, delete, and execute schedules"
+        },
+        {
+            "name": "Scraping",
+            "description": "Direct scraping operations and crawler status monitoring"
+        },
+        {
+            "name": "Requirements",
+            "description": "Job requirements generation and management for candidate scoring"
+        },
+        {
+            "name": "External Integration",
+            "description": "External platform integration endpoints (Nara, etc.)"
+        },
+        {
+            "name": "Outreach",
+            "description": "Candidate outreach and messaging operations"
+        }
+    ]
+)
 
 # CORS - Allow Vercel and localhost
 ALLOWED_ORIGINS = [
@@ -302,7 +332,7 @@ async def shutdown_event():
 
 
 # Health check
-@app.get("/")
+@app.get("/", tags=["Health"])
 async def root():
     return {
         "message": "LinkedIn Crawler API",
@@ -310,7 +340,7 @@ async def root():
         "status": "running"
     }
 
-@app.get("/health")
+@app.get("/health", tags=["Health"])
 async def health_check():
     return {
         "status": "healthy",
@@ -416,7 +446,7 @@ class ExternalScheduleRequest(BaseModel):
     )
 
 
-@app.get("/api/schedules")
+@app.get("/api/schedules", tags=["Schedules"])
 async def get_schedules(external_source: Optional[str] = None):
     """Get schedules with optional filtering by external_source"""
     try:
@@ -504,7 +534,7 @@ async def get_schedules(external_source: Optional[str] = None):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/schedules/{schedule_id}")
+@app.get("/api/schedules/{schedule_id}", tags=["Schedules"])
 @handle_api_errors
 async def get_schedule(schedule_id: str):
     """Get specific schedule by ID"""
@@ -515,7 +545,7 @@ async def get_schedule(schedule_id: str):
     return {"success": True, "schedule": schedule}
 
 
-@app.post("/api/schedules")
+@app.post("/api/schedules", tags=["Schedules"])
 async def create_schedule(schedule: CrawlerScheduleCreate):
     """Create new schedule with validation"""
     try:
@@ -576,7 +606,7 @@ async def create_schedule(schedule: CrawlerScheduleCreate):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.put("/api/schedules/{schedule_id}")
+@app.put("/api/schedules/{schedule_id}", tags=["Schedules"])
 async def update_schedule(schedule_id: str, schedule: CrawlerScheduleUpdate):
     """Update existing schedule"""
     try:
@@ -620,7 +650,7 @@ async def update_schedule(schedule_id: str, schedule: CrawlerScheduleUpdate):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.delete("/api/schedules/{schedule_id}")
+@app.delete("/api/schedules/{schedule_id}", tags=["Schedules"])
 async def delete_schedule(schedule_id: str):
     """Delete schedule"""
     try:
@@ -653,7 +683,7 @@ async def delete_schedule(schedule_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to delete schedule: {str(e)}")
 
 
-@app.patch("/api/schedules/{schedule_id}/toggle")
+@app.patch("/api/schedules/{schedule_id}/toggle", tags=["Schedules"])
 async def toggle_schedule(schedule_id: str):
     """Toggle schedule status between 'active' and 'inactive'"""
     try:
@@ -706,7 +736,7 @@ async def toggle_schedule(schedule_id: str):
 # QUEUE AND EXECUTION ENDPOINTS
 # ============================================================================
 
-@app.get("/api/schedules/queue/status")
+@app.get("/api/schedules/queue/status", tags=["Schedules"])
 @handle_api_errors
 async def get_queue_status():
     """Get RabbitMQ queue status"""
@@ -719,7 +749,7 @@ async def get_queue_status():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/schedules/{schedule_id}/execute")
+@app.post("/api/schedules/{schedule_id}/execute", tags=["Schedules"])
 @handle_api_errors
 async def execute_schedule_manually(schedule_id: str):
     """Execute schedule manually"""
@@ -814,7 +844,7 @@ async def execute_schedule_manually(schedule_id: str):
 # SCRAPING ENDPOINTS
 # ============================================================================
 
-@app.post("/api/scraping/start")
+@app.post("/api/scraping/start", tags=["Scraping"])
 @handle_api_errors
 async def start_scraping(request: ScrapingRequest):
     """Start scraping process"""
@@ -840,7 +870,7 @@ async def start_scraping(request: ScrapingRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/scraping/analyze/{template_id}")
+@app.get("/api/scraping/analyze/{template_id}", tags=["Scraping"])
 @handle_api_errors
 async def analyze_lead(template_id: str):
     """Analyze lead completion for template"""
@@ -874,7 +904,7 @@ async def analyze_lead(template_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/scraping/status")
+@app.get("/api/scraping/status", tags=["Scraping"])
 @handle_api_errors
 async def get_crawler_status():
     """Get current crawler status"""
@@ -893,7 +923,7 @@ async def get_crawler_status():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/scraping/session")
+@app.get("/api/scraping/session", tags=["Scraping"])
 @handle_api_errors
 async def get_crawl_session():
     """Get detailed crawl session information"""
@@ -921,32 +951,6 @@ async def get_crawl_session():
 # ============================================================================
 # OUTREACH ENDPOINTS
 # ============================================================================
-
-@app.post("/api/outreach/send")
-@handle_api_errors
-async def send_outreach(request: OutreachRequest):
-    """Send outreach message"""
-    try:
-        from helper.rabbitmq_helper import queue_publisher
-        
-        payload = {
-            "lead_id": request.lead_id,
-            "message": request.message,
-            "platform": request.platform
-        }
-        
-        queue_publisher.publish("outreach_queue", payload)
-        
-        return {
-            "success": True,
-            "message": "Outreach queued successfully",
-            "lead_id": request.lead_id
-        }
-        
-    except Exception as e:
-        logger.error(f"Error sending outreach: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
 
 # ============================================================================
 # EXTERNAL INTEGRATION ENDPOINTS
@@ -1103,7 +1107,7 @@ def classify_requirement(text: str, req_id: int) -> Dict:
         'value': text.lower()
     }
 
-@app.get("/api/requirements/templates")
+@app.get("/api/requirements/templates", tags=["Requirements"])
 async def get_templates():
     """Get all requirements templates"""
     try:
@@ -1144,7 +1148,7 @@ async def get_templates():
         }
 
 
-@app.post("/api/requirements/generate")
+@app.post("/api/requirements/generate", tags=["Requirements"])
 async def generate_requirements(request: RequirementsGenerateRequest):
     """Generate requirements from job description text - TEXT ONLY VERSION"""
     try:
@@ -1206,7 +1210,7 @@ async def generate_requirements(request: RequirementsGenerateRequest):
     except Exception as e:
         print(f"❌ Error generating requirements: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-@app.post("/api/requirements/generate-and-save")
+@app.post("/api/requirements/generate-and-save", tags=["Requirements"])
 async def generate_and_save_requirements(request: RequirementsGenerateRequest):
     """Generate requirements from job description and auto-save to file"""
     try:
@@ -1387,7 +1391,7 @@ async def generate_and_save_requirements(request: RequirementsGenerateRequest):
     except Exception as e:
         print(f"❌ Error generating and saving requirements: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-@app.post("/api/test/auto-generate")
+@app.post("/api/test/auto-generate", tags=["Requirements"])
 async def test_auto_generate(request: RequirementsGenerateRequest):
     """Test endpoint untuk cek auto-generate requirements"""
     try:
@@ -1433,7 +1437,7 @@ async def test_auto_generate(request: RequirementsGenerateRequest):
             'message': 'Auto-generate test failed'
         }
 
-@app.post("/api/requirements/save")
+@app.post("/api/requirements/save", tags=["Requirements"])
 async def save_requirements(request: RequirementsSaveRequest):
     """Save requirements to JSON file"""
     try:
@@ -1465,7 +1469,7 @@ async def save_requirements(request: RequirementsSaveRequest):
 # EXTERNAL INTEGRATION ENDPOINTS
 # ============================================================================
 
-@app.post("/api/external/schedule-scraping")
+@app.post("/api/external/schedule-scraping", tags=["External Integration"])
 async def create_external_schedule(request: ExternalScheduleRequest):
     """Create comprehensive schedule for external platform integration - distributes data to multiple services"""
     try:
@@ -1740,14 +1744,7 @@ async def create_external_schedule(request: ExternalScheduleRequest):
         raise HTTPException(status_code=500, detail=f"Failed to create external schedule: {str(e)}")
 
 
-@app.get("/api/scraping/status", response_model=CrawlerStatusResponse)
-@handle_api_errors
-# Remove duplicate function - using the updated one above
-
-
-@app.get("/api/scraping/session")
-@handle_api_errors
-# Remove duplicate function - using the updated one above
+# Duplicate endpoints removed - using the tagged versions above
 
 
 async def check_and_complete_session():
@@ -1799,7 +1796,7 @@ async def check_and_complete_session():
         print(f"❌ Error checking session completion: {e}")
 
 
-@app.post("/api/scraping/stop")
+@app.post("/api/scraping/stop", tags=["Scraping"])
 @handle_api_errors
 async def stop_scraping():
     """Stop scraping by purging the RabbitMQ queue"""
@@ -1866,7 +1863,7 @@ async def stop_scraping():
 # OUTREACH ENDPOINTS
 # ============================================================================
 
-@app.post("/api/outreach/send")
+@app.post("/api/outreach/send", tags=["Outreach"])
 async def send_outreach(request: OutreachRequest):
     """Send outreach request to LavinMQ queue"""
     try:
@@ -1948,7 +1945,7 @@ async def send_outreach(request: OutreachRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/external/status/{schedule_id}")
+@app.get("/api/external/status/{schedule_id}", tags=["External Integration"])
 async def get_external_schedule_status(schedule_id: str):
     """Get status of external schedule"""
     try:
