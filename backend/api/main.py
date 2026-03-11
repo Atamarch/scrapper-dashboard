@@ -735,6 +735,9 @@ async def execute_schedule_manually(schedule_id: str):
         schedule = result.data[0]
         template_id = schedule["template_id"]
         
+        # Create supabase manager instance
+        supabase_manager = SupabaseManager()
+        
         # Get leads for this template
         leads = supabase_manager.get_leads_by_template_id(template_id)
         
@@ -842,12 +845,21 @@ async def start_scraping(request: ScrapingRequest):
 async def analyze_lead(template_id: str):
     """Analyze lead completion for template"""
     try:
-        # Get lead statistics from database
-        result = supabase.table("leads").select("*").eq("template_id", template_id).execute()
+        # Use SupabaseManager to get leads with proper validation logic
+        supabase_manager = SupabaseManager()
+        leads = supabase_manager.get_leads_by_template_id(template_id)
         
-        total = len(result.data) if result.data else 0
-        complete = len([lead for lead in result.data if lead.get("status") == "complete"]) if result.data else 0
-        need_processing = total - complete
+        if not leads:
+            return {
+                "total": 0,
+                "complete": 0,
+                "needProcessing": 0,
+                "completionRate": 0
+            }
+        
+        total = len(leads)
+        need_processing = len([lead for lead in leads if lead.get('needs_processing', False)])
+        complete = total - need_processing
         completion_rate = (complete / total * 100) if total > 0 else 0
         
         return {

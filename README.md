@@ -2380,3 +2380,186 @@ If errors occur:
 - Enhanced logging provides better visibility into stop operations
 - Existing clients continue to work without modification
 - Improved error handling makes the endpoint more reliable in production environments
+
+## 🧹 API Code Cleanup (Latest Update)
+
+The API backend (`backend/api/main.py`) has undergone additional code cleanup to remove duplicate function definitions and improve code quality.
+
+### Recent Changes
+
+**Duplicate Code Removal:**
+- Removed duplicate endpoint code block at line 906-940
+- Eliminated redundant function definition that was causing code duplication
+- Cleaned up orphaned code comments and incomplete function implementations
+
+### Code Quality Improvements
+
+**Cleaner Structure:**
+- Removed incomplete endpoint definition that was not properly closed
+- Eliminated potential conflicts between duplicate implementations
+- Improved code readability by removing redundant sections
+
+**Maintained Functionality:**
+- All endpoint functionality remains intact
+- No breaking changes to API behavior
+- Existing integrations continue to work without modification
+
+### Benefits
+
+- **Reduced Code Duplication**: Eliminates redundant code blocks
+- **Better Maintainability**: Single source of truth for each endpoint
+- **Improved Reliability**: No risk of inconsistent behavior between duplicates
+- **Cleaner Codebase**: Easier to navigate and understand
+
+### Impact
+
+This cleanup affects the internal code structure only:
+- No API endpoint changes
+- No configuration updates required
+- No database schema modifications
+- No client-side changes needed
+
+The cleanup is part of ongoing code quality improvements to maintain a clean, maintainable, and reliable codebase.
+
+## 🔧 Manual Schedule Execution Database Fix
+
+The manual schedule execution endpoint (`POST /api/schedules/{schedule_id}/execute`) has been fixed to properly instantiate the Supabase manager before use.
+
+### Issue Fixed
+
+**Problem**: The endpoint was attempting to use `supabase_manager.get_leads_by_template_id()` without first creating a `SupabaseManager` instance, which could cause `NameError` exceptions during manual schedule execution.
+
+**Solution**: Added explicit `SupabaseManager()` instantiation before database operations:
+
+```python
+# Create supabase manager instance
+supabase_manager = SupabaseManager()
+
+# Get leads for this template
+leads = supabase_manager.get_leads_by_template_id(template_id)
+```
+
+### Benefits
+
+- **Prevents Runtime Errors**: Eliminates `NameError` when executing schedules manually
+- **Consistent Database Access**: Uses the same pattern as other endpoints
+- **Improved Reliability**: Manual schedule execution now works reliably
+- **Better Error Handling**: Proper exception handling for database operations
+
+### Affected Endpoint
+
+- `POST /api/schedules/{schedule_id}/execute` - Manual schedule execution
+
+### Impact
+
+This fix ensures that manual schedule execution works correctly when:
+- Triggering schedules from the dashboard UI
+- Using the API directly to execute specific schedules
+- Testing schedule functionality during development
+- Running schedules outside of the automatic scheduler
+
+### Related Components
+
+- `helper/supabase_helper.py` - Contains `SupabaseManager` class
+- `backend/api/main.py` - Contains the fixed manual execution endpoint
+- Dashboard UI - Uses this endpoint for manual schedule triggers
+
+### Migration Notes
+
+- No configuration changes required
+- No database schema changes needed
+- Existing schedules continue to work
+- Manual execution now works reliably without errors
+
+This fix improves the reliability of manual schedule execution and ensures consistent database access patterns across the API.
+
+## 🔧 Lead Analysis API Improvement
+
+The lead analysis endpoint (`GET /api/scraping/analyze/{template_id}`) has been improved to use the `SupabaseManager` class for more reliable database operations and better lead validation logic.
+
+### Changes Made
+
+**Database Access Pattern:**
+- Replaced direct Supabase table queries with `SupabaseManager.get_leads_by_template_id()`
+- Uses centralized database access pattern for consistency
+- Leverages existing validation logic in the manager class
+
+**Improved Lead Validation:**
+- Now uses the `needs_processing` field logic from `SupabaseManager`
+- More accurate determination of which leads require processing
+- Better handling of edge cases and data validation
+
+### Implementation
+
+**Before:**
+```python
+# Direct Supabase query
+result = supabase.table("leads_list").select("*").eq("template_id", template_id).execute()
+total = len(result.data) if result.data else 0
+complete = len([lead for lead in result.data if lead.get("status") == "complete"]) if result.data else 0
+```
+
+**After:**
+```python
+# Use SupabaseManager with proper validation
+supabase_manager = SupabaseManager()
+leads = supabase_manager.get_leads_by_template_id(template_id)
+
+if not leads:
+    return {"total": 0, "complete": 0, "needProcessing": 0, "completionRate": 0}
+
+total = len(leads)
+need_processing = len([lead for lead in leads if lead.get('needs_processing', False)])
+complete = total - need_processing
+```
+
+### Benefits
+
+- **Consistent Database Access**: Uses the same pattern as other API endpoints
+- **Better Validation Logic**: Leverages centralized lead validation in `SupabaseManager`
+- **Improved Reliability**: More robust handling of missing or invalid data
+- **Accurate Metrics**: Better calculation of completion rates and processing status
+- **Error Handling**: Graceful handling of empty result sets
+
+### Response Format
+
+The endpoint continues to return the same response format:
+
+```json
+{
+  "total": 150,
+  "complete": 125,
+  "needProcessing": 25,
+  "completionRate": 83.33
+}
+```
+
+### Response Fields
+
+- `total`: Total number of leads for the template
+- `complete`: Number of leads that have been fully processed
+- `needProcessing`: Number of leads that still require processing
+- `completionRate`: Percentage of leads completed (0-100)
+
+### Use Cases
+
+This endpoint is used for:
+- **Dashboard Analytics**: Display template completion statistics
+- **Progress Monitoring**: Track crawling and scoring progress
+- **Template Management**: Identify templates that need attention
+- **Performance Metrics**: Measure processing efficiency
+
+### Related Components
+
+- `helper/supabase_helper.py` - Contains `SupabaseManager` class with lead validation logic
+- `backend/api/main.py` - Contains the improved analyze endpoint
+- Dashboard UI - Displays completion statistics from this endpoint
+
+### Migration Notes
+
+- No API changes required - endpoint signature and response format remain the same
+- Improved accuracy in completion rate calculations
+- Better handling of edge cases (empty templates, missing data)
+- Existing dashboard integrations continue to work without modification
+
+This improvement ensures more accurate lead analysis metrics and consistent database access patterns across the API.
