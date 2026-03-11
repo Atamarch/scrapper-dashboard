@@ -953,159 +953,8 @@ async def get_crawl_session():
 # ============================================================================
 
 # ============================================================================
-# EXTERNAL INTEGRATION ENDPOINTS
+# REQUIREMENTS ENDPOINTS
 # ============================================================================
-
-def extract_bullet_points(text: str) -> List[str]:
-    """Extract bullet points from text"""
-    if not text:
-        return []
-    
-    bullets = []
-    lines = [line.strip() for line in text.split('\n') if line.strip()]
-    
-    # Remove heading line if present
-    if lines and any(keyword in lines[0].lower() for keyword in ['kualifikasi', 'persyaratan', 'requirements', 'syarat']):
-        lines = lines[1:]
-    
-    for line in lines:
-        # Skip if too short
-        if len(line) < 5:
-            continue
-        
-        # Clean bullet markers
-        line_clean = re.sub(r'^[•\-\*○\d+\.\)]\s*', '', line).strip()
-        
-        if line_clean and len(line_clean) >= 5:
-            bullets.append(line_clean)
-    
-    return bullets
-
-def classify_requirement(text: str, req_id: int) -> Dict:
-    """Classify a single requirement and extract structured value"""
-    text_lower = text.lower()
-    
-    # Priority 1: Gender
-    if any(word in text_lower for word in ['pria', 'wanita', 'laki-laki', 'perempuan', 'male', 'female']):
-        # Determine gender value
-        if 'pria / wanita' in text_lower or 'pria/wanita' in text_lower or ('pria' in text_lower and 'wanita' in text_lower):
-            gender_value = 'any'
-        elif any(word in text_lower for word in ['wanita', 'perempuan', 'female']):
-            gender_value = 'female'
-        elif any(word in text_lower for word in ['pria', 'laki-laki', 'male']):
-            gender_value = 'male'
-        else:
-            gender_value = 'any'
-        
-        return {
-            'id': f'req_{req_id}',
-            'label': text,
-            'type': 'gender',
-            'value': gender_value
-        }
-    
-    # Priority 2: Age
-    if any(word in text_lower for word in ['usia', 'umur', 'age']):
-        # Extract age range
-        age_patterns = [
-            r'(\d+)\s*-\s*(\d+)\s*tahun',
-            r'(\d+)\s*sampai\s*(\d+)\s*tahun',
-            r'maksimal\s*(\d+)\s*tahun',
-            r'max\s*(\d+)\s*tahun'
-        ]
-        
-        age_value = {'min': 18, 'max': 35}  # default
-        
-        for pattern in age_patterns:
-            match = re.search(pattern, text_lower)
-            if match:
-                if match.lastindex >= 2:
-                    age_value = {
-                        'min': int(match.group(1)),
-                        'max': int(match.group(2))
-                    }
-                else:
-                    age_value = {
-                        'min': 18,
-                        'max': int(match.group(1))
-                    }
-                break
-        
-        return {
-            'id': f'req_{req_id}',
-            'label': text,
-            'type': 'age',
-            'value': age_value
-        }
-    
-    # Priority 3: Education
-    if any(word in text_lower for word in ['pendidikan', 'education', 'lulusan', 'ijazah', 'sma', 'smk', 'diploma', 's1', 'sarjana']):
-        # Determine education level
-        if any(word in text_lower for word in ['sarjana', 's1', 's-1', 'bachelor']):
-            edu_value = 'bachelor'
-        elif any(word in text_lower for word in ['diploma', 'd3', 'd-3']):
-            edu_value = 'diploma'
-        elif any(word in text_lower for word in ['sma', 'smk', 'high school', 'slta']):
-            edu_value = 'high school'
-        else:
-            edu_value = 'high school'  # default
-        
-        return {
-            'id': f'req_{req_id}',
-            'label': text,
-            'type': 'education',
-            'value': edu_value
-        }
-    
-    # Priority 4: Location
-    if any(word in text_lower for word in ['penempatan', 'lokasi', 'domisili', 'location', 'ditempatkan']):
-        # Extract location name
-        location_match = re.search(r'(?:penempatan|lokasi|domisili|location|ditempatkan)\s*:?\s*([A-Za-z\s]+)', text, re.IGNORECASE)
-        if location_match:
-            location_value = location_match.group(1).strip()
-            # Remove trailing words like "atau", "dan"
-            location_value = re.sub(r'\s+(atau|or|dan|and)\s+.*', '', location_value, flags=re.IGNORECASE).strip()
-        else:
-            location_value = 'any'
-        
-        return {
-            'id': f'req_{req_id}',
-            'label': text,
-            'type': 'location',
-            'value': location_value.lower()
-        }
-    
-    # Priority 5: Experience (with years)
-    if any(word in text_lower for word in ['pengalaman', 'experience', 'berpengalaman']):
-        # Extract years
-        exp_patterns = [
-            r'(?:minimal|minimum|min\.?)\s*(\d+)\s*(?:tahun|years?)',
-            r'(\d+)\s*(?:tahun|years?)\s*(?:pengalaman|experience)',
-            r'(\d+)\+?\s*(?:tahun|years?)'
-        ]
-        
-        exp_value = 1  # default
-        
-        for pattern in exp_patterns:
-            match = re.search(pattern, text_lower)
-            if match:
-                exp_value = int(match.group(1))
-                break
-        
-        return {
-            'id': f'req_{req_id}',
-            'label': text,
-            'type': 'experience',
-            'value': exp_value
-        }
-    
-    # Default: Skill
-    return {
-        'id': f'req_{req_id}',
-        'label': text,
-        'type': 'skill',
-        'value': text.lower()
-    }
 
 @app.get("/api/requirements/templates", tags=["Requirements"])
 async def get_templates():
@@ -1150,59 +999,30 @@ async def get_templates():
 
 @app.post("/api/requirements/generate", tags=["Requirements"])
 async def generate_requirements(request: RequirementsGenerateRequest):
-    """Generate requirements from job description text - TEXT ONLY VERSION"""
+    """Generate requirements from job description text - Uses requirements_generator.py"""
     try:
-        # Use job description text directly
-        text_to_parse = request.job_description.strip()
-        
-        if not text_to_parse:
-            raise HTTPException(status_code=400, detail="Job description is required and cannot be empty")
+        # Import and use the requirements generator function
+        import sys
+        from pathlib import Path
+        sys.path.append(str(Path(__file__).parent.parent / "scoring"))
+        from requirements_generator import generate_requirements_from_text
         
         print(f"📝 Processing job description for position: {request.position}")
-        print(f"📄 Text length: {len(text_to_parse)} characters")
+        print(f"📄 Text length: {len(request.job_description)} characters")
         
-        # Extract bullet points from job description
-        bullets = extract_bullet_points(text_to_parse)
-        print(f"🔍 Found {len(bullets)} requirement items")
+        # Use the existing requirements generator function
+        requirements_result = generate_requirements_from_text(
+            job_description=request.job_description,
+            position_title=request.position
+        )
         
-        # Classify each bullet point
-        requirements_array = []
-        for i, bullet in enumerate(bullets):
-            req = classify_requirement(bullet, i + 1)
-            requirements_array.append(req)
-            print(f"   {i+1}. {req['type']}: {bullet[:50]}...")
-        
-        # Add default requirements if none found
-        if len(requirements_array) == 0:
-            print("⚠️ No requirements detected, adding defaults")
-            requirements_array = [
-                {
-                    'id': 'req_1',
-                    'label': 'Minimum 1 year experience',
-                    'type': 'experience',
-                    'value': 1
-                },
-                {
-                    'id': 'req_2',
-                    'label': 'Education: High School or equivalent',
-                    'type': 'education',
-                    'value': 'high school'
-                }
-            ]
-        
-        # Build response
-        requirements = {
-            'position': request.position,
-            'requirements': requirements_array
-        }
-        
-        print(f"✅ Generated {len(requirements_array)} requirements for {request.position}")
+        print(f"✅ Generated {len(requirements_result['requirements'])} requirements for {request.position}")
         
         return {
             'success': True,
-            'requirements': requirements,
-            'total_requirements': len(requirements_array),
-            'source': 'job_description_text'
+            'requirements': requirements_result,
+            'total_requirements': len(requirements_result['requirements']),
+            'source': 'requirements_generator.py'
         }
     
     except HTTPException:
@@ -1212,53 +1032,27 @@ async def generate_requirements(request: RequirementsGenerateRequest):
         raise HTTPException(status_code=500, detail=str(e))
 @app.post("/api/requirements/generate-and-save", tags=["Requirements"])
 async def generate_and_save_requirements(request: RequirementsGenerateRequest):
-    """Generate requirements from job description and auto-save to file"""
+    """Generate requirements from job description and auto-save to file - Uses requirements_generator.py"""
     try:
-        # Generate requirements using existing logic
-        text_to_parse = request.job_description.strip()
-        
-        if not text_to_parse:
-            raise HTTPException(status_code=400, detail="Job description is required and cannot be empty")
+        # Import and use the requirements generator function
+        import sys
+        from pathlib import Path
+        sys.path.append(str(Path(__file__).parent.parent / "scoring"))
+        from requirements_generator import generate_requirements_from_text
         
         print(f"🤖 AUTO-GENERATING AND SAVING requirements for: {request.position}")
-        print(f"📄 Text length: {len(text_to_parse)} characters")
+        print(f"📄 Text length: {len(request.job_description)} characters")
         
-        # Extract bullet points from job description
-        bullets = extract_bullet_points(text_to_parse)
-        print(f"🔍 Found {len(bullets)} requirement items")
+        # Use the existing requirements generator function
+        requirements_result = generate_requirements_from_text(
+            job_description=request.job_description,
+            position_title=request.position
+        )
         
-        # Classify each bullet point
-        requirements_array = []
-        for i, bullet in enumerate(bullets):
-            req = classify_requirement(bullet, i + 1)
-            requirements_array.append(req)
-            print(f"   {i+1}. {req['type']}: {bullet[:50]}...")
+        requirements_array = requirements_result['requirements']
+        print(f"✅ Generated {len(requirements_array)} requirements using requirements_generator")
         
-        # Add default requirements if none found
-        if len(requirements_array) == 0:
-            print("⚠️ No requirements detected, adding defaults")
-            requirements_array = [
-                {
-                    'id': 'req_1',
-                    'label': f'Experience in {request.position}',
-                    'type': 'experience',
-                    'value': 1
-                },
-                {
-                    'id': 'req_2',
-                    'label': 'Good communication skills',
-                    'type': 'skill',
-                    'value': 'communication'
-                },
-                {
-                    'id': 'req_3',
-                    'label': 'Education: High School or equivalent',
-                    'type': 'education',
-                    'value': 'high school'
-                }
-            ]
-        
-        # Build requirements structure
+        # Build requirements structure with metadata
         requirements = {
             'position': request.position,
             'requirements': requirements_array,
@@ -1266,12 +1060,12 @@ async def generate_and_save_requirements(request: RequirementsGenerateRequest):
                 'total_requirements': len(requirements_array),
                 'generated_from': 'job_description_manual',
                 'created_at': datetime.utcnow().isoformat(),
-                'auto_generated': True
+                'auto_generated': True,
+                'generator_version': 'requirements_generator.py'
             }
         }
         
         # Auto-save to file
-        from pathlib import Path
         requirements_dir = Path(__file__).parent.parent / "scoring" / "requirements"
         requirements_dir.mkdir(parents=True, exist_ok=True)
         
@@ -1291,7 +1085,7 @@ async def generate_and_save_requirements(request: RequirementsGenerateRequest):
             'success': True,
             'requirements': requirements,
             'total_requirements': len(requirements_array),
-            'source': 'job_description_auto_save',
+            'source': 'requirements_generator.py',
             'file_saved': str(filepath),
             'filename': filename,
             'message': f'Requirements generated and saved to {filename}'
@@ -1549,43 +1343,24 @@ async def create_external_schedule(request: ExternalScheduleRequest):
         print(f"📝 Job description length: {len(request.job_description)} characters")
         
         try:
-            # Use the existing requirements generation logic (reuse from generate_requirements endpoint)
+            # Import and use the requirements generator function
+            import sys
             from pathlib import Path
+            sys.path.append(str(Path(__file__).parent.parent / "scoring"))
+            from requirements_generator import generate_requirements_from_text
             
-            # Extract bullet points from job description using existing function
-            bullets = extract_bullet_points(request.job_description)
-            print(f"🔍 Extracted {len(bullets)} requirement bullets from job description")
+            # Use the existing requirements generator function
+            requirements_result = generate_requirements_from_text(
+                job_description=request.job_description,
+                position_title=request.job_title
+            )
             
-            # Classify each bullet point using existing logic
-            requirements_array = []
-            for i, bullet in enumerate(bullets):
-                req = classify_requirement(bullet, i + 1)
-                requirements_array.append(req)
-                print(f"   {i+1}. [{req['type']}] {bullet[:60]}...")
+            requirements_array = requirements_result['requirements']
+            print(f"✅ Generated {len(requirements_array)} requirements using requirements_generator")
             
-            # Add default requirements if none found
-            if len(requirements_array) == 0:
-                print("⚠️ No requirements detected from job description, adding defaults")
-                requirements_array = [
-                    {
-                        'id': 'req_1',
-                        'label': f'Experience in {request.job_title}',
-                        'type': 'experience',
-                        'value': 1
-                    },
-                    {
-                        'id': 'req_2',
-                        'label': 'Good communication skills',
-                        'type': 'skill',
-                        'value': 'communication'
-                    },
-                    {
-                        'id': 'req_3',
-                        'label': 'Education: High School or equivalent',
-                        'type': 'education',
-                        'value': 'high school'
-                    }
-                ]
+            # Log requirements breakdown
+            for i, req in enumerate(requirements_array[:5], 1):  # Show first 5
+                print(f"   {i}. [{req['type']}] {req['label'][:60]}...")
             
             # Create requirements data structure compatible with scoring system
             requirements_data = {
@@ -1595,10 +1370,11 @@ async def create_external_schedule(request: ExternalScheduleRequest):
                 'requirements': requirements_array,
                 'metadata': {
                     'total_requirements': len(requirements_array),
-                    'generated_from': 'job_description_auto',
+                    'generated_from': 'job_description_auto_nara',
                     'external_source': request.external_source,
                     'created_at': datetime.utcnow().isoformat(),
-                    'auto_generated': True
+                    'auto_generated': True,
+                    'generator_version': 'requirements_generator.py'
                 }
             }
             
