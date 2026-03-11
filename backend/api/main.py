@@ -1074,10 +1074,7 @@ async def get_templates():
 async def generate_requirements(request: RequirementsGenerateRequest):
     """Generate requirements from job description text - Uses requirements_generator.py"""
     try:
-        # Import and use the requirements generator function
-        import sys
-        from pathlib import Path
-        sys.path.append(str(Path(__file__).parent.parent / "scoring"))
+        # Import from same directory (API folder)
         from requirements_generator import generate_requirements_from_text
         
         print(f"📝 Processing job description for position: {request.position}")
@@ -1106,10 +1103,7 @@ async def generate_requirements(request: RequirementsGenerateRequest):
 async def generate_and_save_requirements(request: RequirementsGenerateRequest):
     """Generate requirements from job description and auto-save to file - Uses requirements_generator.py"""
     try:
-        # Import and use the requirements generator function
-        import sys
-        from pathlib import Path
-        sys.path.append(str(Path(__file__).parent.parent / "scoring"))
+        # Import from same directory (API folder)
         from requirements_generator import generate_requirements_from_text
 
         print(f"🤖 AUTO-GENERATING AND SAVING requirements for: {request.position}")
@@ -1479,148 +1473,98 @@ async def create_external_schedule(request: ExternalScheduleRequest):
             try:
                 import sys
                 from pathlib import Path
-                scoring_path = str(Path(__file__).parent.parent / "scoring")
-                if scoring_path not in sys.path:
-                    sys.path.append(scoring_path)
                 
-                print(f"🔍 DEBUG: Scoring path: {scoring_path}")
-                print(f"🔍 DEBUG: sys.path contains scoring: {scoring_path in sys.path}")
+                # Try to import from shared module first
+                shared_path = Path(__file__).parent.parent / "shared"
+                shared_path_str = str(shared_path.absolute())
                 
-                from requirements_generator import generate_requirements_from_text
+                if shared_path_str not in sys.path:
+                    sys.path.insert(0, shared_path_str)
                 
-                print(f"🔍 DEBUG: Successfully imported generate_requirements_from_text")
-                print(f"🔍 DEBUG: Calling with job_description length: {len(request.job_description)}")
-                print(f"🔍 DEBUG: Calling with position_title: {request.job_title}")
+                from requirements_utils import generate_requirements_from_text
+                
+                print(f"✅ Using shared requirements_utils module")
                 
                 requirements_result = generate_requirements_from_text(
                     job_description=request.job_description,
                     position_title=request.job_title
                 )
                 
-                print(f"🔍 DEBUG: requirements_result type: {type(requirements_result)}")
-                print(f"🔍 DEBUG: requirements_result keys: {requirements_result.keys() if isinstance(requirements_result, dict) else 'Not a dict'}")
-                
-                method_used = "requirements_generator.py"
-                print(f"✅ Used requirements_generator.py successfully")
+                method_used = "shared_requirements_utils"
+                print(f"✅ Used shared requirements_utils successfully")
                 
             except Exception as import_error:
-                print(f"⚠️ requirements_generator.py failed: {import_error}")
-                print(f"🔍 DEBUG: Import error type: {type(import_error)}")
-                import traceback
-                traceback.print_exc()
+                print(f"⚠️ Shared module failed: {import_error}")
                 
-                # Method 2: Fallback to simple extraction - INLINE LOGIC
-                print(f"🔄 Trying fallback method (inline logic)...")
-                
-                # Extract bullet points
-                bullets = []
-                lines = [line.strip() for line in request.job_description.split('\n') if line.strip()]
-                
-                # Remove heading line if present
-                if lines and any(keyword in lines[0].lower() for keyword in ['kualifikasi', 'persyaratan', 'requirements', 'syarat']):
-                    lines = lines[1:]
-                
-                for line in lines:
-                    if len(line) >= 5:
-                        line_clean = re.sub(r'^[•\-\*○\d+\.\)]\s*', '', line).strip()
-                        if line_clean and len(line_clean) >= 5:
-                            bullets.append(line_clean)
-                
-                print(f"🔍 DEBUG: Found {len(bullets)} bullet points")
-                
-                # Classify each bullet point
-                requirements_array = []
-                for i, bullet in enumerate(bullets):
-                    text_lower = bullet.lower()
-                    req_id = i + 1
+                # Fallback: Try original requirements_generator.py
+                try:
+                    scoring_path = Path(__file__).parent.parent / "scoring"
+                    scoring_path_str = str(scoring_path.absolute())
                     
-                    # Check for experience
-                    if any(word in text_lower for word in ['pengalaman', 'experience', 'berpengalaman']):
-                        exp_patterns = [
-                            r'(?:minimal|minimum|min\.?)\s*(\d+)\s*(?:tahun|years?)',
-                            r'(\d+)\s*(?:tahun|years?)\s*(?:pengalaman|experience)',
-                            r'(\d+)\+?\s*(?:tahun|years?)'
+                    if scoring_path_str not in sys.path:
+                        sys.path.insert(0, scoring_path_str)
+                    
+                    from requirements_generator import generate_requirements_from_text
+                    
+                    requirements_result = generate_requirements_from_text(
+                        job_description=request.job_description,
+                        position_title=request.job_title
+                    )
+                    
+                    method_used = "requirements_generator.py"
+                    print(f"✅ Used requirements_generator.py fallback")
+                    
+                except Exception as fallback_error:
+                    print(f"⚠️ All imports failed, using inline logic")
+                    
+                    # Final fallback: inline logic
+                    bullets = []
+                    lines = [line.strip() for line in request.job_description.split('\n') if line.strip()]
+                    
+                    if lines and any(keyword in lines[0].lower() for keyword in ['kualifikasi', 'persyaratan', 'requirements', 'syarat']):
+                        lines = lines[1:]
+                    
+                    for line in lines:
+                        if len(line) >= 5:
+                            line_clean = re.sub(r'^[•\-\*○\d+\.\)]\s*', '', line).strip()
+                            if line_clean and len(line_clean) >= 5:
+                                bullets.append(line_clean)
+                    
+                    requirements_array = []
+                    for i, bullet in enumerate(bullets):
+                        text_lower = bullet.lower()
+                        req_id = i + 1
+                        
+                        if any(word in text_lower for word in ['pengalaman', 'experience']):
+                            exp_patterns = [r'(\d+)\s*(?:tahun|years?)']
+                            exp_value = 1
+                            for pattern in exp_patterns:
+                                match = re.search(pattern, text_lower)
+                                if match:
+                                    exp_value = int(match.group(1))
+                                    break
+                            req = {'id': f'req_{req_id}', 'label': bullet, 'type': 'experience', 'value': exp_value}
+                        elif any(word in text_lower for word in ['pendidikan', 'education', 's1', 'sarjana', 'diploma']):
+                            edu_value = 'bachelor' if any(word in text_lower for word in ['s1', 'sarjana']) else 'high school'
+                            req = {'id': f'req_{req_id}', 'label': bullet, 'type': 'education', 'value': edu_value}
+                        else:
+                            req = {'id': f'req_{req_id}', 'label': bullet, 'type': 'skill', 'value': bullet.lower()}
+                        
+                        requirements_array.append(req)
+                    
+                    if len(requirements_array) == 0:
+                        requirements_array = [
+                            {'id': 'req_1', 'label': f'Experience in {request.job_title}', 'type': 'experience', 'value': 1},
+                            {'id': 'req_2', 'label': 'Good communication skills', 'type': 'skill', 'value': 'communication'}
                         ]
-                        exp_value = 1
-                        for pattern in exp_patterns:
-                            match = re.search(pattern, text_lower)
-                            if match:
-                                exp_value = int(match.group(1))
-                                break
-                        
-                        req = {
-                            'id': f'req_{req_id}',
-                            'label': bullet,
-                            'type': 'experience',
-                            'value': exp_value
-                        }
-                    # Check for education
-                    elif any(word in text_lower for word in ['pendidikan', 'education', 'lulusan', 'ijazah', 'sma', 'smk', 'diploma', 's1', 'sarjana']):
-                        if any(word in text_lower for word in ['sarjana', 's1', 's-1', 'bachelor']):
-                            edu_value = 'bachelor'
-                        elif any(word in text_lower for word in ['diploma', 'd3', 'd-3']):
-                            edu_value = 'diploma'
-                        else:
-                            edu_value = 'high school'
-                        
-                        req = {
-                            'id': f'req_{req_id}',
-                            'label': bullet,
-                            'type': 'education',
-                            'value': edu_value
-                        }
-                    # Check for gender
-                    elif any(word in text_lower for word in ['pria', 'wanita', 'laki-laki', 'perempuan', 'male', 'female']):
-                        if 'pria / wanita' in text_lower or 'pria/wanita' in text_lower or ('pria' in text_lower and 'wanita' in text_lower):
-                            gender_value = 'any'
-                        elif any(word in text_lower for word in ['wanita', 'perempuan', 'female']):
-                            gender_value = 'female'
-                        elif any(word in text_lower for word in ['pria', 'laki-laki', 'male']):
-                            gender_value = 'male'
-                        else:
-                            gender_value = 'any'
-                        
-                        req = {
-                            'id': f'req_{req_id}',
-                            'label': bullet,
-                            'type': 'gender',
-                            'value': gender_value
-                        }
-                    # Default: skill
-                    else:
-                        req = {
-                            'id': f'req_{req_id}',
-                            'label': bullet,
-                            'type': 'skill',
-                            'value': bullet.lower()
-                        }
                     
-                    requirements_array.append(req)
-                
-                # Add default requirements if none found
-                if len(requirements_array) == 0:
-                    requirements_array = [
-                        {
-                            'id': 'req_1',
-                            'label': f'Experience in {request.job_title}',
-                            'type': 'experience',
-                            'value': 1
-                        },
-                        {
-                            'id': 'req_2',
-                            'label': 'Good communication skills',
-                            'type': 'skill',
-                            'value': 'communication'
-                        }
-                    ]
-                
-                requirements_result = {
-                    'position': request.job_title,
-                    'requirements': requirements_array
-                }
-                
-                method_used = "inline_fallback"
-                print(f"✅ Used inline fallback method - generated {len(requirements_array)} requirements")
+                    requirements_result = {
+                        'position': request.job_title,
+                        'requirements': requirements_array
+                    }
+                    
+                    method_used = "inline_final_fallback"
+                    print(f"✅ Used inline final fallback - generated {len(requirements_array)} requirements")
             
             if requirements_result and 'requirements' in requirements_result:
                 requirements_array = requirements_result['requirements']
