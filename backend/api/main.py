@@ -1464,19 +1464,34 @@ async def create_external_schedule(request: ExternalScheduleRequest):
                 if scoring_path not in sys.path:
                     sys.path.append(scoring_path)
                 
+                print(f"🔍 DEBUG: Scoring path: {scoring_path}")
+                print(f"🔍 DEBUG: sys.path contains scoring: {scoring_path in sys.path}")
+                
                 from requirements_generator import generate_requirements_from_text
+                
+                print(f"🔍 DEBUG: Successfully imported generate_requirements_from_text")
+                print(f"🔍 DEBUG: Calling with job_description length: {len(request.job_description)}")
+                print(f"🔍 DEBUG: Calling with position_title: {request.job_title}")
                 
                 requirements_result = generate_requirements_from_text(
                     job_description=request.job_description,
                     position_title=request.job_title
                 )
+                
+                print(f"🔍 DEBUG: requirements_result type: {type(requirements_result)}")
+                print(f"🔍 DEBUG: requirements_result keys: {requirements_result.keys() if isinstance(requirements_result, dict) else 'Not a dict'}")
+                
                 method_used = "requirements_generator.py"
                 print(f"✅ Used requirements_generator.py successfully")
                 
             except Exception as import_error:
                 print(f"⚠️ requirements_generator.py failed: {import_error}")
+                print(f"🔍 DEBUG: Import error type: {type(import_error)}")
+                import traceback
+                traceback.print_exc()
                 
                 # Method 2: Fallback to simple extraction
+                print(f"🔄 Trying fallback method...")
                 requirements_result = generate_requirements_simple(
                     request.job_description, 
                     request.job_title
@@ -1628,7 +1643,7 @@ async def create_external_schedule(request: ExternalScheduleRequest):
             "timezone": request.timezone,
             "template_id": template_id,
             "template_name": template_name,
-            "requirements_file": f"{job_id}_nara_auto.json" if requirements_generated else None,
+            "requirements_file": f"{job_id}_nara_integrated.json" if requirements_generated else None,
             "requirements_generated": requirements_generated,
             "note": "Candidates will be taken from existing leads list"
         }
@@ -1698,11 +1713,19 @@ async def create_external_schedule(request: ExternalScheduleRequest):
                     "search_template": template_id,
                     "company_linked": True,
                     "requirements_generated": requirements_generated,
-                    "requirements_file": f"{job_id}_nara_auto.json" if requirements_generated else None,
+                    "requirements_file": f"{job_id}_nara_integrated.json" if requirements_generated else None,
+                    "requirements_count": len(requirements_data.get('requirements', [])) if requirements_data else 0,
                     "schedule_created": schedule_id,
                     "scheduler_service_added": scheduler_added,
                     "can_execute": scheduler_added,
                     "can_auto_trigger": scheduler_added
+                },
+                "debug_info": {
+                    "job_description_length": len(request.job_description),
+                    "requirements_generation_attempted": True,
+                    "requirements_generation_success": requirements_generated,
+                    "requirements_data_exists": requirements_data is not None,
+                    "requirements_array_length": len(requirements_data.get('requirements', [])) if requirements_data else 0
                 }
             }
         }
