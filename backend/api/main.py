@@ -1131,31 +1131,81 @@ async def generate_and_save_requirements(request: RequirementsGenerateRequest):
             }
         }
 
-        # Auto-save to file
-        requirements_dir = Path(__file__).parent.parent / "scoring" / "requirements"
-        requirements_dir.mkdir(parents=True, exist_ok=True)
-
-        # Generate filename from position
-        safe_filename = re.sub(r'[^a-zA-Z0-9_-]', '_', request.position.lower())
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f"{safe_filename}_{timestamp}_auto.json"
-        filepath = requirements_dir / filename
-
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(requirements, f, indent=2, ensure_ascii=False)
-
-        print(f"✅ Generated and saved {len(requirements_array)} requirements")
-        print(f"💾 Saved to: {filepath}")
-
-        return {
-            'success': True,
-            'requirements': requirements,
-            'total_requirements': len(requirements_array),
-            'source': 'requirements_generator.py',
-            'file_saved': str(filepath),
-            'filename': filename,
-            'message': f'Requirements generated and saved to {filename}'
-        }
+        # Save to database instead of file
+        try:
+            # For manual generation, we need template_id from request
+            # Since we don't have template_id in current request model, 
+            # we'll create a new template or update existing one by name
+            
+            # Generate template name from position
+            template_name = f"{request.position} - Auto Generated"
+            
+            # Check if template already exists
+            existing_template = supabase.table("search_templates").select("id").eq("name", template_name).execute()
+            
+            if existing_template.data:
+                # Update existing template
+                template_id = existing_template.data[0]['id']
+                result = supabase.table("search_templates").update({
+                    "requirements": requirements_array
+                }).eq("id", template_id).execute()
+                
+                if result.data:
+                    print(f"✅ Updated existing template: {template_name}")
+                    print(f"💾 Template ID: {template_id}")
+                    
+                    return {
+                        'success': True,
+                        'requirements': requirements,
+                        'total_requirements': len(requirements_array),
+                        'source': 'requirements_generator.py',
+                        'template_id': template_id,
+                        'template_name': template_name,
+                        'action': 'updated',
+                        'message': f'Requirements updated in template: {template_name}'
+                    }
+            else:
+                # Create new template
+                template_data = {
+                    "name": template_name,
+                    "job_description": request.job_description,
+                    "requirements": requirements_array,
+                    "created_at": datetime.utcnow().isoformat()
+                }
+                
+                result = supabase.table("search_templates").insert(template_data).execute()
+                
+                if result.data:
+                    template_id = result.data[0]['id']
+                    print(f"✅ Created new template: {template_name}")
+                    print(f"💾 Template ID: {template_id}")
+                    
+                    return {
+                        'success': True,
+                        'requirements': requirements,
+                        'total_requirements': len(requirements_array),
+                        'source': 'requirements_generator.py',
+                        'template_id': template_id,
+                        'template_name': template_name,
+                        'action': 'created',
+                        'message': f'Requirements saved in new template: {template_name}'
+                    }
+            
+            raise Exception("Failed to save to database")
+                
+        except Exception as db_error:
+            print(f"❌ Database save failed: {db_error}")
+            # Return success anyway since generation worked
+            return {
+                'success': True,
+                'requirements': requirements,
+                'total_requirements': len(requirements_array),
+                'source': 'requirements_generator.py',
+                'template_id': None,
+                'template_name': None,
+                'action': 'failed',
+                'message': f'Requirements generated but failed to save to database: {str(db_error)}'
+            }
 
     except HTTPException:
         raise
@@ -1585,31 +1635,30 @@ async def create_external_schedule(request: ExternalScheduleRequest):
                     }
                 }
                 
-                # Save requirements to file for scoring system
-                requirements_dir = Path(__file__).parent.parent / "scoring" / "requirements"
-                requirements_dir.mkdir(parents=True, exist_ok=True)
-                
-                filename = f"{job_id}_nara_integrated.json"
-                filepath = requirements_dir / filename
-                
-                print(f"🔍 DEBUG: requirements_dir: {requirements_dir}")
-                print(f"🔍 DEBUG: filepath: {filepath}")
-                print(f"🔍 DEBUG: filepath exists: {filepath.exists()}")
-                
-                with open(filepath, 'w', encoding='utf-8') as f:
-                    json.dump(requirements_data, f, indent=2, ensure_ascii=False)
-                
-                requirements_generated = True
-                print(f"✅ Generated {len(requirements_array)} requirements")
-                print(f"✅ Saved to: {filepath}")
-                print(f"📊 Method used: {method_used}")
-                
-                # Verify file was actually saved
-                if filepath.exists():
-                    file_size = filepath.stat().st_size
-                    print(f"✅ File verification: {filepath} ({file_size} bytes)")
-                else:
-                    print(f"❌ File verification failed: {filepath} not found")
+                # Save requirements to template instead of separate storage
+                try:
+                    # Update the template that was created earlier with requirements
+                    result = supabase.table("search_templates").update({
+                        "requirements": requirements_array
+                    }).eq("id", template_id).execute()
+                    
+                    if result.data:
+                        requirements_generated = True
+                        print(f"✅ Generated {len(requirements_array)} requirements")
+                        print(f"✅ Updated template {template_id} with requirements")
+                        print(f"📊 Method used: {method_used}")
+                        
+                        # Update requirements_data with template info
+                        requirements_data['template_id'] = template_id
+                        requirements_data['template_name'] = template_name
+                        
+                    else:
+                        print(f"❌ Failed to update template with requirements")
+                        requirements_generated = False
+                        
+                except Exception as db_error:
+                    print(f"❌ Template update failed: {db_error}")
+                    requirements_generated = False
                 
                 # Log requirements breakdown
                 type_counts = {}
@@ -1671,18 +1720,27 @@ async def create_external_schedule(request: ExternalScheduleRequest):
                     }
                 }
                 
-                # Save default requirements
-                requirements_dir = Path(__file__).parent.parent / "scoring" / "requirements"
-                requirements_dir.mkdir(parents=True, exist_ok=True)
-                
-                filename = f"{job_id}_nara_default.json"
-                filepath = requirements_dir / filename
-                
-                with open(filepath, 'w', encoding='utf-8') as f:
-                    json.dump(requirements_data, f, indent=2, ensure_ascii=False)
-                
-                requirements_generated = True
-                print(f"✅ Default requirements saved to: {filepath}")
+                # Save default requirements to template
+                try:
+                    result = supabase.table("search_templates").update({
+                        "requirements": default_requirements
+                    }).eq("id", template_id).execute()
+                    
+                    if result.data:
+                        requirements_generated = True
+                        print(f"✅ Default requirements saved to template {template_id}")
+                        
+                        # Update requirements_data with template info
+                        requirements_data['template_id'] = template_id
+                        requirements_data['template_name'] = template_name
+                        
+                    else:
+                        print(f"❌ Failed to save default requirements to template")
+                        requirements_generated = False
+                        
+                except Exception as db_error:
+                    print(f"❌ Template update failed for default requirements: {db_error}")
+                    requirements_generated = False
                 
             except Exception as fallback_error:
                 print(f"❌ Even default requirements failed: {fallback_error}")
@@ -1721,7 +1779,7 @@ async def create_external_schedule(request: ExternalScheduleRequest):
             "timezone": request.timezone,
             "template_id": template_id,
             "template_name": template_name,
-            "requirements_file": f"{job_id}_nara_integrated.json" if requirements_generated else None,
+            "requirements_file": requirements_data.get('template_name') if requirements_generated else None,
             "requirements_generated": requirements_generated,
             "note": "Candidates will be taken from existing leads list"
         }
@@ -1791,7 +1849,8 @@ async def create_external_schedule(request: ExternalScheduleRequest):
                     "search_template": template_id,
                     "company_linked": True,
                     "requirements_generated": requirements_generated,
-                    "requirements_file": f"{job_id}_nara_integrated.json" if requirements_generated else None,
+                    "requirements_template_id": template_id,
+                    "requirements_template_name": template_name,
                     "requirements_count": len(requirements_data.get('requirements', [])) if requirements_data else 0,
                     "schedule_created": schedule_id,
                     "scheduler_service_added": scheduler_added,
