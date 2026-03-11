@@ -1847,6 +1847,10 @@ async def create_external_schedule(request: ExternalScheduleRequest):
                 "webhook_url": request.webhook_url,
                 "created_at": schedule.get("created_at"),
                 "note": "Candidates will be taken from existing leads list",
+                "requirements": {
+                    "position": request.job_title,
+                    "requirements": requirements_data.get('requirements', []) if requirements_data else []
+                },
                 "services_updated": {
                     "search_template": template_id,
                     "company_linked": True,
