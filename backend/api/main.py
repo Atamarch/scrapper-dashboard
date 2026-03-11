@@ -1088,10 +1088,12 @@ async def generate_requirements(request: RequirementsGenerateRequest):
         
         print(f"✅ Generated {len(requirements_result['requirements'])} requirements for {request.position}")
         
+        # Return with proper structure: {"position": "", "requirements": []}
         return {
             'success': True,
-            'requirements': requirements_result,
-            'total_requirements': len(requirements_result['requirements']),
+            'position': requirements_result.get('position', request.position),
+            'requirements': requirements_result.get('requirements', []),
+            'total_requirements': len(requirements_result.get('requirements', [])),
             'source': 'requirements_generator.py'
         }
     
