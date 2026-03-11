@@ -2305,3 +2305,78 @@ The endpoint functionality remains unchanged - only the duplicate code has been 
 - Existing integrations continue to work without modification
 
 This cleanup is part of ongoing code quality improvements to maintain a clean and maintainable codebase.
+
+## 🛠️ Stop Scraping Endpoint Improvements
+
+The stop scraping endpoint (`POST /api/scraping/stop`) has been enhanced with improved error handling and schedule management.
+
+### Code Cleanup
+
+**Duplicate Endpoint Removal**: A duplicate endpoint definition was removed from line 903 in `backend/api/main.py`. The correct implementation remains at line 1822. This cleanup eliminates code duplication and potential conflicts between endpoint definitions.
+
+### Recent Improvements
+
+**Enhanced Schedule Management:**
+- Added explicit import of `ScheduleManager` within the function scope
+- Improved schedule deactivation logic for both manual and scheduled crawls
+- Better error isolation for schedule status updates
+
+**Improved Error Handling:**
+- Added comprehensive error logging with `print(f"❌ Error in stop_scraping: {str(e)}")`
+- Enhanced debugging output for troubleshooting stop operations
+- Graceful handling of schedule deactivation failures
+
+### Implementation Details
+
+**Schedule Deactivation Logic:**
+```python
+# Always deactivate schedule if it was running (both manual and automatic)
+if schedule_id:
+    try:
+        from helper.supabase_helper import ScheduleManager
+        schedule_manager = ScheduleManager()
+        schedule_manager.update_schedule_status(schedule_id, False)
+        print(f"✅ Deactivated schedule: {schedule_name} (ID: {schedule_id})")
+    except Exception as e:
+        print(f"⚠️ Failed to deactivate schedule: {e}")
+```
+
+**Error Logging:**
+- All exceptions are now logged with detailed error messages
+- Helps identify issues with queue purging or schedule deactivation
+- Maintains API error response while providing debugging information
+
+### Benefits
+
+- **Better Debugging**: Enhanced error logging helps identify issues quickly
+- **Reliable Schedule Management**: Improved schedule deactivation with proper error handling
+- **Consistent State**: Ensures crawler session and schedule status stay synchronized
+- **Error Isolation**: Schedule deactivation failures don't prevent queue purging
+
+### Console Output
+
+When stopping the crawler, you'll see enhanced logging:
+```
+🛑 Stop scraping requested - purging queue
+✅ Deactivated schedule: Daily Morning Crawl (ID: abc-123-def)
+✅ Crawler session cleared - status now idle
+```
+
+If errors occur:
+```
+⚠️ Failed to deactivate schedule: Connection timeout
+❌ Error in stop_scraping: Queue purge failed
+```
+
+### Related Components
+
+- `helper/supabase_helper.py` - Contains `ScheduleManager` class for schedule operations
+- `helper/rabbitmq_helper.py` - Handles queue purging operations
+- `backend/api/main.py` - Contains the stop scraping endpoint implementation
+
+### Migration Notes
+
+- No API changes required - endpoint signature remains the same
+- Enhanced logging provides better visibility into stop operations
+- Existing clients continue to work without modification
+- Improved error handling makes the endpoint more reliable in production environments

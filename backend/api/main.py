@@ -14,6 +14,7 @@ import json
 import re
 import time
 import uuid
+import logging
 from pathlib import Path
 
 # Add crawler to path
@@ -23,6 +24,9 @@ from scheduler_service import SchedulerService
 from database import Database
 from helper.rabbitmq_helper import queue_publisher
 from helper.supabase_helper import ScheduleManager, CompanyManager, LeadsManager, ReQueueManager, SupabaseManager, supabase
+
+# Setup logging
+logger = logging.getLogger(__name__)
 
 # Global variable to track current crawl session
 current_crawl_session = {
@@ -903,9 +907,7 @@ async def get_crawl_session():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/scraping/stop")
-@handle_api_errors
-async def get_crawler_status():
+# Removed duplicate endpoint - using the correct one at line 1822
     """Get current crawler status with complete session data"""
     global current_crawl_session
     
