@@ -1168,9 +1168,8 @@ async def generate_and_save_requirements(request: RequirementsGenerateRequest):
     except Exception as e:
         print(f"❌ Error generating and saving requirements: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
 def generate_requirements_simple(job_description, position_title):
-    """Simple requirements generation fallback when requirements_generator.py is not available"""
+    """Simple requirements generation fallback - same logic as requirements_generator.py"""
 
     def extract_bullet_points(text):
         """Extract bullet points from text"""
@@ -1203,6 +1202,7 @@ def generate_requirements_simple(job_description, position_title):
 
         # Priority 1: Gender
         if any(word in text_lower for word in ['pria', 'wanita', 'laki-laki', 'perempuan', 'male', 'female']):
+            # Determine gender value
             if 'pria / wanita' in text_lower or 'pria/wanita' in text_lower or ('pria' in text_lower and 'wanita' in text_lower):
                 gender_value = 'any'
             elif any(word in text_lower for word in ['wanita', 'perempuan', 'female']):
@@ -1221,6 +1221,7 @@ def generate_requirements_simple(job_description, position_title):
 
         # Priority 2: Age
         if any(word in text_lower for word in ['usia', 'umur', 'age']):
+            # Extract age range
             age_patterns = [
                 r'(\d+)\s*-\s*(\d+)\s*tahun',
                 r'(\d+)\s*sampai\s*(\d+)\s*tahun',
@@ -1254,6 +1255,7 @@ def generate_requirements_simple(job_description, position_title):
 
         # Priority 3: Education
         if any(word in text_lower for word in ['pendidikan', 'education', 'lulusan', 'ijazah', 'sma', 'smk', 'diploma', 's1', 'sarjana']):
+            # Determine education level
             if any(word in text_lower for word in ['sarjana', 's1', 's-1', 'bachelor']):
                 edu_value = 'bachelor'
             elif any(word in text_lower for word in ['diploma', 'd3', 'd-3']):
@@ -1270,8 +1272,27 @@ def generate_requirements_simple(job_description, position_title):
                 'value': edu_value
             }
 
-        # Priority 4: Experience
+        # Priority 4: Location
+        if any(word in text_lower for word in ['penempatan', 'lokasi', 'domisili', 'location', 'ditempatkan']):
+            # Extract location name
+            location_match = re.search(r'(?:penempatan|lokasi|domisili|location|ditempatkan)\s*:?\s*([A-Za-z\s]+)', text, re.IGNORECASE)
+            if location_match:
+                location_value = location_match.group(1).strip()
+                # Remove trailing words like "atau", "dan"
+                location_value = re.sub(r'\s+(atau|or|dan|and)\s+.*', '', location_value, flags=re.IGNORECASE).strip()
+            else:
+                location_value = 'any'
+
+            return {
+                'id': f'req_{req_id}',
+                'label': text,
+                'type': 'location',
+                'value': location_value.lower()
+            }
+
+        # Priority 5: Experience (with years)
         if any(word in text_lower for word in ['pengalaman', 'experience', 'berpengalaman']):
+            # Extract years
             exp_patterns = [
                 r'(?:minimal|minimum|min\.?)\s*(\d+)\s*(?:tahun|years?)',
                 r'(\d+)\s*(?:tahun|years?)\s*(?:pengalaman|experience)',
@@ -1315,28 +1336,26 @@ def generate_requirements_simple(job_description, position_title):
         requirements_array = [
             {
                 'id': 'req_1',
-                'label': f'Experience in {position_title}',
+                'label': 'Minimum 1 year experience',
                 'type': 'experience',
                 'value': 1
             },
             {
                 'id': 'req_2',
-                'label': 'Good communication skills',
-                'type': 'skill',
-                'value': 'communication'
-            },
-            {
-                'id': 'req_3',
-                'label': 'Education: High School or equivalent',
+                'label': 'Education: High School',
                 'type': 'education',
                 'value': 'high school'
             }
         ]
 
+    # Build final output - same format as requirements_generator.py
     return {
         'position': position_title,
         'requirements': requirements_array
     }
+
+
+
 
 
 
@@ -1490,14 +1509,118 @@ async def create_external_schedule(request: ExternalScheduleRequest):
                 import traceback
                 traceback.print_exc()
                 
-                # Method 2: Fallback to simple extraction
-                print(f"🔄 Trying fallback method...")
-                requirements_result = generate_requirements_simple(
-                    request.job_description, 
-                    request.job_title
-                )
-                method_used = "simple_extraction"
-                print(f"✅ Used simple extraction fallback")
+                # Method 2: Fallback to simple extraction - INLINE LOGIC
+                print(f"🔄 Trying fallback method (inline logic)...")
+                
+                # Extract bullet points
+                bullets = []
+                lines = [line.strip() for line in request.job_description.split('\n') if line.strip()]
+                
+                # Remove heading line if present
+                if lines and any(keyword in lines[0].lower() for keyword in ['kualifikasi', 'persyaratan', 'requirements', 'syarat']):
+                    lines = lines[1:]
+                
+                for line in lines:
+                    if len(line) >= 5:
+                        line_clean = re.sub(r'^[•\-\*○\d+\.\)]\s*', '', line).strip()
+                        if line_clean and len(line_clean) >= 5:
+                            bullets.append(line_clean)
+                
+                print(f"🔍 DEBUG: Found {len(bullets)} bullet points")
+                
+                # Classify each bullet point
+                requirements_array = []
+                for i, bullet in enumerate(bullets):
+                    text_lower = bullet.lower()
+                    req_id = i + 1
+                    
+                    # Check for experience
+                    if any(word in text_lower for word in ['pengalaman', 'experience', 'berpengalaman']):
+                        exp_patterns = [
+                            r'(?:minimal|minimum|min\.?)\s*(\d+)\s*(?:tahun|years?)',
+                            r'(\d+)\s*(?:tahun|years?)\s*(?:pengalaman|experience)',
+                            r'(\d+)\+?\s*(?:tahun|years?)'
+                        ]
+                        exp_value = 1
+                        for pattern in exp_patterns:
+                            match = re.search(pattern, text_lower)
+                            if match:
+                                exp_value = int(match.group(1))
+                                break
+                        
+                        req = {
+                            'id': f'req_{req_id}',
+                            'label': bullet,
+                            'type': 'experience',
+                            'value': exp_value
+                        }
+                    # Check for education
+                    elif any(word in text_lower for word in ['pendidikan', 'education', 'lulusan', 'ijazah', 'sma', 'smk', 'diploma', 's1', 'sarjana']):
+                        if any(word in text_lower for word in ['sarjana', 's1', 's-1', 'bachelor']):
+                            edu_value = 'bachelor'
+                        elif any(word in text_lower for word in ['diploma', 'd3', 'd-3']):
+                            edu_value = 'diploma'
+                        else:
+                            edu_value = 'high school'
+                        
+                        req = {
+                            'id': f'req_{req_id}',
+                            'label': bullet,
+                            'type': 'education',
+                            'value': edu_value
+                        }
+                    # Check for gender
+                    elif any(word in text_lower for word in ['pria', 'wanita', 'laki-laki', 'perempuan', 'male', 'female']):
+                        if 'pria / wanita' in text_lower or 'pria/wanita' in text_lower or ('pria' in text_lower and 'wanita' in text_lower):
+                            gender_value = 'any'
+                        elif any(word in text_lower for word in ['wanita', 'perempuan', 'female']):
+                            gender_value = 'female'
+                        elif any(word in text_lower for word in ['pria', 'laki-laki', 'male']):
+                            gender_value = 'male'
+                        else:
+                            gender_value = 'any'
+                        
+                        req = {
+                            'id': f'req_{req_id}',
+                            'label': bullet,
+                            'type': 'gender',
+                            'value': gender_value
+                        }
+                    # Default: skill
+                    else:
+                        req = {
+                            'id': f'req_{req_id}',
+                            'label': bullet,
+                            'type': 'skill',
+                            'value': bullet.lower()
+                        }
+                    
+                    requirements_array.append(req)
+                
+                # Add default requirements if none found
+                if len(requirements_array) == 0:
+                    requirements_array = [
+                        {
+                            'id': 'req_1',
+                            'label': f'Experience in {request.job_title}',
+                            'type': 'experience',
+                            'value': 1
+                        },
+                        {
+                            'id': 'req_2',
+                            'label': 'Good communication skills',
+                            'type': 'skill',
+                            'value': 'communication'
+                        }
+                    ]
+                
+                requirements_result = {
+                    'position': request.job_title,
+                    'requirements': requirements_array
+                }
+                
+                method_used = "inline_fallback"
+                print(f"✅ Used inline fallback method - generated {len(requirements_array)} requirements")
             
             if requirements_result and 'requirements' in requirements_result:
                 requirements_array = requirements_result['requirements']
@@ -1525,6 +1648,10 @@ async def create_external_schedule(request: ExternalScheduleRequest):
                 filename = f"{job_id}_nara_integrated.json"
                 filepath = requirements_dir / filename
                 
+                print(f"🔍 DEBUG: requirements_dir: {requirements_dir}")
+                print(f"🔍 DEBUG: filepath: {filepath}")
+                print(f"🔍 DEBUG: filepath exists: {filepath.exists()}")
+                
                 with open(filepath, 'w', encoding='utf-8') as f:
                     json.dump(requirements_data, f, indent=2, ensure_ascii=False)
                 
@@ -1532,6 +1659,13 @@ async def create_external_schedule(request: ExternalScheduleRequest):
                 print(f"✅ Generated {len(requirements_array)} requirements")
                 print(f"✅ Saved to: {filepath}")
                 print(f"📊 Method used: {method_used}")
+                
+                # Verify file was actually saved
+                if filepath.exists():
+                    file_size = filepath.stat().st_size
+                    print(f"✅ File verification: {filepath} ({file_size} bytes)")
+                else:
+                    print(f"❌ File verification failed: {filepath} not found")
                 
                 # Log requirements breakdown
                 type_counts = {}
