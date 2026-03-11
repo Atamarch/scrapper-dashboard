@@ -61,9 +61,9 @@ def classify_requirement(text, req_id):
             gender_value = 'any'
         
         return {
-            'id': f'req_{req_id}',
-            'label': text,
+            'id': 'gender',
             'type': 'gender',
+            'label': text,
             'value': gender_value
         }
     
@@ -95,9 +95,9 @@ def classify_requirement(text, req_id):
                 break
         
         return {
-            'id': f'req_{req_id}',
-            'label': text,
+            'id': 'age_range',
             'type': 'age',
+            'label': text,
             'value': age_value
         }
     
@@ -119,9 +119,9 @@ def classify_requirement(text, req_id):
             edu_value = 'bachelor'  # default for education mentions
         
         return {
-            'id': f'req_{req_id}',
-            'label': text,
+            'id': 'education',
             'type': 'education',
+            'label': text,
             'value': edu_value
         }
     
@@ -137,9 +137,9 @@ def classify_requirement(text, req_id):
             location_value = 'any'
         
         return {
-            'id': f'req_{req_id}',
-            'label': text,
+            'id': 'location',
             'type': 'location',
+            'label': text,
             'value': location_value.lower()
         }
     
@@ -165,17 +165,29 @@ def classify_requirement(text, req_id):
                 break
         
         return {
-            'id': f'req_{req_id}',
-            'label': text,
+            'id': 'min_experience',
             'type': 'experience',
+            'label': text,
             'value': exp_value
         }
     
-    # Default: Skill
+    # Default: Skill - generate descriptive ID from label
+    # Clean the text to create a skill ID
+    skill_text = text_lower
+    # Remove common prefixes
+    skill_text = re.sub(r'^(must have|nice to have|strong|good|excellent|proficiency in|experience with|knowledge of|familiar with|understanding of)[\s:]+', '', skill_text)
+    # Take first few words and clean
+    skill_words = skill_text.split()[:3]  # Take max 3 words
+    skill_id = '_'.join(skill_words)
+    # Clean special characters
+    skill_id = re.sub(r'[^\w\s]', '', skill_id)
+    skill_id = re.sub(r'\s+', '_', skill_id)
+    skill_id = f'skill_{skill_id}'
+    
     return {
-        'id': f'req_{req_id}',
-        'label': text,
+        'id': skill_id,
         'type': 'skill',
+        'label': text,
         'value': text.lower()
     }
 
