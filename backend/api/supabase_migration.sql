@@ -176,3 +176,29 @@ ORDER BY tablename, policyname;
 --    SUPABASE_KEY=your_service_role_key_here
 -- 3. Start the API server
 -- ============================================
+-- Search Templates table for storing job templates and requirements
+CREATE TABLE IF NOT EXISTS search_templates (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    job_title VARCHAR(255),
+    job_description TEXT,
+    requirements JSONB,
+    company_id UUID,
+    external_source VARCHAR(100),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Index for faster queries
+CREATE INDEX IF NOT EXISTS idx_search_templates_name ON search_templates(name);
+CREATE INDEX IF NOT EXISTS idx_search_templates_job_title ON search_templates(job_title);
+CREATE INDEX IF NOT EXISTS idx_search_templates_company_id ON search_templates(company_id);
+CREATE INDEX IF NOT EXISTS idx_search_templates_external_source ON search_templates(external_source);
+CREATE INDEX IF NOT EXISTS idx_search_templates_created_at ON search_templates(created_at);
+
+-- RLS policies for search_templates table
+ALTER TABLE search_templates ENABLE ROW LEVEL SECURITY;
+
+-- Allow all operations for now (adjust based on your auth requirements)
+CREATE POLICY "Allow all operations on search_templates" ON search_templates
+    FOR ALL USING (true) WITH CHECK (true);

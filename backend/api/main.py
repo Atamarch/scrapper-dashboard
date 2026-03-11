@@ -1168,6 +1168,7 @@ async def generate_and_save_requirements(request: RequirementsGenerateRequest):
                 # Create new template
                 template_data = {
                     "name": template_name,
+                    "job_title": request.position,
                     "job_description": request.job_description,
                     "requirements": requirements_array,
                     "created_at": datetime.utcnow().isoformat()
@@ -1468,6 +1469,7 @@ async def create_external_schedule(request: ExternalScheduleRequest):
             template_data = {
                 "id": template_id,
                 "name": template_name,
+                "job_title": request.job_title,
                 "job_description": request.job_description,
                 "company_id": company_id,
                 "external_source": request.external_source,
