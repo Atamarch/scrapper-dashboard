@@ -4,16 +4,28 @@ OPTIMIZED VERSION
 """
 import json
 import os
+import sys
 import threading
 import time
 import re
 import hashlib
 import glob
 from datetime import datetime
+from pathlib import Path
 import pika
 from dotenv import load_dotenv
 from rapidfuzz import fuzz
 from supabase import create_client, Client
+
+# Add API helper to path for webhook
+sys.path.append(str(Path(__file__).parent.parent / "api" / "helper"))
+try:
+    from webhook_helper import send_completion_webhook
+    WEBHOOK_HELPER_AVAILABLE = True
+    print("✓ Webhook helper loaded")
+except ImportError:
+    print("⚠ Webhook helper not available")
+    WEBHOOK_HELPER_AVAILABLE = False
 
 # Load environment variables
 load_dotenv()
@@ -603,6 +615,26 @@ def update_supabase_score(profile_url, percentage, profile_data=None, score_resu
                     print(f"✓ Supabase updated: {profile_url} → score: {old_score}% → {percentage}% (overwritten)")
                 else:
                     print(f"✓ Supabase updated: {profile_url} → score: {percentage}% (new)")
+                
+                # Check if schedule is completed and send webhook if needed
+                if WEBHOOK_HELPER_AVAILABLE and template_id:
+                    try:
+                        # Get schedule_id from template
+                        schedule_result = supabase.table('crawler_schedules').select('id').eq('template_id', template_id).execute()
+                        
+                        if schedule_result.data:
+                            schedule_id = schedule_result.data[0]['id']
+                            print(f"🔔 Checking webhook for schedule {schedule_id}...")
+                            
+                            # Check completion and send webhook (non-blocking)
+                            webhook_sent = send_completion_webhook(supabase, schedule_id)
+                            if webhook_sent:
+                                print(f"✅ Webhook notification sent for completed schedule")
+                            
+                    except Exception as webhook_error:
+                        print(f"⚠ Webhook check failed: {webhook_error}")
+                        # Don't fail the main process for webhook errors
+                
                 return True
             else:
                 print(f"⚠ Failed to update Supabase")

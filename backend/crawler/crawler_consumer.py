@@ -14,7 +14,7 @@ from crawler import LinkedInCrawler
 from helper.rabbitmq_helper import RabbitMQManager, ack_message, nack_message
 from helper.supabase_helper import SupabaseManager
 
-# Add API helper to path for query optimizer
+# Add API helper to path for query optimizer and webhook
 sys.path.append(str(Path(__file__).parent.parent / "api" / "helper"))
 try:
     from query_optimizer import QueryOptimizer
@@ -22,6 +22,14 @@ try:
 except ImportError:
     print("⚠ Query optimizer not available, using standard queries")
     QUERY_OPTIMIZER_AVAILABLE = False
+
+try:
+    from webhook_helper import send_completion_webhook
+    WEBHOOK_HELPER_AVAILABLE = True
+    print("✓ Webhook helper loaded")
+except ImportError:
+    print("⚠ Webhook helper not available")
+    WEBHOOK_HELPER_AVAILABLE = False
 
 load_dotenv()
 
@@ -504,6 +512,26 @@ def worker_thread(worker_id, mq_config):
                         with stats['lock']:
                             stats['saved_to_supabase'] += 1
                         print(f"[Worker {worker_id}] ✓ Updated Supabase")
+                        
+                        # Check if schedule is completed and send webhook if needed
+                        if WEBHOOK_HELPER_AVAILABLE and template_id:
+                            try:
+                                # Get schedule_id from template
+                                schedule_result = supabase.client.table('crawler_schedules').select('id').eq('template_id', template_id).execute()
+                                
+                                if schedule_result.data:
+                                    schedule_id = schedule_result.data[0]['id']
+                                    print(f"[Worker {worker_id}] 🔔 Checking webhook for schedule {schedule_id}...")
+                                    
+                                    # Check completion and send webhook (non-blocking)
+                                    webhook_sent = send_completion_webhook(supabase.client, schedule_id)
+                                    if webhook_sent:
+                                        print(f"[Worker {worker_id}] ✅ Webhook notification sent")
+                                    
+                            except Exception as webhook_error:
+                                print(f"[Worker {worker_id}] ⚠ Webhook check failed: {webhook_error}")
+                                # Don't fail the main process for webhook errors
+                        
                     else:
                         with stats['lock']:
                             stats['supabase_failed'] += 1
