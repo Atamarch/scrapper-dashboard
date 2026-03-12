@@ -5,7 +5,6 @@ import os
 import sys
 import threading
 import time
-import hashlib
 import pika
 from datetime import datetime
 from pathlib import Path
@@ -14,7 +13,12 @@ from crawler import LinkedInCrawler
 from helper.rabbitmq_helper import RabbitMQManager, ack_message, nack_message
 from helper.supabase_helper import SupabaseManager
 
-# Add API helper to path for query optimizer and webhook
+# Add common utilities
+sys.path.append(str(Path(__file__).parent.parent / "common"))
+from utils import get_profile_hash, StatsManager
+from profile_processor import ProfileValidator, WebhookChecker
+
+# Add API helper to path for query optimizer
 sys.path.append(str(Path(__file__).parent.parent / "api" / "helper"))
 try:
     from query_optimizer import QueryOptimizer
@@ -23,14 +27,6 @@ except ImportError:
     print("⚠ Query optimizer not available, using standard queries")
     QUERY_OPTIMIZER_AVAILABLE = False
 
-try:
-    from webhook_helper import send_completion_webhook
-    WEBHOOK_HELPER_AVAILABLE = True
-    print("✓ Webhook helper loaded")
-except ImportError:
-    print("⚠ Webhook helper not available")
-    WEBHOOK_HELPER_AVAILABLE = False
-
 load_dotenv()
 
 # Configuration
@@ -38,14 +34,14 @@ SCORING_QUEUE = os.getenv('SCORING_QUEUE', 'scoring_queue')
 REQUIREMENTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'scoring', 'requirements')
 DB_CHECK_INTERVAL = int(os.getenv('DB_CHECK_INTERVAL', '60'))  # 1 minute default
 
-
-# ============================================================================
-# UTILITY FUNCTIONS
-# ============================================================================
-
-def get_profile_hash(profile_url):
-    """Generate unique hash from profile URL"""
-    return hashlib.md5(profile_url.encode()).hexdigest()[:8]
+# Statistics manager
+stats_manager = StatsManager()
+# Add additional stats for crawler
+stats_manager.stats.update({
+    'sent_to_scoring': 0,
+    'saved_to_supabase': 0,
+    'supabase_failed': 0
+})
 
 
 def check_if_already_crawled(profile_url, output_dir='data/output'):
@@ -106,41 +102,8 @@ def save_profile_data(profile_data, output_dir='data/output'):
 
 
 # ============================================================================
-# MAIN CONSUMER CODE
+# UTILITY FUNCTIONS
 # ============================================================================
-
-# Configuration
-SCORING_QUEUE = os.getenv('SCORING_QUEUE', 'scoring_queue')
-
-# Statistics
-stats = {
-    'processing': 0,
-    'completed': 0,
-    'failed': 0,
-    'skipped': 0,
-    'sent_to_scoring': 0,
-    'saved_to_supabase': 0,
-    'supabase_failed': 0,
-    'lock': threading.Lock()
-}
-
-
-def print_stats():
-    """Print current statistics"""
-    print("\n" + "="*60)
-    print("STATISTICS")
-    print("="*60)
-    print(f"Processing: {stats['processing']}")
-    print(f"Completed: {stats['completed']}")
-    print(f"Failed: {stats['failed']}")
-    print(f"Skipped: {stats['skipped']}")
-    print(f"Sent to Scoring: {stats['sent_to_scoring']}")
-    print(f"Saved to Supabase: {stats['saved_to_supabase']}")
-    print(f"Supabase Failed: {stats['supabase_failed']}")
-    if stats['completed'] + stats['failed'] > 0:
-        success_rate = stats['completed'] / (stats['completed'] + stats['failed']) * 100
-        print(f"Success Rate: {success_rate:.1f}%")
-    print("="*60)
 
 
 # ============================================================================
@@ -361,218 +324,131 @@ def send_to_scoring_queue(profile_data, template_id, mq_config):
 
 
 
+def process_profile_message(worker_id, message, supabase, mq_config):
+    """Process a single profile scraping message"""
+    crawler = None
+    
+    try:
+        # Validate message
+        is_valid, validation_msg = ProfileValidator.validate_message(message)
+        if not is_valid:
+            print(f"[Worker {worker_id}] ✗ Invalid message: {validation_msg}")
+            return False
+        
+        url = message.get('url')
+        template_id = message.get('template_id')
+        
+        print(f"\n[Worker {worker_id}] 📥 Processing: {url}")
+        print(f"[Worker {worker_id}] 📁 Template ID: {template_id}")
+        
+        stats_manager.increment('processing')
+        
+        # Check if already scraped in Supabase - OPTIMIZED
+        if supabase:
+            existing_lead = get_existing_lead_optimized(supabase, url)
+            
+            if existing_lead:
+                should_skip, reason = ProfileValidator.should_skip_processing(existing_lead)
+                
+                if should_skip:
+                    print(f"[Worker {worker_id}] ⊘ {reason}")
+                    stats_manager.increment('skipped')
+                    return True
+                else:
+                    print(f"[Worker {worker_id}] 🔄 Re-processing ({reason})")
+        
+        # Create crawler and process
+        crawler = LinkedInCrawler()
+        
+        # Login and scrape
+        crawler.login()
+        profile_data = crawler.get_profile(url)
+        profile_data['template_id'] = template_id
+        
+        # Update Supabase
+        if supabase:
+            update_supabase_result(worker_id, supabase, url, profile_data, template_id)
+        
+        # Send to scoring queue
+        print(f"[Worker {worker_id}] 📤 Sending to scoring...")
+        if send_to_scoring_queue(profile_data, template_id, mq_config):
+            stats_manager.increment('sent_to_scoring')
+        
+        stats_manager.increment('completed')
+        print(f"[Worker {worker_id}] ✓ Completed: {profile_data.get('name', 'Unknown')}")
+        
+        # Print stats after completion
+        stats_manager.print_stats()
+        
+        return True
+        
+    except Exception as e:
+        stats_manager.increment('failed')
+        print(f"[Worker {worker_id}] ✗ Error: {e}")
+        stats_manager.print_stats()
+        return False
+    
+    finally:
+        if crawler:
+            crawler.close()
+        stats_manager.decrement('processing')
+
+
+def get_existing_lead_optimized(supabase, url):
+    """Get existing lead with query optimization if available"""
+    if QUERY_OPTIMIZER_AVAILABLE and hasattr(supabase, 'client'):
+        try:
+            optimizer = QueryOptimizer(supabase.client)
+            return optimizer.check_lead_exists_optimized(url)
+        except:
+            # Fallback to standard query
+            return supabase.get_lead_by_url(url)
+    else:
+        return supabase.get_lead_by_url(url)
+
+
+def update_supabase_result(worker_id, supabase, url, profile_data, template_id):
+    """Update Supabase with scraped data and handle webhook"""
+    print(f"[Worker {worker_id}] 💾 Updating Supabase...")
+    
+    if supabase.update_lead_after_scrape(profile_url=url, profile_data=profile_data):
+        stats_manager.increment('saved_to_supabase')
+        print(f"[Worker {worker_id}] ✓ Updated Supabase")
+        
+        # Check webhook completion
+        WebhookChecker.check_and_send_webhook(supabase.client, template_id, worker_id)
+    else:
+        stats_manager.increment('supabase_failed')
+        print(f"[Worker {worker_id}] ⚠ Failed to update Supabase")
 def worker_thread(worker_id, mq_config):
     """Worker thread that continuously processes messages"""
     print(f"[Worker {worker_id}] Started")
     
-    # Each worker has its own RabbitMQ connection
-    mq = RabbitMQManager()
-    mq.host = mq_config['host']
-    mq.port = mq_config['port']
-    mq.username = mq_config['username']
-    mq.password = mq_config['password']
-    mq.queue_name = mq_config['queue_name']
-    
-    if not mq.connect():
-        print(f"[Worker {worker_id}] Failed to connect to RabbitMQ")
+    # Setup RabbitMQ connection
+    mq = setup_worker_rabbitmq(worker_id, mq_config)
+    if not mq:
         return
     
-    # Initialize Supabase
-    try:
-        supabase = SupabaseManager()
-        print(f"[Worker {worker_id}] ✓ Connected to Supabase")
-    except Exception as e:
-        print(f"[Worker {worker_id}] ⚠ Supabase connection failed: {e}")
-        print(f"[Worker {worker_id}]   Continuing without Supabase (data won't be saved to DB)")
-        supabase = None
+    # Setup Supabase connection
+    supabase = setup_worker_supabase(worker_id)
     
     # Set QoS - only process 1 message at a time
     mq.channel.basic_qos(prefetch_count=1)
     
     def callback(ch, method, properties, body):
         """Process each message"""
-        crawler = None
-        
         try:
             # Parse message
             message = json.loads(body)
-            url = message.get('url')
-            template_id = message.get('template_id')
             
-            if not url:
-                print(f"[Worker {worker_id}] ✗ Invalid message: no URL")
+            # Process the message
+            success = process_profile_message(worker_id, message, supabase, mq_config)
+            
+            # Acknowledge or reject message
+            if success:
                 ack_message(ch, method.delivery_tag)
-                return
-            
-            if not template_id:
-                print(f"[Worker {worker_id}] ✗ Invalid message: no template_id")
-                ack_message(ch, method.delivery_tag)
-                return
-            
-            print(f"\n[Worker {worker_id}] 📥 Processing: {url}")
-            print(f"[Worker {worker_id}] 📁 Template ID: {template_id}")
-            
-            with stats['lock']:
-                stats['processing'] += 1
-            
-            # Check if already scraped in Supabase - OPTIMIZED
-            if supabase:
-                # Use query optimizer if available for 50x faster lookup
-                if QUERY_OPTIMIZER_AVAILABLE and hasattr(supabase, 'client'):
-                    try:
-                        optimizer = QueryOptimizer(supabase.client)
-                        existing_lead = optimizer.check_lead_exists_optimized(url)
-                    except:
-                        # Fallback to standard query
-                        existing_lead = supabase.get_lead_by_url(url)
-                else:
-                    existing_lead = supabase.get_lead_by_url(url)
-                if existing_lead:
-                    connection_status = existing_lead.get('connection_status', '')
-                    profile_data = existing_lead.get('profile_data')
-                    scoring_data = existing_lead.get('scoring_data')
-                    score = existing_lead.get('score', 0)
-                    
-                    # Check if data exists
-                    has_profile = profile_data and profile_data not in [None, '', '{}', {}]
-                    has_scoring = scoring_data and scoring_data not in [None, '', '{}', {}]
-                    
-                    # RULE 1: If status is pending, always process
-                    if connection_status == 'pending':
-                        print(f"[Worker {worker_id}] 🔄 Processing (status: pending)")
-                    
-                    # RULE 2: If status is scraped, check data
-                    elif connection_status == 'scraped':
-                        # Check if profile_data or scoring_data is missing
-                        if not has_profile or not has_scoring:
-                            missing = []
-                            if not has_profile:
-                                missing.append("profile_data")
-                            if not has_scoring:
-                                missing.append("scoring_data")
-                            print(f"[Worker {worker_id}] 🔄 Re-processing (missing: {', '.join(missing)})")
-                        
-                        # If score is 0 or null, check if scoring_data exists
-                        elif score is None or score == 0:
-                            if not has_scoring:
-                                print(f"[Worker {worker_id}] 🔄 Re-processing (score {score} and no scoring data)")
-                            else:
-                                # Score 0 but has scoring data = valid result (kandidat tidak cocok)
-                                print(f"[Worker {worker_id}] ⊘ Already complete (Score: 0% but has valid scoring data - candidate not suitable)")
-                                with stats['lock']:
-                                    stats['skipped'] += 1
-                                    stats['processing'] -= 1
-                                ack_message(ch, method.delivery_tag)
-                                return
-                        
-                        # If score > 0 and all data exists = complete
-                        elif score > 0 and has_profile and has_scoring:
-                            print(f"[Worker {worker_id}] ⊘ Already complete (Status: scraped, Score: {score}%, Profile: ✓, Scoring: ✓)")
-                            with stats['lock']:
-                                stats['skipped'] += 1
-                                stats['processing'] -= 1
-                            ack_message(ch, method.delivery_tag)
-                            return
-                    
-                    else:
-                        # Other status - check if data exists
-                        if not has_profile or not has_scoring:
-                            missing = []
-                            if not has_profile:
-                                missing.append("profile_data")
-                            if not has_scoring:
-                                missing.append("scoring_data")
-                            print(f"[Worker {worker_id}] 🔄 Processing (status: {connection_status}, missing: {', '.join(missing)})")
-                        else:
-                            print(f"[Worker {worker_id}] 🔄 Processing (status: {connection_status})")
-            
-            # Create crawler and process
-            crawler = LinkedInCrawler()
-            
-            try:
-                # Login (will use cookies if available)
-                crawler.login()
-                
-                # Scrape profile
-                profile_data = crawler.get_profile(url)
-                
-                # Add template_id to profile data
-                profile_data['template_id'] = template_id
-                
-                # Save to file (DISABLED - data saved to Supabase instead)
-                # save_profile_data(profile_data)
-                
-                # Update Supabase with scraped data
-                if supabase:
-                    print(f"[Worker {worker_id}] 💾 Updating Supabase...")
-                    if supabase.update_lead_after_scrape(
-                        profile_url=url,
-                        profile_data=profile_data
-                    ):
-                        with stats['lock']:
-                            stats['saved_to_supabase'] += 1
-                        print(f"[Worker {worker_id}] ✓ Updated Supabase")
-                        
-                        # Check if schedule is completed and send webhook if needed
-                        if WEBHOOK_HELPER_AVAILABLE and template_id:
-                            try:
-                                # Get schedule_id from template
-                                schedule_result = supabase.client.table('crawler_schedules').select('id').eq('template_id', template_id).execute()
-                                
-                                if schedule_result.data:
-                                    schedule_id = schedule_result.data[0]['id']
-                                    print(f"[Worker {worker_id}] 🔔 Checking webhook for schedule {schedule_id}...")
-                                    
-                                    # Check completion and send webhook (non-blocking)
-                                    webhook_sent = send_completion_webhook(supabase.client, schedule_id)
-                                    if webhook_sent:
-                                        print(f"[Worker {worker_id}] ✅ Webhook notification sent")
-                                    
-                            except Exception as webhook_error:
-                                print(f"[Worker {worker_id}] ⚠ Webhook check failed: {webhook_error}")
-                                # Don't fail the main process for webhook errors
-                        
-                    else:
-                        with stats['lock']:
-                            stats['supabase_failed'] += 1
-                        print(f"[Worker {worker_id}] ⚠ Failed to update Supabase")
-                
-                # Send to scoring queue
-                print(f"[Worker {worker_id}] 📤 Sending to scoring...")
-                if send_to_scoring_queue(profile_data, template_id, mq_config):
-                    with stats['lock']:
-                        stats['sent_to_scoring'] += 1
-                
-                with stats['lock']:
-                    stats['completed'] += 1
-                
-                print(f"[Worker {worker_id}] ✓ Completed: {profile_data.get('name', 'Unknown')}")
-                
-                # Print stats after completion
-                print_stats()
-                
-                # Acknowledge message
-                ack_message(ch, method.delivery_tag)
-                
-            except Exception as e:
-                with stats['lock']:
-                    stats['failed'] += 1
-                
-                print(f"[Worker {worker_id}] ✗ Error: {e}")
-                
-                # Print stats after failure
-                print_stats()
-                
-                # Don't requeue to avoid infinite loop
+            else:
                 nack_message(ch, method.delivery_tag, requeue=False)
-            
-            finally:
-                # Close browser
-                if crawler:
-                    crawler.close()
-                
-                with stats['lock']:
-                    stats['processing'] -= 1
         
         except Exception as e:
             print(f"[Worker {worker_id}] ✗ Fatal error: {e}")
@@ -595,6 +471,34 @@ def worker_thread(worker_id, mq_config):
     finally:
         mq.close()
         print(f"[Worker {worker_id}] Stopped")
+
+
+def setup_worker_rabbitmq(worker_id, mq_config):
+    """Setup RabbitMQ connection for worker"""
+    mq = RabbitMQManager()
+    mq.host = mq_config['host']
+    mq.port = mq_config['port']
+    mq.username = mq_config['username']
+    mq.password = mq_config['password']
+    mq.queue_name = mq_config['queue_name']
+    
+    if not mq.connect():
+        print(f"[Worker {worker_id}] Failed to connect to RabbitMQ")
+        return None
+    
+    return mq
+
+
+def setup_worker_supabase(worker_id):
+    """Setup Supabase connection for worker"""
+    try:
+        supabase = SupabaseManager()
+        print(f"[Worker {worker_id}] ✓ Connected to Supabase")
+        return supabase
+    except Exception as e:
+        print(f"[Worker {worker_id}] ⚠ Supabase connection failed: {e}")
+        print(f"[Worker {worker_id}]   Continuing without Supabase (data won't be saved to DB)")
+        return None
 
 
 def main():

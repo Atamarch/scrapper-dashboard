@@ -8,7 +8,6 @@ import sys
 import threading
 import time
 import re
-import hashlib
 import glob
 from datetime import datetime
 from pathlib import Path
@@ -17,15 +16,11 @@ from dotenv import load_dotenv
 from rapidfuzz import fuzz
 from supabase import create_client, Client
 
-# Add API helper to path for webhook
-sys.path.append(str(Path(__file__).parent.parent / "api" / "helper"))
-try:
-    from webhook_helper import send_completion_webhook
-    WEBHOOK_HELPER_AVAILABLE = True
-    print("✓ Webhook helper loaded")
-except ImportError:
-    print("⚠ Webhook helper not available")
-    WEBHOOK_HELPER_AVAILABLE = False
+# Add common utilities
+sys.path.append(str(Path(__file__).parent.parent / "common"))
+from utils import get_profile_hash, StatsManager
+from rabbitmq_connection import create_rabbitmq_connection
+from profile_processor import WebhookChecker
 
 # Load environment variables
 load_dotenv()
@@ -56,16 +51,13 @@ if SUPABASE_URL and SUPABASE_KEY:
 else:
     print("⚠ Supabase credentials not found in .env")
 
-# Statistics
-stats = {
-    'processing': 0,
-    'completed': 0,
-    'failed': 0,
-    'skipped': 0,
+# Statistics manager
+stats_manager = StatsManager()
+# Add additional stats for scoring
+stats_manager.stats.update({
     'supabase_updated': 0,
-    'supabase_failed': 0,
-    'lock': threading.Lock()
-}
+    'supabase_failed': 0
+})
 
 
 class ChecklistScorer:
@@ -483,9 +475,7 @@ def load_requirements(template_id):
         return None
 
 
-def get_profile_hash(profile_url):
-    """Generate unique hash from profile URL"""
-    return hashlib.md5(profile_url.encode()).hexdigest()[:8]
+
 
 
 def check_if_already_scored(profile_url, requirements_id, output_dir=OUTPUT_DIR):
@@ -617,23 +607,7 @@ def update_supabase_score(profile_url, percentage, profile_data=None, score_resu
                     print(f"✓ Supabase updated: {profile_url} → score: {percentage}% (new)")
                 
                 # Check if schedule is completed and send webhook if needed
-                if WEBHOOK_HELPER_AVAILABLE and template_id:
-                    try:
-                        # Get schedule_id from template
-                        schedule_result = supabase.table('crawler_schedules').select('id').eq('template_id', template_id).execute()
-                        
-                        if schedule_result.data:
-                            schedule_id = schedule_result.data[0]['id']
-                            print(f"🔔 Checking webhook for schedule {schedule_id}...")
-                            
-                            # Check completion and send webhook (non-blocking)
-                            webhook_sent = send_completion_webhook(supabase, schedule_id)
-                            if webhook_sent:
-                                print(f"✅ Webhook notification sent for completed schedule")
-                            
-                    except Exception as webhook_error:
-                        print(f"⚠ Webhook check failed: {webhook_error}")
-                        # Don't fail the main process for webhook errors
+                WebhookChecker.check_and_send_webhook(supabase, template_id)
                 
                 return True
             else:
@@ -672,21 +646,7 @@ def update_supabase_score(profile_url, percentage, profile_data=None, score_resu
         return False
 
 
-def print_stats():
-    """Print current statistics"""
-    print("\n" + "="*60)
-    print("SCORING STATISTICS")
-    print("="*60)
-    print(f"Processing: {stats['processing']}")
-    print(f"Completed: {stats['completed']}")
-    print(f"Failed: {stats['failed']}")
-    print(f"Skipped (duplicates): {stats['skipped']}")
-    print(f"Supabase Updated: {stats['supabase_updated']}")
-    print(f"Supabase Failed: {stats['supabase_failed']}")
-    if stats['completed'] + stats['failed'] > 0:
-        success_rate = stats['completed'] / (stats['completed'] + stats['failed']) * 100
-        print(f"Success Rate: {success_rate:.1f}%")
-    print("="*60)
+
 
 
 def process_message(message_data):
@@ -717,8 +677,7 @@ def process_message(message_data):
             already_exists, existing_file = check_if_already_scored(profile_url, req_id)
             if already_exists:
                 print(f"⊘ Already scored: {existing_file}")
-                with stats['lock']:
-                    stats['skipped'] += 1
+                stats_manager.increment('skipped')
                 return True  # Return True to ack message
         
         # Load requirements from Supabase templates table
@@ -759,9 +718,9 @@ def process_message(message_data):
             percentage = score_result.get('percentage', 0)
             if profile_url:
                 if update_supabase_score(profile_url, percentage, profile_data, score_result):
-                    with stats['lock']:
-                        stats['supabase_updated'] += 1
+                    stats_manager.increment('supabase_updated')
                 else:
+                    stats_manager.increment('supabase_failed')
                     with stats['lock']:
                         stats['supabase_failed'] += 1
         else:
@@ -782,19 +741,9 @@ def worker_thread(worker_id):
     """Worker thread that continuously processes messages from RabbitMQ"""
     print(f"[Worker {worker_id}] Started")
     
-    # Connect to RabbitMQ
+    # Connect to RabbitMQ using common utility
     try:
-        credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASSWORD)
-        parameters = pika.ConnectionParameters(
-            host=RABBITMQ_HOST,
-            port=RABBITMQ_PORT,
-            virtual_host=RABBITMQ_VHOST,
-            credentials=credentials,
-            heartbeat=600,
-            blocked_connection_timeout=300
-        )
-        
-        connection = pika.BlockingConnection(parameters)
+        connection = create_rabbitmq_connection()
         channel = connection.channel()
         
         # Declare queue
@@ -813,8 +762,7 @@ def worker_thread(worker_id):
     def callback(ch, method, properties, body):
         """Process each message"""
         try:
-            with stats['lock']:
-                stats['processing'] += 1
+            stats_manager.increment('processing')
             
             # Parse message
             message_data = json.loads(body)
@@ -823,27 +771,23 @@ def worker_thread(worker_id):
             success = process_message(message_data)
             
             if success:
-                with stats['lock']:
-                    stats['completed'] += 1
+                stats_manager.increment('completed')
                 ch.basic_ack(delivery_tag=method.delivery_tag)
             else:
-                with stats['lock']:
-                    stats['failed'] += 1
+                stats_manager.increment('failed')
                 # Don't requeue to avoid infinite loop
                 ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
             
             # Print stats
-            print_stats()
+            stats_manager.print_stats("SCORING STATISTICS")
         
         except Exception as e:
             print(f"[Worker {worker_id}] Fatal error: {e}")
-            with stats['lock']:
-                stats['failed'] += 1
+            stats_manager.increment('failed')
             ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
         
         finally:
-            with stats['lock']:
-                stats['processing'] -= 1
+            stats_manager.decrement('processing')
     
     try:
         # Start consuming
@@ -896,14 +840,7 @@ def main():
     # Test RabbitMQ connection
     print(f"\n→ Testing RabbitMQ connection...")
     try:
-        credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASSWORD)
-        parameters = pika.ConnectionParameters(
-            host=RABBITMQ_HOST,
-            port=RABBITMQ_PORT,
-            virtual_host=RABBITMQ_VHOST,
-            credentials=credentials
-        )
-        connection = pika.BlockingConnection(parameters)
+        connection = create_rabbitmq_connection()
         channel = connection.channel()
         
         # Declare queue
@@ -951,11 +888,12 @@ def main():
         print("\n" + "="*60)
         print("FINAL RESULTS")
         print("="*60)
-        print(f"✓ Completed: {stats['completed']}")
-        print(f"✗ Failed: {stats['failed']}")
-        print(f"⊘ Skipped (duplicates): {stats['skipped']}")
-        if stats['completed'] + stats['failed'] > 0:
-            success_rate = stats['completed'] / (stats['completed'] + stats['failed']) * 100
+        current_stats = stats_manager.get_stats()
+        print(f"✓ Completed: {current_stats['completed']}")
+        print(f"✗ Failed: {current_stats['failed']}")
+        print(f"⊘ Skipped (duplicates): {current_stats['skipped']}")
+        if current_stats['completed'] + current_stats['failed'] > 0:
+            success_rate = current_stats['completed'] / (current_stats['completed'] + current_stats['failed']) * 100
             print(f"📊 Success Rate: {success_rate:.1f}%")
         print("="*60)
 
