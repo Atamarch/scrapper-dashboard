@@ -16,9 +16,103 @@ from dotenv import load_dotenv
 from rapidfuzz import fuzz
 from supabase import create_client, Client
 
-# Add API helper to path for shared utilities
+# Add API helper to path for shared utilities (with fallback)
 sys.path.append(str(Path(__file__).parent.parent / "api" / "helper"))
-from common_utils import get_profile_hash, StatsManager, create_rabbitmq_connection, WebhookChecker
+
+# Try to import from common_utils, fallback to local implementation
+try:
+    from common_utils import get_profile_hash, StatsManager, create_rabbitmq_connection, WebhookChecker
+    print("✓ Using shared common_utils")
+except ImportError:
+    print("⚠ common_utils not found, using local implementation")
+    
+    # Local fallback implementations
+    import hashlib
+    import threading
+    
+    def get_profile_hash(profile_url):
+        """Generate unique hash from profile URL"""
+        return hashlib.md5(profile_url.encode()).hexdigest()[:8]
+    
+    class StatsManager:
+        def __init__(self, stats_config=None):
+            default_stats = {
+                'processing': 0, 'completed': 0, 'failed': 0, 'skipped': 0,
+                'supabase_updated': 0, 'supabase_failed': 0, 'lock': threading.Lock()
+            }
+            if stats_config:
+                default_stats.update(stats_config)
+            self.stats = default_stats
+        
+        def increment(self, key):
+            with self.stats['lock']:
+                if key in self.stats:
+                    self.stats[key] += 1
+        
+        def decrement(self, key):
+            with self.stats['lock']:
+                if key in self.stats:
+                    self.stats[key] -= 1
+        
+        def get_stats(self):
+            with self.stats['lock']:
+                return {k: v for k, v in self.stats.items() if k != 'lock'}
+        
+        def print_stats(self, title="SCORING STATISTICS"):
+            stats_copy = self.get_stats()
+            print(f"\n{'='*60}\n{title}\n{'='*60}")
+            for key, value in stats_copy.items():
+                print(f"{key.replace('_', ' ').title()}: {value}")
+            if stats_copy.get('completed', 0) + stats_copy.get('failed', 0) > 0:
+                success_rate = stats_copy['completed'] / (stats_copy['completed'] + stats_copy['failed']) * 100
+                print(f"Success Rate: {success_rate:.1f}%")
+            print("="*60)
+    
+    def create_rabbitmq_connection():
+        """Create standardized RabbitMQ connection"""
+        credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASSWORD)
+        parameters = pika.ConnectionParameters(
+            host=RABBITMQ_HOST,
+            port=RABBITMQ_PORT,
+            virtual_host=RABBITMQ_VHOST,
+            credentials=credentials,
+            heartbeat=600,
+            blocked_connection_timeout=300
+        )
+        return pika.BlockingConnection(parameters)
+    
+    class WebhookChecker:
+        @staticmethod
+        def check_and_send_webhook(supabase_client, template_id, worker_id=""):
+            try:
+                schedule_result = supabase_client.table('crawler_schedules').select('id').eq('template_id', template_id).execute()
+                
+                if schedule_result.data:
+                    schedule_id = schedule_result.data[0]['id']
+                    print(f"🔔 Checking webhook for schedule {schedule_id}...")
+                    
+                    try:
+                        # Try to import webhook helper
+                        try:
+                            from webhook_helper import send_completion_webhook
+                        except ImportError:
+                            # Fallback: try different path
+                            import sys
+                            from pathlib import Path
+                            sys.path.append(str(Path(__file__).parent.parent / "api" / "helper"))
+                            from webhook_helper import send_completion_webhook
+                        
+                        webhook_sent = send_completion_webhook(supabase_client, schedule_id)
+                        if webhook_sent:
+                            print(f"✅ Webhook notification sent for completed schedule")
+                        return webhook_sent
+                    except ImportError:
+                        print(f"⚠ Webhook helper not available")
+                        return False
+                
+            except Exception as webhook_error:
+                print(f"⚠ Webhook check failed: {webhook_error}")
+                return False
 
 # Load environment variables
 load_dotenv()

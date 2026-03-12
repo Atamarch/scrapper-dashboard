@@ -13,9 +13,131 @@ from crawler import LinkedInCrawler
 from helper.rabbitmq_helper import RabbitMQManager, ack_message, nack_message
 from helper.supabase_helper import SupabaseManager
 
-# Add API helper to path for shared utilities
+# Add API helper to path for shared utilities (with fallback)
 sys.path.append(str(Path(__file__).parent.parent / "api" / "helper"))
-from common_utils import get_profile_hash, StatsManager, ProfileValidator, WebhookChecker
+
+# Try to import from common_utils, fallback to local implementation
+try:
+    from common_utils import get_profile_hash, StatsManager, ProfileValidator, WebhookChecker
+    print("✓ Using shared common_utils")
+except ImportError:
+    print("⚠ common_utils not found, using local implementation")
+    
+    # Local fallback implementations
+    import hashlib
+    import threading
+    
+    def get_profile_hash(profile_url):
+        """Generate unique hash from profile URL"""
+        return hashlib.md5(profile_url.encode()).hexdigest()[:8]
+    
+    class StatsManager:
+        def __init__(self, stats_config=None):
+            default_stats = {
+                'processing': 0, 'completed': 0, 'failed': 0, 'skipped': 0,
+                'sent_to_scoring': 0, 'saved_to_supabase': 0, 'supabase_failed': 0,
+                'lock': threading.Lock()
+            }
+            if stats_config:
+                default_stats.update(stats_config)
+            self.stats = default_stats
+        
+        def increment(self, key):
+            with self.stats['lock']:
+                if key in self.stats:
+                    self.stats[key] += 1
+        
+        def decrement(self, key):
+            with self.stats['lock']:
+                if key in self.stats:
+                    self.stats[key] -= 1
+        
+        def get_stats(self):
+            with self.stats['lock']:
+                return {k: v for k, v in self.stats.items() if k != 'lock'}
+        
+        def print_stats(self, title="STATISTICS"):
+            stats_copy = self.get_stats()
+            print(f"\n{'='*60}\n{title}\n{'='*60}")
+            for key, value in stats_copy.items():
+                print(f"{key.replace('_', ' ').title()}: {value}")
+            if stats_copy.get('completed', 0) + stats_copy.get('failed', 0) > 0:
+                success_rate = stats_copy['completed'] / (stats_copy['completed'] + stats_copy['failed']) * 100
+                print(f"Success Rate: {success_rate:.1f}%")
+            print("="*60)
+    
+    class ProfileValidator:
+        @staticmethod
+        def validate_message(message):
+            if not message:
+                return False, "Empty message"
+            if not message.get('url'):
+                return False, "No URL in message"
+            if not message.get('template_id'):
+                return False, "No template_id in message"
+            return True, "Valid"
+        
+        @staticmethod
+        def should_skip_processing(existing_lead):
+            if not existing_lead:
+                return False, "No existing data"
+            
+            connection_status = existing_lead.get('connection_status', '')
+            profile_data = existing_lead.get('profile_data')
+            scoring_data = existing_lead.get('scoring_data')
+            score = existing_lead.get('score', 0)
+            
+            has_profile = profile_data and profile_data not in [None, '', '{}', {}]
+            has_scoring = scoring_data and scoring_data not in [None, '', '{}', {}]
+            
+            if connection_status == 'pending':
+                return False, "Status: pending"
+            elif connection_status == 'scraped':
+                if not has_profile or not has_scoring:
+                    missing = []
+                    if not has_profile:
+                        missing.append("profile_data")
+                    if not has_scoring:
+                        missing.append("scoring_data")
+                    return False, f"Missing: {', '.join(missing)}"
+                elif score == 0 and has_scoring:
+                    return True, "Score: 0% but valid (candidate not suitable)"
+                elif score > 0 and has_profile and has_scoring:
+                    return True, f"Complete (Score: {score}%)"
+            
+            if not has_profile or not has_scoring:
+                missing = []
+                if not has_profile:
+                    missing.append("profile_data")
+                if not has_scoring:
+                    missing.append("scoring_data")
+                return False, f"Status: {connection_status}, missing: {', '.join(missing)}"
+            
+            return False, f"Status: {connection_status}"
+    
+    class WebhookChecker:
+        @staticmethod
+        def check_and_send_webhook(supabase_client, template_id, worker_id=""):
+            try:
+                schedule_result = supabase_client.table('crawler_schedules').select('id').eq('template_id', template_id).execute()
+                
+                if schedule_result.data:
+                    schedule_id = schedule_result.data[0]['id']
+                    print(f"[{worker_id}] 🔔 Checking webhook for schedule {schedule_id}...")
+                    
+                    try:
+                        from webhook_helper import send_completion_webhook
+                        webhook_sent = send_completion_webhook(supabase_client, schedule_id)
+                        if webhook_sent:
+                            print(f"[{worker_id}] ✅ Webhook notification sent")
+                        return webhook_sent
+                    except ImportError:
+                        print(f"[{worker_id}] ⚠ Webhook helper not available")
+                        return False
+                
+            except Exception as webhook_error:
+                print(f"[{worker_id}] ⚠ Webhook check failed: {webhook_error}")
+                return False
 
 try:
     from query_optimizer import QueryOptimizer
