@@ -1,9 +1,69 @@
 """
-Common profile processing utilities
+Common utilities shared across all backend services
 """
-import json
-from datetime import datetime
-from .utils import get_profile_hash
+import hashlib
+import threading
+import pika
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+def get_profile_hash(profile_url):
+    """Generate unique hash from profile URL"""
+    return hashlib.md5(profile_url.encode()).hexdigest()[:8]
+
+
+class StatsManager:
+    """Thread-safe statistics manager"""
+    
+    def __init__(self, stats_config=None):
+        """Initialize with custom stats configuration"""
+        default_stats = {
+            'processing': 0,
+            'completed': 0,
+            'failed': 0,
+            'skipped': 0,
+            'lock': threading.Lock()
+        }
+        
+        if stats_config:
+            default_stats.update(stats_config)
+        
+        self.stats = default_stats
+    
+    def increment(self, key):
+        """Thread-safe increment"""
+        with self.stats['lock']:
+            if key in self.stats:
+                self.stats[key] += 1
+    
+    def decrement(self, key):
+        """Thread-safe decrement"""
+        with self.stats['lock']:
+            if key in self.stats:
+                self.stats[key] -= 1
+    
+    def get_stats(self):
+        """Get current stats copy"""
+        with self.stats['lock']:
+            return {k: v for k, v in self.stats.items() if k != 'lock'}
+    
+    def print_stats(self, title="STATISTICS"):
+        """Print current statistics"""
+        stats_copy = self.get_stats()
+        print("\n" + "="*60)
+        print(title)
+        print("="*60)
+        
+        for key, value in stats_copy.items():
+            print(f"{key.replace('_', ' ').title()}: {value}")
+        
+        if stats_copy.get('completed', 0) + stats_copy.get('failed', 0) > 0:
+            success_rate = stats_copy['completed'] / (stats_copy['completed'] + stats_copy['failed']) * 100
+            print(f"Success Rate: {success_rate:.1f}%")
+        print("="*60)
 
 
 class ProfileValidator:
@@ -75,6 +135,34 @@ class ProfileValidator:
         return False, f"Status: {connection_status}"
 
 
+def create_rabbitmq_connection():
+    """Create standardized RabbitMQ connection"""
+    RABBITMQ_HOST = os.getenv('RABBITMQ_HOST', 'localhost')
+    RABBITMQ_PORT = int(os.getenv('RABBITMQ_PORT', 5672))
+    RABBITMQ_USER = os.getenv('RABBITMQ_USER', 'guest')
+    RABBITMQ_PASSWORD = os.getenv('RABBITMQ_PASS', 'guest')
+    RABBITMQ_VHOST = os.getenv('RABBITMQ_VHOST', '/')
+    
+    credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASSWORD)
+    parameters = pika.ConnectionParameters(
+        host=RABBITMQ_HOST,
+        port=RABBITMQ_PORT,
+        virtual_host=RABBITMQ_VHOST,
+        credentials=credentials,
+        heartbeat=600,
+        blocked_connection_timeout=300
+    )
+    return pika.BlockingConnection(parameters)
+
+
+def create_rabbitmq_channel(queue_name, durable=True):
+    """Create RabbitMQ channel with queue declaration"""
+    connection = create_rabbitmq_connection()
+    channel = connection.channel()
+    channel.queue_declare(queue=queue_name, durable=durable)
+    return connection, channel
+
+
 class WebhookChecker:
     """Handle webhook completion checking"""
     
@@ -88,11 +176,6 @@ class WebhookChecker:
             if schedule_result.data:
                 schedule_id = schedule_result.data[0]['id']
                 print(f"[{worker_id}] 🔔 Checking webhook for schedule {schedule_id}...")
-                
-                # Import webhook helper
-                import sys
-                from pathlib import Path
-                sys.path.append(str(Path(__file__).parent.parent / "api" / "helper"))
                 
                 try:
                     from webhook_helper import send_completion_webhook

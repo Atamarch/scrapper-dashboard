@@ -13,13 +13,10 @@ from crawler import LinkedInCrawler
 from helper.rabbitmq_helper import RabbitMQManager, ack_message, nack_message
 from helper.supabase_helper import SupabaseManager
 
-# Add common utilities
-sys.path.append(str(Path(__file__).parent.parent / "common"))
-from utils import get_profile_hash, StatsManager
-from profile_processor import ProfileValidator, WebhookChecker
-
-# Add API helper to path for query optimizer
+# Add API helper to path for shared utilities
 sys.path.append(str(Path(__file__).parent.parent / "api" / "helper"))
+from common_utils import get_profile_hash, StatsManager, ProfileValidator, WebhookChecker
+
 try:
     from query_optimizer import QueryOptimizer
     QUERY_OPTIMIZER_AVAILABLE = True
@@ -34,10 +31,8 @@ SCORING_QUEUE = os.getenv('SCORING_QUEUE', 'scoring_queue')
 REQUIREMENTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'scoring', 'requirements')
 DB_CHECK_INTERVAL = int(os.getenv('DB_CHECK_INTERVAL', '60'))  # 1 minute default
 
-# Statistics manager
-stats_manager = StatsManager()
-# Add additional stats for crawler
-stats_manager.stats.update({
+# Statistics manager with crawler-specific stats
+stats_manager = StatsManager({
     'sent_to_scoring': 0,
     'saved_to_supabase': 0,
     'supabase_failed': 0

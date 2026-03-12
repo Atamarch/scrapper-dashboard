@@ -16,11 +16,9 @@ from dotenv import load_dotenv
 from rapidfuzz import fuzz
 from supabase import create_client, Client
 
-# Add common utilities
-sys.path.append(str(Path(__file__).parent.parent / "common"))
-from utils import get_profile_hash, StatsManager
-from rabbitmq_connection import create_rabbitmq_connection
-from profile_processor import WebhookChecker
+# Add API helper to path for shared utilities
+sys.path.append(str(Path(__file__).parent.parent / "api" / "helper"))
+from common_utils import get_profile_hash, StatsManager, create_rabbitmq_connection, WebhookChecker
 
 # Load environment variables
 load_dotenv()
@@ -51,10 +49,8 @@ if SUPABASE_URL and SUPABASE_KEY:
 else:
     print("⚠ Supabase credentials not found in .env")
 
-# Statistics manager
-stats_manager = StatsManager()
-# Add additional stats for scoring
-stats_manager.stats.update({
+# Statistics manager with scoring-specific stats
+stats_manager = StatsManager({
     'supabase_updated': 0,
     'supabase_failed': 0
 })
