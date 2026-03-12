@@ -459,56 +459,31 @@ class ExternalScheduleRequest(BaseModel):
 
 @app.get("/api/schedules", tags=["Schedules"])
 async def get_schedules(external_source: Optional[str] = None):
-    """Get schedules with optional filtering by external_source - OPTIMIZED"""
+    """Get schedules with optional filtering by external_source"""
     try:
         print(f"\n📋 SCHEDULES REQUEST")
         print(f"   External source filter: {external_source}")
         
-        # Use query optimizer if available, otherwise fallback to standard query
-        if QUERY_OPTIMIZER_AVAILABLE and query_optimizer:
-            print("   Using optimized query with caching...")
-            if external_source == "internal":
-                schedules = query_optimizer.get_schedules_optimized(
-                    external_source='null',
-                    use_cache=True,
-                    cache_ttl=30
-                )
-            elif external_source == "external":
-                # Get all external schedules (not null)
-                schedules = query_optimizer.get_schedules_optimized(
-                    use_cache=True,
-                    cache_ttl=30
-                )
-                # Filter out null external_source
-                schedules = [s for s in schedules if s.get('external_source')]
-            elif external_source:
-                schedules = query_optimizer.get_schedules_optimized(
-                    external_source=external_source,
-                    use_cache=True,
-                    cache_ttl=30
-                )
-            else:
-                # Get all schedules
-                schedules = query_optimizer.get_schedules_optimized(
-                    use_cache=True,
-                    cache_ttl=30
-                )
-        else:
-            print("   Using standard query...")
-            # Fallback to standard query
-            query = supabase.table('crawler_schedules').select('*')
-            
-            # Filter by external_source
-            if external_source == "internal":
-                query = query.is_('external_source', 'null')
-            elif external_source == "external":
-                query = query.not_.is_('external_source', 'null')
-            elif external_source:
-                query = query.eq('external_source', external_source)
-            
-            # Apply ordering
-            result = query.order('created_at', desc=True).execute()
-            schedules = result.data or []
+        # Build query - use simple approach for production stability
+        query = supabase.table('crawler_schedules').select('*')
+        
+        # Filter by external_source
+        if external_source == "internal":
+            # Internal schedules only (external_source is NULL)
+            query = query.is_('external_source', 'null')
+        elif external_source == "external":
+            # All external schedules (external_source is NOT NULL)
+            query = query.not_.is_('external_source', 'null')
+        elif external_source:
+            # Specific external source (e.g., "nara")
+            query = query.eq('external_source', external_source)
+        # If external_source is None, return all schedules
+        
+        # Apply ordering
+        result = query.order('created_at', desc=True).execute()
+        
+        schedules = result.data or []
+        print(f"   Found {len(schedules)} schedules")
         
         # Format response based on external_source
         formatted_schedules = []
