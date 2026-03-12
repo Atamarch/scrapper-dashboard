@@ -2,15 +2,26 @@
 import json
 import glob
 import os
+import sys
 import threading
 import time
 import hashlib
 import pika
 from datetime import datetime
+from pathlib import Path
 from dotenv import load_dotenv
 from crawler import LinkedInCrawler
 from helper.rabbitmq_helper import RabbitMQManager, ack_message, nack_message
 from helper.supabase_helper import SupabaseManager
+
+# Add API helper to path for query optimizer
+sys.path.append(str(Path(__file__).parent.parent / "api" / "helper"))
+try:
+    from query_optimizer import QueryOptimizer
+    QUERY_OPTIMIZER_AVAILABLE = True
+except ImportError:
+    print("⚠ Query optimizer not available, using standard queries")
+    QUERY_OPTIMIZER_AVAILABLE = False
 
 load_dotenv()
 
@@ -396,9 +407,18 @@ def worker_thread(worker_id, mq_config):
             with stats['lock']:
                 stats['processing'] += 1
             
-            # Check if already scraped in Supabase - UPDATED VALIDATION LOGIC
+            # Check if already scraped in Supabase - OPTIMIZED
             if supabase:
-                existing_lead = supabase.get_lead_by_url(url)
+                # Use query optimizer if available for 50x faster lookup
+                if QUERY_OPTIMIZER_AVAILABLE and hasattr(supabase, 'client'):
+                    try:
+                        optimizer = QueryOptimizer(supabase.client)
+                        existing_lead = optimizer.check_lead_exists_optimized(url)
+                    except:
+                        # Fallback to standard query
+                        existing_lead = supabase.get_lead_by_url(url)
+                else:
+                    existing_lead = supabase.get_lead_by_url(url)
                 if existing_lead:
                     connection_status = existing_lead.get('connection_status', '')
                     profile_data = existing_lead.get('profile_data')

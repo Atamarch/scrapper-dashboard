@@ -24,9 +24,13 @@ from scheduler_service import SchedulerService
 from database import Database
 from helper.rabbitmq_helper import queue_publisher
 from helper.supabase_helper import ScheduleManager, CompanyManager, LeadsManager, ReQueueManager, SupabaseManager, supabase
+from helper.query_optimizer import QueryOptimizer
 
 # Setup logging
 logger = logging.getLogger(__name__)
+
+# Initialize query optimizer
+query_optimizer = QueryOptimizer(supabase)
 
 # Global variable to track current crawl session
 current_crawl_session = {
@@ -448,30 +452,38 @@ class ExternalScheduleRequest(BaseModel):
 
 @app.get("/api/schedules", tags=["Schedules"])
 async def get_schedules(external_source: Optional[str] = None):
-    """Get schedules with optional filtering by external_source"""
+    """Get schedules with optional filtering by external_source - OPTIMIZED"""
     try:
-        print(f"\n📋 SCHEDULES REQUEST")
+        print(f"\n📋 SCHEDULES REQUEST (OPTIMIZED)")
         print(f"   External source filter: {external_source}")
         
-        # Build query
-        query = supabase.table('crawler_schedules').select('*')
-        
-        # Filter by external_source
+        # Use query optimizer for better performance
         if external_source == "internal":
-            # Internal schedules only (external_source is NULL)
-            query = query.is_('external_source', 'null')
+            schedules = query_optimizer.get_schedules_optimized(
+                external_source='null',
+                use_cache=True,
+                cache_ttl=30
+            )
         elif external_source == "external":
-            # All external schedules (external_source is NOT NULL)
-            query = query.not_.is_('external_source', 'null')
+            # Get all external schedules (not null)
+            schedules = query_optimizer.get_schedules_optimized(
+                use_cache=True,
+                cache_ttl=30
+            )
+            # Filter out null external_source
+            schedules = [s for s in schedules if s.get('external_source')]
         elif external_source:
-            # Specific external source (e.g., "nara")
-            query = query.eq('external_source', external_source)
-        # If external_source is None, return all schedules
-        
-        # Apply ordering
-        result = query.order('created_at', desc=True).execute()
-        
-        schedules = result.data or []
+            schedules = query_optimizer.get_schedules_optimized(
+                external_source=external_source,
+                use_cache=True,
+                cache_ttl=30
+            )
+        else:
+            # Get all schedules
+            schedules = query_optimizer.get_schedules_optimized(
+                use_cache=True,
+                cache_ttl=30
+            )
         
         # Format response based on external_source
         formatted_schedules = []
@@ -1031,9 +1043,9 @@ async def get_crawl_session():
 
 @app.get("/api/requirements/templates", tags=["Requirements"])
 async def get_templates():
-    """Get all requirements templates"""
+    """Get all requirements templates - OPTIMIZED"""
     try:
-        print("📥 Fetching templates from search_templates table...")
+        print("📥 Fetching templates (OPTIMIZED)...")
         
         # Test supabase connection first
         if not supabase:
@@ -1044,20 +1056,17 @@ async def get_templates():
                 "error": "Supabase client not initialized"
             }
         
-        # Try with RLS bypass first
-        try:
-            result = supabase.rpc('get_search_templates').execute()
-            print(f"✅ Templates via RPC: {len(result.data) if result.data else 0}")
-        except:
-            # Fallback to direct query
-            result = supabase.table('search_templates').select('id, name, created_at').execute()
-            print(f"✅ Templates via direct query: {len(result.data) if result.data else 0}")
+        # Use query optimizer with caching (5 min cache)
+        templates = query_optimizer.get_templates_optimized(
+            use_cache=True,
+            cache_ttl=300  # 5 minutes
+        )
         
-        print(f"📊 Template data: {result.data}")
+        print(f"✅ Templates fetched: {len(templates)}")
         
         return {
             "success": True,
-            "templates": result.data or []
+            "templates": templates
         }
     except Exception as e:
         print(f"❌ Error fetching templates: {str(e)}")
