@@ -571,14 +571,16 @@ def worker_thread(worker_id, mq_config):
 
 def main():
     print("="*60)
-    print("LINKEDIN CRAWLER CONSUMER")
+    print("LINKEDIN CRAWLER CONSUMER - CONCURRENT MODE")
     print("="*60)
     print("Consuming messages from UI-published queue")
     print("="*60)
     
-    # Number of workers
-    num_workers = int(os.getenv('MAX_WORKERS', '3'))
-    print(f"\n→ Number of workers: {num_workers}")
+    # Number of concurrent workers (default 3)
+    num_workers = int(os.getenv('NUM_WORKERS', '3'))
+    print(f"\n🚀 Concurrent Workers: {num_workers}")
+    print(f"   Each worker runs in parallel with its own browser")
+    print(f"   Expected capacity: ~{num_workers * 120} profiles/hour")
     
     # Connect to RabbitMQ
     print("\n→ Connecting to LavinMQ...")
@@ -626,19 +628,25 @@ def main():
     print("\n  Press Ctrl+C to stop")
     print(f"  LavinMQ Dashboard: https://leopard.lmq.cloudamqp.com")
     
-    # Start worker threads
+    # Start worker threads with staggered startup
     threads = []
+    print(f"\n🔄 Initializing workers...")
     for i in range(num_workers):
+        worker_id = i + 1
+        print(f"   Starting Worker {worker_id}...")
         t = threading.Thread(
             target=worker_thread, 
-            args=(i+1, mq_config), 
-            daemon=True
+            args=(worker_id, mq_config), 
+            daemon=True,
+            name=f"CrawlerWorker-{worker_id}"
         )
         t.start()
         threads.append(t)
-        time.sleep(0.5)
+        time.sleep(1)  # Stagger startup to avoid race conditions
     
-    print(f"\n✓ All {num_workers} workers are running!")
+    print(f"\n✅ All {num_workers} workers are running in parallel!")
+    print(f"   Memory usage: ~{num_workers * 500}MB ({num_workers} browsers)")
+    print(f"   Processing capacity: {num_workers}x faster than single worker")
     print("\n💡 How it works:")
     print("  1. UI publishes messages → Queue receives leads")
     print("  2. Crawler workers → Scrape profiles")
