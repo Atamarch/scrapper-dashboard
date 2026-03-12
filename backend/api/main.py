@@ -24,13 +24,20 @@ from scheduler_service import SchedulerService
 from database import Database
 from helper.rabbitmq_helper import queue_publisher
 from helper.supabase_helper import ScheduleManager, CompanyManager, LeadsManager, ReQueueManager, SupabaseManager, supabase
-from helper.query_optimizer import QueryOptimizer
+
+# Try to import query optimizer (optional)
+try:
+    from helper.query_optimizer import QueryOptimizer
+    query_optimizer = QueryOptimizer(supabase)
+    QUERY_OPTIMIZER_AVAILABLE = True
+    print("✓ Query optimizer loaded")
+except ImportError:
+    query_optimizer = None
+    QUERY_OPTIMIZER_AVAILABLE = False
+    print("⚠ Query optimizer not available, using standard queries")
 
 # Setup logging
 logger = logging.getLogger(__name__)
-
-# Initialize query optimizer
-query_optimizer = QueryOptimizer(supabase)
 
 # Global variable to track current crawl session
 current_crawl_session = {
@@ -454,36 +461,54 @@ class ExternalScheduleRequest(BaseModel):
 async def get_schedules(external_source: Optional[str] = None):
     """Get schedules with optional filtering by external_source - OPTIMIZED"""
     try:
-        print(f"\n📋 SCHEDULES REQUEST (OPTIMIZED)")
+        print(f"\n📋 SCHEDULES REQUEST")
         print(f"   External source filter: {external_source}")
         
-        # Use query optimizer for better performance
-        if external_source == "internal":
-            schedules = query_optimizer.get_schedules_optimized(
-                external_source='null',
-                use_cache=True,
-                cache_ttl=30
-            )
-        elif external_source == "external":
-            # Get all external schedules (not null)
-            schedules = query_optimizer.get_schedules_optimized(
-                use_cache=True,
-                cache_ttl=30
-            )
-            # Filter out null external_source
-            schedules = [s for s in schedules if s.get('external_source')]
-        elif external_source:
-            schedules = query_optimizer.get_schedules_optimized(
-                external_source=external_source,
-                use_cache=True,
-                cache_ttl=30
-            )
+        # Use query optimizer if available, otherwise fallback to standard query
+        if QUERY_OPTIMIZER_AVAILABLE and query_optimizer:
+            print("   Using optimized query with caching...")
+            if external_source == "internal":
+                schedules = query_optimizer.get_schedules_optimized(
+                    external_source='null',
+                    use_cache=True,
+                    cache_ttl=30
+                )
+            elif external_source == "external":
+                # Get all external schedules (not null)
+                schedules = query_optimizer.get_schedules_optimized(
+                    use_cache=True,
+                    cache_ttl=30
+                )
+                # Filter out null external_source
+                schedules = [s for s in schedules if s.get('external_source')]
+            elif external_source:
+                schedules = query_optimizer.get_schedules_optimized(
+                    external_source=external_source,
+                    use_cache=True,
+                    cache_ttl=30
+                )
+            else:
+                # Get all schedules
+                schedules = query_optimizer.get_schedules_optimized(
+                    use_cache=True,
+                    cache_ttl=30
+                )
         else:
-            # Get all schedules
-            schedules = query_optimizer.get_schedules_optimized(
-                use_cache=True,
-                cache_ttl=30
-            )
+            print("   Using standard query...")
+            # Fallback to standard query
+            query = supabase.table('crawler_schedules').select('*')
+            
+            # Filter by external_source
+            if external_source == "internal":
+                query = query.is_('external_source', 'null')
+            elif external_source == "external":
+                query = query.not_.is_('external_source', 'null')
+            elif external_source:
+                query = query.eq('external_source', external_source)
+            
+            # Apply ordering
+            result = query.order('created_at', desc=True).execute()
+            schedules = result.data or []
         
         # Format response based on external_source
         formatted_schedules = []
@@ -1045,7 +1070,7 @@ async def get_crawl_session():
 async def get_templates():
     """Get all requirements templates - OPTIMIZED"""
     try:
-        print("📥 Fetching templates (OPTIMIZED)...")
+        print("📥 Fetching templates...")
         
         # Test supabase connection first
         if not supabase:
@@ -1056,11 +1081,25 @@ async def get_templates():
                 "error": "Supabase client not initialized"
             }
         
-        # Use query optimizer with caching (5 min cache)
-        templates = query_optimizer.get_templates_optimized(
-            use_cache=True,
-            cache_ttl=300  # 5 minutes
-        )
+        # Use query optimizer if available, otherwise fallback
+        if QUERY_OPTIMIZER_AVAILABLE and query_optimizer:
+            print("   Using optimized query with caching...")
+            templates = query_optimizer.get_templates_optimized(
+                use_cache=True,
+                cache_ttl=300  # 5 minutes
+            )
+        else:
+            print("   Using standard query...")
+            # Fallback to standard query
+            try:
+                result = supabase.rpc('get_search_templates').execute()
+                print(f"✅ Templates via RPC: {len(result.data) if result.data else 0}")
+            except:
+                # Fallback to direct query
+                result = supabase.table('search_templates').select('id, name, created_at').execute()
+                print(f"✅ Templates via direct query: {len(result.data) if result.data else 0}")
+            
+            templates = result.data or []
         
         print(f"✅ Templates fetched: {len(templates)}")
         
