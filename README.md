@@ -2801,3 +2801,262 @@ The validation catches these common problematic values:
 - **API Contract**: Response format enhanced but remains compatible with existing clients
 
 This enhancement prevents common configuration errors from causing runtime failures and provides better feedback for troubleshooting schedule setup issues.
+
+## 🧪 External Integration Testing
+
+### Nara Integration Testing
+
+The project includes a test script for validating the Nara external integration endpoint.
+
+#### Test Script: `test_nara.py`
+
+This script tests the external schedule creation endpoint used by Nara platform integration.
+
+**Features:**
+- Health check validation
+- Templates endpoint verification  
+- External schedule creation testing
+- Status endpoint validation
+
+**Usage:**
+```bash
+# Run the Nara integration test (local development)
+python test_nara.py
+```
+
+#### Local vs Production Testing
+
+The test script is configured for local development testing by default:
+
+**Local Development Testing:**
+- Target: `http://localhost:8000`
+- Requires: Local API server running (`cd backend/api && python main.py`)
+- Benefits: Faster debugging, no network latency, full control over test environment
+
+**Production Testing:**
+To test against Railway production, modify the `base_url` in `test_nara.py`:
+```python
+# Change this line for production testing
+base_url = "https://linkedin-api-production-0937.up.railway.app"
+```
+
+**Recommended Testing Flow:**
+1. Test locally first for development and debugging
+2. Test against production for deployment validation
+3. Use local testing for rapid iteration and troubleshooting
+
+**Test Configuration:**
+- **Target URL**: `http://localhost:8000` (local development - changed for debugging)
+- **Endpoint**: `/api/external/schedule-scraping`
+- **Schedule Date**: 2026-03-15 (configurable in test payload)
+- **Schedule Time**: 09:00 (configurable in test payload)
+- **Webhook URL**: `https://nara.test.com/webhook` (test endpoint)
+
+**Note**: The test script has been updated to target the local development server instead of Railway production for easier debugging and development testing.
+
+**Test Payload Example:**
+```json
+{
+  "job_title": "Senior Backend Developer",
+  "job_description": "We are looking for a Senior Backend Developer...",
+  "schedule_date": "2026-03-15",
+  "schedule_time": "09:00",
+  "webhook_url": "https://nara.test.com/webhook"
+}
+```
+
+#### ⚠️ Time Format Validation
+
+**Important**: The `schedule_time` field requires proper HH:MM format (e.g., "09:00", "14:30"). 
+
+**Common Issues:**
+- ❌ Invalid: `"09:0"` (missing leading zero for minutes)
+- ❌ Invalid: `"9:00"` (missing leading zero for hours)
+- ❌ Invalid: `"10:"` (incomplete time format, missing minutes)
+- ✅ Valid: `"09:00"` (proper HH:MM format)
+- ✅ Valid: `"14:30"` (proper HH:MM format)
+
+The API validates time format and will reject requests with malformed time strings. Ensure your integration always sends properly formatted time values to avoid validation errors.
+
+**Expected Response:**
+- Schedule creation confirmation
+- Generated schedule ID
+- Status endpoint validation
+- Template verification
+
+This test ensures the external integration API is functioning correctly before production deployment.
+
+## 🔧 Scheduler Service Enhanced Logging
+
+The scheduler service integration in the external schedule creation endpoint has been enhanced with detailed logging for better debugging and monitoring.
+
+### Enhanced Logging Features
+
+When creating external schedules via `/api/external/schedule-scraping`, the system now provides detailed logging about scheduler service availability and job registration:
+
+**Scheduler Availability Check:**
+```
+🔍 Checking scheduler service availability...
+   Scheduler object: <SchedulerService instance>
+   Scheduler type: <class 'scheduler_service.SchedulerService'>
+```
+
+**Job Registration Process:**
+```
+✅ Scheduler service available, adding job...
+📊 Add job result: None
+✅ Added external schedule to scheduler service - can execute & auto-trigger
+```
+
+**Service Unavailable:**
+```
+❌ Scheduler service not available - schedule created but won't auto-trigger
+```
+
+### Benefits
+
+- **Debugging Visibility**: Clear indication of scheduler service state during external schedule creation
+- **Service Validation**: Confirms scheduler object type and availability before job registration
+- **Operation Tracking**: Shows the result of job addition operations
+- **Error Diagnosis**: Helps identify when scheduler service is unavailable or misconfigured
+
+### Impact on External Integrations
+
+**Nara Platform Integration:**
+- External schedules are now properly registered with the scheduler service
+- Auto-triggering capability is validated and logged
+- Better error reporting when scheduler service is unavailable
+- Improved reliability for scheduled external crawl jobs
+
+### Console Output Examples
+
+**Successful Registration:**
+```
+🔍 Checking scheduler service availability...
+   Scheduler object: <scheduler_service.SchedulerService object at 0x7f8b8c0d4f40>
+   Scheduler type: <class 'scheduler_service.SchedulerService'>
+✅ Scheduler service available, adding job...
+📊 Add job result: None
+✅ Added external schedule to scheduler service - can execute & auto-trigger
+```
+
+**Service Unavailable:**
+```
+🔍 Checking scheduler service availability...
+   Scheduler object: None
+   Scheduler type: <class 'NoneType'>
+❌ Scheduler service not available - schedule created but won't auto-trigger
+```
+
+### Related Components
+
+- `backend/api/main.py` - Contains the enhanced logging in external schedule creation
+- `backend/api/scheduler_service.py` - Scheduler service that gets validated and used
+- `/api/external/schedule-scraping` - External integration endpoint with enhanced logging
+
+### Use Cases
+
+**Development & Testing:**
+- Verify scheduler service is properly initialized during API startup
+- Debug external schedule creation issues
+- Validate job registration process
+- Test scheduler service availability
+
+**Production Monitoring:**
+- Monitor scheduler service health during external integrations
+- Track successful vs failed job registrations
+- Identify scheduler service initialization issues
+- Debug auto-triggering problems
+
+### Migration Notes
+
+- **No Breaking Changes**: Existing external integration functionality remains unchanged
+- **Enhanced Debugging**: Additional logging provides better visibility into scheduler operations
+- **Backward Compatible**: All existing external schedule creation continues to work
+- **Improved Reliability**: Better error detection and reporting for scheduler service issues
+
+This enhancement improves the debugging experience for external integrations and provides better visibility into scheduler service operations during external schedule creation.
+
+## 🔄 Scheduler Auto-Deactivation Feature
+
+The scheduler service (`backend/api/scheduler_service.py`) now includes automatic schedule deactivation when no leads are available for processing.
+
+### Auto-Deactivation Behavior
+
+**When No Leads Found**: If a scheduled crawl execution finds no leads for the configured template, the schedule is automatically deactivated to prevent unnecessary future executions.
+
+**Implementation**:
+```python
+if not leads:
+    print("⚠ No leads found for template - auto-deactivating schedule")
+    
+    # Auto-deactivate schedule if no leads exist
+    try:
+        from helper.supabase_helper import ScheduleManager
+        schedule_manager = ScheduleManager()
+        schedule_manager.update_schedule_status(schedule_id, False)
+        print(f"✅ Auto-deactivated schedule - no leads found")
+    except Exception as e:
+        print(f"⚠️ Failed to auto-deactivate schedule: {e}")
+    
+    return {"success": True, "leads_queued": 0, "message": "No leads found - schedule deactivated"}
+```
+
+### When Auto-Deactivation Occurs
+
+**No Leads Scenario**: Schedule is deactivated when:
+- Template has no associated leads in the `leads_list` table
+- All leads for the template have been deleted
+- Template ID is valid but no leads exist for processing
+
+**All Leads Complete Scenario**: Schedule is also deactivated when:
+- All leads exist but none require processing (`needs_processing: false`)
+- All leads have been successfully crawled and scored
+- No remaining work for the schedule to perform
+
+### Benefits
+
+- **Resource Efficiency**: Prevents unnecessary scheduler executions on empty templates
+- **Automatic Cleanup**: Reduces manual maintenance of completed schedules  
+- **System Optimization**: Eliminates redundant queue operations and database queries
+- **Clear Status**: Schedule status accurately reflects whether work remains
+- **Operational Clarity**: Admins can easily identify which schedules need attention
+
+### Console Output
+
+When auto-deactivation occurs:
+```
+⚠ No leads found for template - auto-deactivating schedule
+✅ Auto-deactivated schedule - no leads found
+```
+
+When all leads are complete:
+```
+✓ All leads already complete, auto-deactivating schedule  
+✅ Auto-deactivated schedule - all leads complete
+```
+
+### Error Handling
+
+If schedule deactivation fails:
+```
+⚠️ Failed to auto-deactivate schedule: Connection timeout
+```
+
+The crawl execution continues normally even if deactivation fails, ensuring the primary operation isn't interrupted by metadata update issues.
+
+### Related Components
+
+- `helper/supabase_helper.py` - Contains `ScheduleManager.update_schedule_status()` method
+- `backend/api/scheduler_service.py` - Implements auto-deactivation logic
+- `backend/api/main.py` - Manual execution endpoint also uses similar logic
+
+### Migration Notes
+
+- No configuration changes required
+- Existing schedules benefit from auto-deactivation immediately
+- Schedules can be manually reactivated if needed
+- Feature works with both scheduled and manual execution modes
+- No database schema changes required
+
+This feature improves operational efficiency by automatically managing schedule lifecycle based on available work, reducing the need for manual schedule maintenance.
