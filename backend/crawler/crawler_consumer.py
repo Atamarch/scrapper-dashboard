@@ -13,6 +13,11 @@ from crawler import LinkedInCrawler
 from helper.rabbitmq_helper import RabbitMQManager, ack_message, nack_message
 from helper.supabase_helper import SupabaseManager
 
+# Import pools
+from browser_pool import get_browser_pool, cleanup_browser_pool
+sys.path.append(str(Path(__file__).parent.parent / "api" / "helper"))
+from connection_pool import get_connection_pool, get_pooled_supabase_manager, cleanup_connection_pool
+
 # Add API helper to path for shared utilities (with fallback)
 sys.path.append(str(Path(__file__).parent.parent / "api" / "helper"))
 
@@ -442,8 +447,8 @@ def send_to_scoring_queue(profile_data, template_id, mq_config):
 
 
 def process_profile_message(worker_id, message, supabase, mq_config):
-    """Process a single profile scraping message"""
-    crawler = None
+    """Process a single profile scraping message using browser pool"""
+    browser_info = None
     
     try:
         # Validate message
@@ -474,15 +479,22 @@ def process_profile_message(worker_id, message, supabase, mq_config):
                 else:
                     print(f"[Worker {worker_id}] 🔄 Re-processing ({reason})")
         
-        # Create crawler and process
-        crawler = LinkedInCrawler()
+        # Get browser from pool
+        browser_pool = get_browser_pool()
+        browser_info = browser_pool.get_browser(timeout=30)
         
-        # Login and scrape
-        crawler.login()
+        if not browser_info:
+            print(f"[Worker {worker_id}] ✗ No browser available")
+            return False
+        
+        print(f"[Worker {worker_id}] 🚗 Using pooled browser (usage: {browser_info['usage_count']})")
+        
+        # Scrape profile using pooled browser
+        crawler = browser_info['crawler']
         profile_data = crawler.get_profile(url)
         profile_data['template_id'] = template_id
         
-        # Update Supabase
+        # Update Supabase using pooled connection
         if supabase:
             update_supabase_result(worker_id, supabase, url, profile_data, template_id)
         
@@ -506,8 +518,12 @@ def process_profile_message(worker_id, message, supabase, mq_config):
         return False
     
     finally:
-        if crawler:
-            crawler.close()
+        # Return browser to pool
+        if browser_info:
+            browser_pool = get_browser_pool()
+            browser_pool.return_browser(browser_info)
+            print(f"[Worker {worker_id}] 🔄 Browser returned to pool")
+        
         stats_manager.decrement('processing')
 
 
@@ -525,15 +541,24 @@ def get_existing_lead_optimized(supabase, url):
 
 
 def update_supabase_result(worker_id, supabase, url, profile_data, template_id):
-    """Update Supabase with scraped data and handle webhook"""
-    print(f"[Worker {worker_id}] 💾 Updating Supabase...")
+    """Update Supabase with scraped data and handle webhook using pooled connection"""
+    print(f"[Worker {worker_id}] 💾 Updating Supabase (using connection pool)...")
     
     if supabase.update_lead_after_scrape(profile_url=url, profile_data=profile_data):
         stats_manager.increment('saved_to_supabase')
         print(f"[Worker {worker_id}] ✓ Updated Supabase")
         
-        # Check webhook completion
-        WebhookChecker.check_and_send_webhook(supabase.client, template_id, worker_id)
+        # Check webhook completion using pooled connection
+        def webhook_operation(client):
+            WebhookChecker.check_and_send_webhook(client, template_id, worker_id)
+        
+        try:
+            connection_pool = get_connection_pool()
+            client = connection_pool.get_connection()
+            webhook_operation(client)
+            connection_pool.return_connection(client)
+        except Exception as webhook_error:
+            print(f"[Worker {worker_id}] ⚠ Webhook check failed: {webhook_error}")
     else:
         stats_manager.increment('supabase_failed')
         print(f"[Worker {worker_id}] ⚠ Failed to update Supabase")
@@ -607,10 +632,11 @@ def setup_worker_rabbitmq(worker_id, mq_config):
 
 
 def setup_worker_supabase(worker_id):
-    """Setup Supabase connection for worker"""
+    """Setup Supabase connection for worker using connection pool"""
     try:
-        supabase = SupabaseManager()
-        print(f"[Worker {worker_id}] ✓ Connected to Supabase")
+        # Use pooled Supabase manager
+        supabase = get_pooled_supabase_manager()
+        print(f"[Worker {worker_id}] ✓ Connected to Supabase (using connection pool)")
         return supabase
     except Exception as e:
         print(f"[Worker {worker_id}] ⚠ Supabase connection failed: {e}")
@@ -620,28 +646,40 @@ def setup_worker_supabase(worker_id):
 
 def main():
     print("="*60)
-    print("LINKEDIN CRAWLER CONSUMER - CONCURRENT MODE")
+    print("LINKEDIN CRAWLER CONSUMER - OPTIMIZED WITH POOLS")
     print("="*60)
-    print("Consuming messages from UI-published queue")
+    print("Using Browser Pool + Connection Pool for better performance")
     print("="*60)
+    
+    # Initialize pools first
+    print("\n🚀 Initializing Performance Pools...")
+    try:
+        browser_pool = get_browser_pool()
+        connection_pool = get_connection_pool()
+        
+        # Print pool stats
+        browser_stats = browser_pool.get_pool_stats()
+        conn_stats = connection_pool.get_pool_stats()
+        
+        print(f"✅ Browser Pool: {browser_stats['available']}/{browser_stats['pool_size']} ready")
+        print(f"✅ Connection Pool: {conn_stats['available']}/{conn_stats['pool_size']} ready")
+        
+    except Exception as e:
+        print(f"❌ Failed to initialize pools: {e}")
+        return
     
     # Number of concurrent workers (default 3)
     num_workers = int(os.getenv('NUM_WORKERS', '3'))
     print(f"\n🚀 Concurrent Workers: {num_workers}")
-    print(f"   Each worker runs in parallel with its own browser")
-    print(f"   Expected capacity: ~{num_workers * 120} profiles/hour")
+    print(f"   Each worker uses shared browser and connection pools")
+    print(f"   Expected capacity: ~{num_workers * 200} profiles/hour (with pools)")
     
     # Connect to RabbitMQ
     print("\n→ Connecting to LavinMQ...")
     mq = RabbitMQManager()
     if not mq.connect():
         print("✗ Failed to connect to LavinMQ")
-        print("\nCheck your .env file:")
-        print("  RABBITMQ_HOST=leopard.lmq.cloudamqp.com")
-        print("  RABBITMQ_PORT=5672")
-        print("  RABBITMQ_USER=fexihtwb")
-        print("  RABBITMQ_PASS=...")
-        print("  RABBITMQ_VHOST=fexihtwb")
+        cleanup_pools()
         return
     
     print(f"✓ Connected to LavinMQ: {mq.host}")
@@ -668,12 +706,12 @@ def main():
         print("\n⚠ Queue is empty. Waiting for messages from UI...")
         print("  Workers will start processing once messages are published from UI")
     
-    print(f"\n→ Starting {num_workers} crawler workers...")
+    print(f"\n→ Starting {num_workers} optimized crawler workers...")
     print("  Workers will:")
-    print("  1. Listen to LavinMQ queue")
-    print("  2. Scrape LinkedIn profiles")
-    print("  3. Update Supabase")
-    print("  4. Send to scoring queue")
+    print("  1. Use shared browser pool (faster, less memory)")
+    print("  2. Use connection pool (faster DB operations)")
+    print("  3. Scrape LinkedIn profiles efficiently")
+    print("  4. Update Supabase and send to scoring")
     print("\n  Press Ctrl+C to stop")
     print(f"  LavinMQ Dashboard: https://leopard.lmq.cloudamqp.com")
     
@@ -693,15 +731,14 @@ def main():
         threads.append(t)
         time.sleep(1)  # Stagger startup to avoid race conditions
     
-    print(f"\n✅ All {num_workers} workers are running in parallel!")
-    print(f"   Memory usage: ~{num_workers * 500}MB ({num_workers} browsers)")
-    print(f"   Processing capacity: {num_workers}x faster than single worker")
-    print("\n💡 How it works:")
-    print("  1. UI publishes messages → Queue receives leads")
-    print("  2. Crawler workers → Scrape profiles")
-    print("  3. Supabase → Updated with profile data")
-    print("  4. Scoring service → Calculates scores")
-    print("  5. Complete → Profile data + scoring data")
+    print(f"\n✅ All {num_workers} workers are running with optimized pools!")
+    print(f"   Memory usage: ~{browser_stats['pool_size'] * 400}MB (shared browsers)")
+    print(f"   Processing capacity: {num_workers}x workers sharing {browser_stats['pool_size']} browsers")
+    print("\n💡 Optimizations active:")
+    print("  1. Browser Pool → Reuse logged-in browsers")
+    print("  2. Connection Pool → Reuse database connections")
+    print("  3. Concurrent Workers → Parallel processing")
+    print("  4. Smart Queueing → Efficient message handling")
     
     try:
         # Keep main thread alive and monitor progress
@@ -713,11 +750,19 @@ def main():
             # Print stats periodically
             current_time = time.time()
             if current_time - last_stats_time >= 30:  # Every 30 seconds
-                print_stats()
+                stats_manager.print_stats()
+                
+                # Print pool stats
+                browser_stats = browser_pool.get_pool_stats()
+                conn_stats = connection_pool.get_pool_stats()
+                print(f"🚗 Browser Pool: {browser_stats['available']}/{browser_stats['pool_size']} available, {browser_stats['busy']} busy")
+                print(f"🏊 Connection Pool: {conn_stats['available']}/{conn_stats['pool_size']} available, {conn_stats['busy']} busy")
+                
                 last_stats_time = current_time
                 
                 # Check if all work is done
-                if stats['processing'] == 0:
+                current_stats = stats_manager.get_stats()
+                if current_stats['processing'] == 0:
                     # Check queue size
                     mq_temp = RabbitMQManager()
                     mq_temp.host = mq_config['host']
@@ -740,6 +785,9 @@ def main():
         print("  (Workers will finish current tasks)")
     
     finally:
+        # Cleanup pools
+        cleanup_pools()
+        
         # Wait a bit for workers to finish current tasks
         time.sleep(3)
         
@@ -747,18 +795,29 @@ def main():
         print("\n" + "="*60)
         print("FINAL RESULTS")
         print("="*60)
-        print(f"✓ Completed: {stats['completed']}")
-        print(f"✗ Failed: {stats['failed']}")
-        print(f"⊘ Skipped: {stats['skipped']}")
-        print(f"📤 Sent to Scoring: {stats['sent_to_scoring']}")
-        print(f"💾 Updated Supabase: {stats['saved_to_supabase']}")
-        print(f"⚠ Supabase Failed: {stats['supabase_failed']}")
-        if stats['completed'] + stats['failed'] > 0:
-            success_rate = stats['completed'] / (stats['completed'] + stats['failed']) * 100
+        current_stats = stats_manager.get_stats()
+        print(f"✓ Completed: {current_stats['completed']}")
+        print(f"✗ Failed: {current_stats['failed']}")
+        print(f"⊘ Skipped: {current_stats['skipped']}")
+        print(f"📤 Sent to Scoring: {current_stats['sent_to_scoring']}")
+        print(f"💾 Updated Supabase: {current_stats['saved_to_supabase']}")
+        print(f"⚠ Supabase Failed: {current_stats['supabase_failed']}")
+        if current_stats['completed'] + current_stats['failed'] > 0:
+            success_rate = current_stats['completed'] / (current_stats['completed'] + current_stats['failed']) * 100
             print(f"📊 Success Rate: {success_rate:.1f}%")
         print("="*60)
-        print(f"\nCrawler output: data/output/")
-        print(f"Supabase: leads_list table")
+        print(f"\nOptimized crawler with pools completed!")
+
+
+def cleanup_pools():
+    """Cleanup all pools"""
+    print("\n🧹 Cleaning up performance pools...")
+    try:
+        cleanup_browser_pool()
+        cleanup_connection_pool()
+        print("✓ All pools cleaned up")
+    except Exception as e:
+        print(f"⚠ Error during cleanup: {e}")
 
 
 if __name__ == "__main__":
