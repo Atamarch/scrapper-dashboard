@@ -426,8 +426,18 @@ class SchedulerService:
         leads = supabase_manager.get_leads_by_template_id(template_id)
         
         if not leads:
-            print("⚠ No leads found for template")
-            return {"success": True, "leads_queued": 0, "message": "No leads found"}
+            print("⚠ No leads found for template - auto-deactivating schedule")
+            
+            # Auto-deactivate schedule if no leads exist
+            try:
+                from helper.supabase_helper import ScheduleManager
+                schedule_manager = ScheduleManager()
+                schedule_manager.update_schedule_status(schedule_id, False)
+                print(f"✅ Auto-deactivated schedule - no leads found")
+            except Exception as e:
+                print(f"⚠️ Failed to auto-deactivate schedule: {e}")
+            
+            return {"success": True, "leads_queued": 0, "message": "No leads found - schedule deactivated"}
         
         # Filter leads that need processing
         needs_processing = [lead for lead in leads if lead.get('needs_processing', False)]

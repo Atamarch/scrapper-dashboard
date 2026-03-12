@@ -1836,13 +1836,19 @@ async def create_external_schedule(request: ExternalScheduleRequest):
         # ============================================================================
         
         scheduler_added = False
+        print(f"🔍 Checking scheduler service availability...")
+        print(f"   Scheduler object: {scheduler}")
+        print(f"   Scheduler type: {type(scheduler)}")
+        
         try:
             if scheduler:
-                scheduler.add_job(schedule_id)
+                print(f"✅ Scheduler service available, adding job...")
+                result = scheduler.add_job(schedule_id)
+                print(f"📊 Add job result: {result}")
                 scheduler_added = True
                 print(f"✅ Added external schedule to scheduler service - can execute & auto-trigger")
             else:
-                print(f"⚠️ Scheduler service not available - schedule created but won't auto-trigger")
+                print(f"❌ Scheduler service not available - schedule created but won't auto-trigger")
         except Exception as e:
             print(f"❌ Failed to add to scheduler service: {e}")
             print(f"   Schedule created but manual execute may not work")
